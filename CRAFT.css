@@ -18,6 +18,26 @@
 
    NOT remapped: --color-background and friends. Tailwind bg-* utilities still
    resolve to the original greys, which is why the nav <select> arrived black.
+
+   Companion files in this folder:
+     CRAFT.js   — marks `.dot-prompt` wrappers, and drives the top-nav reveal
+                  via a `.nav-shown` class. Section 7 only styles the states;
+                  the policy lives in the JS.
+     Both are injected per dialog. RELOAD after editing either.
+
+   Gotcha that cost two probes: UIkit paints its button chips as `outline`
+   (inset / outset / groove, rgba(255,255,255,0.1)), NOT border or box-shadow.
+   `outline` is not part of the `border` shorthand, so border/background/shadow
+   resets leave the boxes visible. Section 7 now resets it. Do NOT add a
+   blanket outline reset outside the nav: the app's [data-editing] cursor ring
+   is an outline, and Tailwind's ring-2 selection ring is a box-shadow.
+
+   Probing method: filter by getBoundingClientRect() and print the rect, so
+   screenshot pixels map straight to elements — scoping a probe by selector
+   presumes the answer. Always test border AND background AND box-shadow AND
+   outline. Note `nav.monster-navbar` is not unique: every .uk-card-header
+   holds one, so an unscoped probe returns card-header noise; the `>` child
+   combinator is what keeps the real rules correct.
    ──────────────────────────────────────────────────────────────────── */
 
 /* ── 1. Canvas and scroller ─────────────────────────────────────────── */
@@ -148,14 +168,21 @@ div.editable[data-diff="added"] { background: transparent !important; }
   background: transparent !important;
   border: 0 !important;
   opacity: 0;
-  transition: opacity 0.15s ease;
+  pointer-events: none;                  /* hidden strip never eats clicks */
+  transition: opacity 0.18s ease;
 }
-.uk-container > nav.monster-navbar:hover,
-.uk-container > nav.monster-navbar:focus-within { opacity: 1; }
+/* Visibility is driven by CRAFT.js, which decides when to pin the bar open:
+   pointer inside the trigger band, over the nav, or inside an open uk-drop.
+   :focus-within stays so keyboard tabbing still reveals it. */
+.uk-container > nav.monster-navbar.nav-shown,
+.uk-container > nav.monster-navbar:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
 
-/* Hidden strip stays inert, so it doesn't swallow clicks meant for cells */
+/* Children inert only while the bar is hidden */
 .uk-container > nav.monster-navbar > * { pointer-events: none; }
-.uk-container > nav.monster-navbar:hover > *,
+.uk-container > nav.monster-navbar.nav-shown > *,
 .uk-container > nav.monster-navbar:focus-within > * { pointer-events: auto; }
 
 .uk-container > nav.monster-navbar h2 {
@@ -180,6 +207,8 @@ div.editable[data-diff="added"] { background: transparent !important; }
   border-color: transparent !important;
   border-radius: 0 !important;
   box-shadow: none !important;
+  outline: 0 !important;                 /* UIkit draws its chips as inset/groove outlines */
+  outline-color: transparent !important;
   padding: 0 !important;
 }
 .uk-container > nav.monster-navbar .uk-btn,
