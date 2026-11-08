@@ -1,1 +1,213 @@
-/app/data/CRAFT.css
+/* ══ Solveit "borderless" restyle · Tokyo Night Pure ══════════════════
+   Injected as a <style> tag for every dialog in this folder. RELOAD to apply.
+   Intent: cells float on one continuous canvas, full width, minimal chrome,
+   separated by spacing and faint tone steps rather than boxes.
+
+   Palette, from themes/tokyo-night-pure-color-theme.json:
+     #16161e   panel/titleBar/sideBar   page canvas, recessed wells
+     #1a1b26   editor.background        card surface, composer
+     #222434   derived                  output step (see note below)
+     #cfc9c2   editor.foreground        body text
+     #cfc9c266 editorLineNumber.fg      muted metadata label
+     #7aa2f7   selection hue            active toggle glyph
+     #1779b2   textLink.foreground      links — low contrast, replace if it grates
+
+   The output step is invented: no theme key means "a shade off the editor".
+   editor.lineHighlightBackground #2b2e43 is the semantically exact choice but
+   a 20-point jump; #222434 is the midpoint. Swap for a louder separation.
+
+   NOT remapped: --color-background and friends. Tailwind bg-* utilities still
+   resolve to the original greys, which is why the nav <select> arrived black.
+   ──────────────────────────────────────────────────────────────────── */
+
+/* ── 1. Canvas and scroller ─────────────────────────────────────────── */
+body { background-color: #16161e !important; }
+
+div.overflow-y-auto.border.px-3 {        /* the only scroller; was a grey panel */
+  background: transparent !important;
+  border-color: transparent !important;
+}
+div.overflow-y-auto { scrollbar-width: none; }
+div.overflow-y-auto::-webkit-scrollbar { width: 0; height: 0; }
+div.overflow-y-auto:hover { scrollbar-width: thin; }
+div.overflow-y-auto:hover::-webkit-scrollbar { width: 8px; height: 8px; }
+
+/* ── 2. Layout: full width, spacing carries the structure ───────────── */
+.uk-container {
+  max-width: none !important;
+  width: 100% !important;
+  padding-inline: 0 !important;
+  padding-bottom: 0 !important;          /* composer sits flush to the viewport */
+}
+.msg-card.card-in, .msg-card.card-out {
+  width: 100% !important;
+  margin-left: 0 !important;             /* defeats ml-auto on outputs */
+  margin-right: 0 !important;
+}
+.editable {
+  margin-block: 0 18px !important;       /* reduced by one third */
+  gap: 0 !important;                     /* input and output are flush */
+  /* No border/outline/box-shadow resets here. Tailwind's `ring-2` on .editable
+     paints the selection ring as a box-shadow, and the app's [data-editing]
+     rule uses outline — both must survive for the cursor to stay visible. */
+}
+/* The green halo was never a border: it is the app's diff tint. Only the
+   `added` state is neutralised; `deleted` (red) and `changed` (yellow) stand. */
+div.editable[data-diff="added"] { background: transparent !important; }
+.msg-body { padding: 2px 6px !important; }
+.card-out .msg-body { padding-left: 14px !important; }  /* subliminal offset */
+.msg-content, .msg-content pre, .msg-content code { line-height: 1.15 !important; }
+.msg-content .prose p { margin-top: 0.5em; }
+
+/* ── 3. Surfaces and text ───────────────────────────────────────────── */
+.msg-card { background-color: #1a1b26 !important; }
+.msg-card.card-out { background-color: #222434 !important; }
+
+.msg-content, .msg-content .prose { color: #cfc9c2 !important; }
+.msg-content a { color: #1779b2 !important; }
+
+/* Metadata label ("Code:1,257") recedes from the body text */
+.msg-card > .uk-card-header nav > div.grow,
+.msg-card > .uk-card-header nav > div.grow * {
+  color: #cfc9c266 !important;
+}
+
+/* One tone per card: input code is a plain PRE that paints its own grey */
+.msg-card pre, .msg-card code { background: transparent !important; }
+
+/* Except in prompts, where fenced code sits in a recessed square well */
+.msg-card[data-mtype="prompt"] .msg-content pre,
+.msg-card[data-mtype="prompt"] .msg-content pre > code,
+.msg-card.card-in[data-mtype="note"] .msg-content pre,
+.msg-card.card-in[data-mtype="note"] .msg-content pre > code,
+.msg-card.card-in[data-mtype="prompt"] .msg-content pre,
+.msg-card.card-in[data-mtype="prompt"] .msg-content pre > code {
+  background: #16161e !important;
+  border-radius: 0 !important;
+}
+.msg-card[data-mtype="prompt"] .msg-content pre {
+  padding: 8px 10px !important;
+  border: 0 !important;
+}
+
+/* ── 4. Card edges: no frame or selection stripe ──────────────────── */
+.msg-card {
+  border-top-color: transparent !important;
+  border-right-color: transparent !important;
+  border-bottom-color: transparent !important;
+  border-left-color: transparent !important;
+  box-shadow: none !important;
+}
+.editable[data-sm="unselected"] .msg-card { border-left-color: transparent !important; }
+
+/* Widths stay 1px throughout so nothing shifts when the stripe appears */
+.msg-card.card-out {
+  border-left-color: transparent !important;
+  border-top-left-radius: 0 !important;
+  border-top-right-radius: 0 !important;
+}
+.msg-card.card-in:has(+ .msg-card.card-out:not(:empty)) {
+  border-bottom-left-radius: 0 !important;   /* square only once an output exists */
+  border-bottom-right-radius: 0 !important;
+}
+
+/* ── 5. Code outputs: header out of flow, actions parked top-right ──── */
+.card-out[data-mtype="code"] { position: relative !important; }
+.card-out[data-mtype="code"] > .uk-card-header {
+  position: absolute !important;
+  top: 0; right: 4px;
+  z-index: 5;
+  width: auto !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+}
+.card-out[data-mtype="code"] > .uk-card-header nav { width: auto !important; }
+.card-out[data-mtype="code"] > .uk-card-header nav > div.grow { display: none !important; }
+
+/* ── 6. Composer: square, flush to the bottom, card-coloured ────────── */
+.uk-container > div.flex-none.uk-card.uk-card-body {
+  border-radius: 0 !important;
+  padding-bottom: 0 !important;
+  background-color: #1a1b26 !important;
+}
+.monaco-editor,                          /* Monaco lives ONLY in the composer */
+.monaco-editor-background,
+.monaco-editor .margin {
+  background-color: #1a1b26 !important;
+}
+
+/* ── 7. Top nav: auto-hiding overlay, floating controls ─────────────── */
+.uk-container > nav.monster-navbar {
+  position: absolute !important;         /* out of flow: scroller keeps the 44px */
+  top: 0; left: 0; right: 0;
+  z-index: 40;
+  height: 31px !important;               /* 0.7 x original */
+  min-height: 0 !important;
+  padding-block: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.uk-container > nav.monster-navbar:hover,
+.uk-container > nav.monster-navbar:focus-within { opacity: 1; }
+
+/* Hidden strip stays inert, so it doesn't swallow clicks meant for cells */
+.uk-container > nav.monster-navbar > * { pointer-events: none; }
+.uk-container > nav.monster-navbar:hover > *,
+.uk-container > nav.monster-navbar:focus-within > * { pointer-events: auto; }
+
+.uk-container > nav.monster-navbar h2 {
+  font-size: 1.05rem !important;
+  line-height: 1.2 !important;
+}
+.uk-container > nav.monster-navbar span.rounded-full.size-4 {
+  display: none !important;              /* the round status dot */
+}
+
+/* No containers: strip the action wrapper, the chips, and the <select> frame */
+.uk-container > nav.monster-navbar > div.ml-auto,
+.uk-container > nav.monster-navbar .uk-btn,
+.uk-container > nav.monster-navbar .uk-btn-group,
+.uk-container > nav.monster-navbar .uk-btn-group > *,
+.uk-container > nav.monster-navbar select,
+.uk-container > nav.monster-navbar input:checked + label.uk-btn,
+.uk-container > nav.monster-navbar .uk-btn.uk-active {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: 0 !important;
+  border-color: transparent !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+.uk-container > nav.monster-navbar .uk-btn,
+.uk-container > nav.monster-navbar select { color: #cfc9c2 !important; }
+.uk-container > nav.monster-navbar select { padding-inline: 2px !important; }
+.uk-container > nav.monster-navbar .uk-btn:hover { color: #ffffff !important; }
+
+/* Active state lives in the glyph colour, not a chip */
+.uk-container > nav.monster-navbar input:checked + label.uk-btn,
+.uk-container > nav.monster-navbar label.uk-btn.uk-active,
+.uk-container > nav.monster-navbar .uk-btn.uk-active { color: #7aa2f7 !important; }
+
+/* Dropdown list is OS-rendered once the select is transparent */
+.uk-container > nav.monster-navbar select option {
+  background: #16161e !important;
+  color: #cfc9c2 !important;
+}
+
+/* Glyphs stay legible over whatever scrolls beneath */
+.uk-container > nav.monster-navbar svg,
+.uk-container > nav.monster-navbar select,
+.uk-container > nav.monster-navbar h2 {
+  filter: drop-shadow(0 1px 2px #16161e) drop-shadow(0 0 4px #16161e);
+}
+/* Input code at 12px; line-height comes from the global rule in section 2 */
+.card-in .msg-content pre {
+  font-size: 12px;
+}
+.editable.dot-prompt .msg-card.card-in .msg-body {
+  display: none !important;
+}

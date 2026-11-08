@@ -18,8 +18,7 @@ Then **reload the page** — CSS and JS are injected at page load.
 |---|---|
 | `CRAFT.css` | injected as `<style>`; the theme |
 | `CRAFT.js`  | injected as `<script type="module">`; hides the body of bare `.` prompts |
-| `CRAFT.ipynb` | notes prepended to AI context; code cells run on kernel start |
-| `setup.sh` | symlinks the three CRAFT files into `~` (= `/app/data`) |
+| `setup.sh` | copies the CRAFT files into `~` (= `/app/data`) |
 
 Solveit discovers `CRAFT.*` by walking up from a dialog's folder, so placing
 them at the data root applies them to every dialog, with per-folder CRAFTs
@@ -27,13 +26,14 @@ still layering on top.
 
 ## Working on it
 
-`setup.sh` symlinks rather than copies, so editing `~/CRAFT.css` edits the
-repo directly:
+`setup.sh` copies the files into `~`. Editing `~/CRAFT.css` does not change the repo. Copy your edits back before you commit:
 
 ```bash
-cd ~/.craft && git commit -am "..." && git push   # publish local edits
-cd ~/.craft && git pull                           # update, then reload
+cp ~/CRAFT.css ~/CRAFT.js ~/.craft/ && cd ~/.craft && git commit -am "..." && git push   # publish local edits
+cd ~/.craft && git pull && bash setup.sh                                                  # update, then reload
 ```
+
+When `~` already holds a different `CRAFT.css` or `CRAFT.js`, `setup.sh` keeps it and writes the repo version to the first free name: `CRAFT-1.css`, `CRAFT-2.css`, and so on. Merge the two by hand, then delete the numbered file. Re-running `setup.sh` writes nothing when `~` already has a copy identical to the repo version.
 
 ## Theme
 
