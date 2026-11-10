@@ -18,6 +18,26 @@
 
    NOT remapped: --color-background and friends. Tailwind bg-* utilities still
    resolve to the original greys, which is why the nav <select> arrived black.
+
+   Companion files in this folder:
+     CRAFT.js   — marks `.dot-prompt` wrappers, and drives the top-nav reveal
+                  via a `.nav-shown` class. Section 7 only styles the states;
+                  the policy lives in the JS.
+     Both are injected per dialog. RELOAD after editing either.
+
+   Gotcha that cost two probes: UIkit paints its button chips as `outline`
+   (inset / outset / groove, rgba(255,255,255,0.1)), NOT border or box-shadow.
+   `outline` is not part of the `border` shorthand, so border/background/shadow
+   resets leave the boxes visible. Section 7 now resets it. Do NOT add a
+   blanket outline reset outside the nav: the app's [data-editing] cursor ring
+   is an outline, and Tailwind's ring-2 selection ring is a box-shadow.
+
+   Probing method: filter by getBoundingClientRect() and print the rect, so
+   screenshot pixels map straight to elements — scoping a probe by selector
+   presumes the answer. Always test border AND background AND box-shadow AND
+   outline. Note `nav.monster-navbar` is not unique: every .uk-card-header
+   holds one, so an unscoped probe returns card-header noise; the `>` child
+   combinator is what keeps the real rules correct.
    ──────────────────────────────────────────────────────────────────── */
 
 /* ── 1. Canvas and scroller ─────────────────────────────────────────── */
@@ -56,8 +76,8 @@ div.overflow-y-auto:hover::-webkit-scrollbar { width: 8px; height: 8px; }
 div.editable[data-diff="added"] { background: transparent !important; }
 .msg-body { padding: 2px 6px !important; }
 .card-out .msg-body { padding-left: 14px !important; }  /* subliminal offset */
-.msg-content, .msg-content pre, .msg-content code { line-height: 1.15 !important; }
-.msg-content .prose p { margin-top: 0.5em; }
+.msg-content, .msg-content pre, .msg-content code { line-height: 1.05 !important; }
+.msg-content .prose p { margin: 0.3em 0 !important; }
 
 /* ── 3. Surfaces and text ───────────────────────────────────────────── */
 .msg-card { background-color: #1a1b26 !important; }
@@ -148,14 +168,21 @@ div.editable[data-diff="added"] { background: transparent !important; }
   background: transparent !important;
   border: 0 !important;
   opacity: 0;
-  transition: opacity 0.15s ease;
+  pointer-events: none;                  /* hidden strip never eats clicks */
+  transition: opacity 0.18s ease;
 }
-.uk-container > nav.monster-navbar:hover,
-.uk-container > nav.monster-navbar:focus-within { opacity: 1; }
+/* Visibility is driven by CRAFT.js, which decides when to pin the bar open:
+   pointer inside the trigger band, over the nav, or inside an open uk-drop.
+   :focus-within stays so keyboard tabbing still reveals it. */
+.uk-container > nav.monster-navbar.nav-shown,
+.uk-container > nav.monster-navbar:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
 
-/* Hidden strip stays inert, so it doesn't swallow clicks meant for cells */
+/* Children inert only while the bar is hidden */
 .uk-container > nav.monster-navbar > * { pointer-events: none; }
-.uk-container > nav.monster-navbar:hover > *,
+.uk-container > nav.monster-navbar.nav-shown > *,
 .uk-container > nav.monster-navbar:focus-within > * { pointer-events: auto; }
 
 .uk-container > nav.monster-navbar h2 {
@@ -180,6 +207,8 @@ div.editable[data-diff="added"] { background: transparent !important; }
   border-color: transparent !important;
   border-radius: 0 !important;
   box-shadow: none !important;
+  outline: 0 !important;                 /* UIkit draws its chips as inset/groove outlines */
+  outline-color: transparent !important;
   padding: 0 !important;
 }
 .uk-container > nav.monster-navbar .uk-btn,
@@ -211,3 +240,114 @@ div.editable[data-diff="added"] { background: transparent !important; }
 .editable.dot-prompt .msg-card.card-in .msg-body {
   display: none !important;
 }
+/* ── Lightweight file tree prototype ─────────────────────────────────── */
+.solveit-tree-workspace {
+  display: flex;
+  flex: 1 1 0%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.solveit-tree-workspace > .overflow-y-auto { flex: 1 1 0%; min-width: 0; min-height: 0; }
+#solveit-file-tree-panel {
+  position: relative;
+  z-index: 50;
+  flex: 0 0 0;
+  width: 0;
+  min-width: 0;
+  max-width: 90vw;
+  height: 100%;
+  padding: 0;
+  box-sizing: border-box;
+  resize: horizontal;
+  overflow: auto;
+  visibility: hidden;
+  pointer-events: none;
+  background: #1a1b26;
+  color: #cfc9c2;
+  box-shadow: none;
+  transition: flex-basis .16s ease, padding .16s ease;
+}
+#solveit-file-tree-panel.open {
+  flex: 0 0 auto;
+  width: min(360px, 90vw);
+  min-width: 260px;
+  padding: 12px;
+  visibility: visible;
+  pointer-events: auto;
+  box-shadow: 8px 0 24px #0008;
+}
+#solveit-file-tree-panel > header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+#solveit-file-tree-panel > header button { border: 0; background: transparent; color: inherit; font-size: 1.4rem; cursor: pointer; }
+#solveit-file-tree-panel .solveit-tree-shortcut { margin-left: auto; color: #cfc9c288; font: 11px monospace; }
+#solveit-file-tree-panel .solveit-tree-refresh { margin-left: 8px; }
+#solveit-file-tree-panel .treeview-node-content:focus-visible { outline: none; box-shadow: inset 0 0 0 2px #7aa2f7; background: #30364d; }
+#solveit-file-tree-panel .solveit-tree-close { margin-left: 8px; }
+#solveit-file-tree-panel .solveit-tree-back { margin-left: auto; }
+#solveit-file-tree-panel .solveit-tree-back:disabled { opacity: .35; cursor: default; }
+#solveit-file-tree-panel .solveit-tree-up { margin-left: 6px; }
+.solveit-file-tree-path { color: #cfc9c299; font: 12px monospace; margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; }
+#solveit-file-tree-panel .custom-treeview-wrapper { max-width: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+#solveit-file-tree-panel .custom-treeview-wrapper ul { padding-left: 16px; }
+#solveit-file-tree-panel .custom-treeview-wrapper li { margin: 2px 0; color: #cfc9c2; }
+#solveit-file-tree-panel .custom-treeview-wrapper .treeview-node-content { padding: 4px 6px; border-radius: 4px; }
+#solveit-file-tree-panel .custom-treeview-wrapper .treeview-node-content:hover { background: #222434; }
+#solveit-file-tree-panel .treeview-expander { color: transparent; }
+#solveit-file-tree-panel img.solveit-tree-icon { width: 16px !important; height: 16px !important; max-width: 16px !important; max-height: 16px !important; flex: 0 0 16px; object-fit: contain; margin-right: 7px; }
+
+#solveit-file-tree-panel .solveit-tree-filter { box-sizing: border-box; width: 100%; margin: 8px 0; padding: 6px 8px; border: 1px solid #ffffff22; border-radius: 4px; background: #16161e; color: #cfc9c2; }
+#solveit-file-tree-panel .solveit-tree-status { color: #cfc9c299; font-size: 12px; }
+#solveit-temp-editor { position: fixed; inset: 0; z-index: 1000; display: none; flex-direction: column; background: #16161e; color: #cfc9c2; }
+#solveit-temp-editor.open { display: flex; }
+body:has(#solveit-temp-editor.open) #solveit-file-tree-panel.open {
+  position: fixed;
+  inset-block: 0;
+  left: 0;
+  height: auto;
+  z-index: 1010;
+}
+#solveit-temp-editor .solveit-temp-editor-bar { display: flex; flex: 0 0 36px; align-items: center; justify-content: space-between; padding: 0 12px; background: #1a1b26; border-bottom: 1px solid #ffffff22; }
+#solveit-temp-editor .solveit-temp-editor-bar button { border: 0; background: transparent; color: inherit; font-size: 1.4rem; cursor: pointer; }
+#solveit-temp-editor iframe { flex: 1; width: 100%; min-height: 0; border: 0; background: #16161e; }
+
+/* ── Compact disclosures: borderless, tight stacking ────────────── */
+/* Expandable boxes (tool calls, [data-panel] details) lose their frame
+   and blend into the containing cell. Collapsed boxes stack with almost
+   no vertical space; a hint of inset remains only while open. */
+.msg-content details[data-panel],
+.msg-content .tool-usage-details {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.msg-content details[data-panel]:not([open]) {
+  margin: 0 !important;
+  padding: 0.05em 0 !important;
+}
+.msg-content details[data-panel] > summary,
+.msg-content .tool-usage-details > summary {
+  margin: 0 !important;
+  padding: 0.05em 0 !important;
+}
+.msg-content details[data-panel][open] {
+  margin: 0.15em 0 !important;
+  padding: 0.1em 0 0.1em 0.6em !important;
+}
+.msg-content .tool-usage-details[open] { padding: 0.15em 0 !important; }
+
+/* ── Compact typography: minimal line and block spacing ─────────── */
+/* Blank lines in source become paragraph breaks in rendered markdown:
+   their gap stays slightly larger than the gap between wrapped lines. */
+.msg-content .prose { line-height: 1.25 !important; }
+.msg-content .prose > * + * { margin-top: 0.3em !important; }
+.msg-content .prose h1, .msg-content .prose h2, .msg-content .prose h3,
+.msg-content .prose h4, .msg-content .prose h5, .msg-content .prose h6 {
+  margin: 0.45em 0 0.2em !important;
+  line-height: 1.2 !important;
+}
+.msg-content .prose ul, .msg-content .prose ol { margin: 0.25em 0 !important; padding-left: 1.35em !important; }
+.msg-content .prose li { margin: 0.1em 0 !important; }
+.msg-content .prose li > p { margin: 0.1em 0 !important; }
+.msg-content .prose hr { margin: 0.5em 0 !important; }
+.msg-content .prose blockquote, .msg-content .prose pre,
+.msg-content .prose table, .msg-content .prose figure { margin: 0.3em 0 !important; }
