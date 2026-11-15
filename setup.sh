@@ -2,7 +2,7 @@
 # Copy the CRAFT files, the Quercus tree assets and vscode-icons/ into ~ (= /app/data), mirroring the repo layout. When ~ already holds a different file of that name, copy the repo version to the first free numbered name instead (CRAFT-1.css, vscode-icons/LICENSE-1, ...) for the user to merge by hand.
 cd "$(dirname "$(realpath "$0")")" || exit 1
 mkdir -p ~/vscode-icons
-for f in CRAFT.css CRAFT.js quercus-treeview.css quercus-treeview.js vscode-icons/*; do
+for f in CRAFT.css CRAFT.js quercus-treeview.css quercus-treeview.js hotkey_manager.js hotkey_builtins.js vscode-icons/*; do
   if [ -L "$f" ] || [ ! -f "$f" ]; then
     echo "$PWD/$f is not a regular file. Stopping." >&2; exit 1
   fi

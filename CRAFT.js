@@ -1,8 +1,26 @@
+/* ── Hotkey manager bootstrap ──────────────────────────────────────
+   The shared shortcut registry lives in hotkey_manager.js (served from
+   ~ at /static/hotkey_manager.js). Load it first so the sections below
+   can register their shortcuts; registrations made before it finishes
+   loading are queued and replayed by the manager. */
+(() => {
+  window.__hotkeyQueue ||= [];
+  window.__hotkeyRegister = spec => { if (window.solveitHotkeys) window.solveitHotkeys.register(spec); else window.__hotkeyQueue.push(spec); };
+  for (const [src, tag] of [['/static/hotkey_manager.js', '1'], ['/static/hotkey_builtins.js', 'builtins']])
+    if (!document.querySelector(`script[data-solveit-hotkeys="${tag}"]`)) {
+      const s = document.createElement('script');
+      s.src = src; s.dataset.solveitHotkeys = tag;
+      document.head.append(s);
+    }
+})();
+
+
 /* ── Lightweight file tree ─────────────────────────────────────────── */
 (() => {
   const QUERCUS_JS = '/static/quercus-treeview.js', QUERCUS_CSS = '/static/quercus-treeview.css';
   let panel, tree, loaded = false, rootRows, filterText = '', restoring = false, previousFocus;
   let refreshTimer;
+  window.__hotkeyRegister?.({id: 'file-tree-toggle', label: 'Toggle file tree', group: 'File tree', combo: 'Mod+B', handler: () => { toggle(); return true; }});
   const rowsByPath = new Map(), fetchedAtByPath = new Map(), expandedPaths = new Set(), loadingPaths = new Set();
   const CACHE_KEY = 'solveit-file-tree:v2', CACHE_MAX_AGE = 180000;
   try {
@@ -102,7 +120,7 @@
       document.body.append(overlay);
       const frame = overlay.querySelector('iframe');
       frame.addEventListener('load', () => frame.contentWindow.addEventListener('keydown', e => {
-        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b') { e.preventDefault(); e.stopImmediatePropagation(); toggle(); }
+        if (window.solveitHotkeys?.dispatch(e)) { e.preventDefault(); e.stopImmediatePropagation(); }
       }, true));
     }
     overlay.querySelector('strong').textContent = url.searchParams.get('fp') || 'File editor';
@@ -130,10 +148,12 @@
   function makePanel() {
     if (panel) return panel;
     panel = document.createElement('aside'); panel.id = 'solveit-file-tree-panel';
-    panel.innerHTML = '<header><strong>Files</strong><kbd class="solveit-tree-shortcut">⌘B</kbd><button class="solveit-tree-refresh" type="button" aria-label="Refresh files" title="Refresh files">↻</button><button class="solveit-tree-close" type="button" aria-label="Close">×</button></header><input class="solveit-tree-filter" type="search" placeholder="Filter loaded files…" autocomplete="off"><div class="solveit-tree-status" role="status"></div><div id="solveit-file-tree" role="tree"></div>';
+    panel.innerHTML = '<header><strong>Files</strong><kbd class="solveit-tree-shortcut" data-hotkey="file-tree-toggle">⌘B</kbd><button class="solveit-tree-hotkeys" type="button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts">⌨</button><button class="solveit-tree-refresh" type="button" aria-label="Refresh files" title="Refresh files">↻</button><button class="solveit-tree-close" type="button" aria-label="Close">×</button></header><input class="solveit-tree-filter" type="search" placeholder="Filter loaded files…" autocomplete="off"><div class="solveit-tree-status" role="status"></div><div id="solveit-file-tree" role="tree"></div>';
     panel.addEventListener('click', e => e.stopPropagation());
     panel.querySelector('.solveit-tree-close').onclick = closePanel;
     panel.querySelector('.solveit-tree-refresh').onclick = refreshTree;
+    panel.querySelector('.solveit-tree-hotkeys').onclick = () => window.solveitHotkeys?.openMenu();
+    window.solveitHotkeys?.refreshChips();
     panel.querySelector('.solveit-tree-filter').addEventListener('input', e => { filterText = e.target.value; tree?.search(filterText); });
     panel.querySelector('#solveit-file-tree').addEventListener('click', handleTreeClick, true);
     panel.querySelector('#solveit-file-tree').addEventListener('keydown', e => {
@@ -209,7 +229,6 @@
       if (!e.target.closest?.('.solveit-tree-filter')) handleTreeKeys(e);
       return;
     }
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b') { e.preventDefault(); e.stopImmediatePropagation(); toggle(); return; }
     if (e.key === 'Escape' && panel?.classList.contains('open')) { e.preventDefault(); e.stopImmediatePropagation(); closePanel(); }
   }, true);
 })();
