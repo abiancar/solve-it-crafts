@@ -5,16 +5,16 @@
 
    Palette, from themes/tokyo-night-pure-color-theme.json:
      #16161e   panel/titleBar/sideBar   page canvas, recessed wells
-     #1a1b26   editor.background        card surface, composer
-     #222434   derived                  output step (see note below)
+     #1f2030   lifted editor.background card surface, composer (#1a1b26 was ~1:1 vs canvas)
+     #25273a   derived                  output step (see note below)
      #cfc9c2   editor.foreground        body text
      #cfc9c266 editorLineNumber.fg      muted metadata label
      #7aa2f7   selection hue            active toggle glyph
-     #1779b2   textLink.foreground      links — low contrast, replace if it grates
+     #7dcfff   Tokyo Night cyan         links (#1779b2 was ~3.6:1 on cards)
 
    The output step is invented: no theme key means "a shade off the editor".
    editor.lineHighlightBackground #2b2e43 is the semantically exact choice but
-   a 20-point jump; #222434 is the midpoint. Swap for a louder separation.
+   a big jump; #25273a sits a half-step above the #1f2030 card instead.
 
    NOT remapped: --color-background and friends. Tailwind bg-* utilities still
    resolve to the original greys, which is why the nav <select> arrived black.
@@ -65,7 +65,7 @@ div.overflow-y-auto:hover::-webkit-scrollbar { width: 8px; height: 8px; }
   margin-right: 0 !important;
 }
 .editable {
-  margin-block: 0 18px !important;       /* reduced by one third */
+  margin-block: 0 4px !important;        /* compact dialog cell gap */
   gap: 0 !important;                     /* input and output are flush */
   /* No border/outline/box-shadow resets here. Tailwind's `ring-2` on .editable
      paints the selection ring as a box-shadow, and the app's [data-editing]
@@ -76,15 +76,20 @@ div.overflow-y-auto:hover::-webkit-scrollbar { width: 8px; height: 8px; }
 div.editable[data-diff="added"] { background: transparent !important; }
 .msg-body { padding: 2px 6px !important; }
 .card-out .msg-body { padding-left: 14px !important; }  /* subliminal offset */
-.msg-content, .msg-content pre, .msg-content code { line-height: 1.05 !important; }
-.msg-content .prose p { margin: 0.3em 0 !important; }
+.msg-content, .msg-content pre, .msg-content code { line-height: 1 !important; }
+/* Type scale in one place; CRAFT.js reads --craft-code for Monaco editors too. */
+:root { --craft-prose: 11px; --craft-code: 10px; }
+.msg-content, .msg-content .prose { font-size: var(--craft-prose) !important; }
+.msg-content pre, .msg-content code { font-size: var(--craft-code) !important; }
+.msg-content .prose p { margin: 0.15em 0 !important; }
 
 /* ── 3. Surfaces and text ───────────────────────────────────────────── */
-.msg-card { background-color: #1a1b26 !important; }
-.msg-card.card-out { background-color: #222434 !important; }
+.msg-card { background-color: #1f2030 !important; }
+.msg-card.card-out { background-color: #25273a !important; }
 
 .msg-content, .msg-content .prose { color: #cfc9c2 !important; }
-.msg-content a { color: #1779b2 !important; }
+.msg-content a { color: #7dcfff !important; }
+
 
 /* Metadata label ("Code:1,257") recedes from the body text */
 .msg-card > .uk-card-header nav > div.grow,
@@ -149,12 +154,12 @@ div.editable[data-diff="added"] { background: transparent !important; }
 .uk-container > div.flex-none.uk-card.uk-card-body {
   border-radius: 0 !important;
   padding-bottom: 0 !important;
-  background-color: #1a1b26 !important;
+  background-color: #1f2030 !important;
 }
 .monaco-editor,                          /* Monaco lives ONLY in the composer */
 .monaco-editor-background,
 .monaco-editor .margin {
-  background-color: #1a1b26 !important;
+  background-color: #1f2030 !important;
 }
 
 /* ── 7. Top nav: auto-hiding overlay, floating controls ─────────────── */
@@ -243,9 +248,9 @@ div.editable[data-diff="added"] { background: transparent !important; }
 .uk-container > nav.monster-navbar h2 {
   filter: drop-shadow(0 1px 2px #16161e) drop-shadow(0 0 4px #16161e);
 }
-/* Input code at 12px; line-height comes from the global rule in section 2 */
+/* Input code uses --craft-code (section 2); line-height comes from the global rule there */
 .card-in .msg-content pre {
-  font-size: 12px;
+  font-size: var(--craft-code);
 }
 .editable.dot-prompt .msg-card.card-in .msg-body {
   display: none !important;
@@ -351,16 +356,56 @@ body:has(#solveit-temp-editor.open) #solveit-file-tree-panel.open {
 /* ── Compact typography: minimal line and block spacing ─────────── */
 /* Blank lines in source become paragraph breaks in rendered markdown:
    their gap stays slightly larger than the gap between wrapped lines. */
-.msg-content .prose { line-height: 1.25 !important; }
-.msg-content .prose > * + * { margin-top: 0.3em !important; }
+.msg-content .prose { line-height: 1 !important; }
+.msg-content .prose > * + * { margin-top: 0.15em !important; }
 .msg-content .prose h1, .msg-content .prose h2, .msg-content .prose h3,
 .msg-content .prose h4, .msg-content .prose h5, .msg-content .prose h6 {
   margin: 0.45em 0 0.2em !important;
-  line-height: 1.2 !important;
+  line-height: 1 !important;
 }
-.msg-content .prose ul, .msg-content .prose ol { margin: 0.25em 0 !important; padding-left: 1.35em !important; }
-.msg-content .prose li { margin: 0.1em 0 !important; }
-.msg-content .prose li > p { margin: 0.1em 0 !important; }
+.msg-content .prose ul, .msg-content .prose ol { margin: 0.125em 0 !important; padding-left: 1.35em !important; }
+.msg-content .prose li { margin: 0.05em 0 !important; }
+.msg-content .prose li > p { margin: 0.05em 0 !important; }
 .msg-content .prose hr { margin: 0.5em 0 !important; }
 .msg-content .prose blockquote, .msg-content .prose pre,
 .msg-content .prose table, .msg-content .prose figure { margin: 0.3em 0 !important; }
+
+/* ── File tree: header toggles, context menu ───────────────────────── */
+#solveit-file-tree-panel .solveit-tree-dots { margin-left: 8px; font: 600 .95rem monospace; color: #cfc9c288; }
+#solveit-file-tree-panel .solveit-tree-dots[aria-pressed="true"] { color: #7aa2f7; filter: drop-shadow(0 0 4px #7aa2f7aa); }
+#solveit-file-tree-panel .solveit-tree-home { margin-left: 8px; }
+.solveit-tree-menu { position: fixed; z-index: 1100; min-width: 170px; padding: 4px; background: #1f2030; border: 1px solid #ffffff1a; border-radius: 6px; box-shadow: 0 8px 24px #000a; }
+.solveit-tree-menu button { display: block; width: 100%; text-align: left; padding: 5px 10px; border: 0; border-radius: 4px; background: transparent; color: #cfc9c2; font-size: 12px; cursor: pointer; }
+.solveit-tree-menu button:hover:not(:disabled), .solveit-tree-menu button:focus-visible { background: #2b2e43; outline: none; }
+.solveit-tree-menu button:disabled { color: #cfc9c255; cursor: default; }
+.solveit-tree-menu button.danger { color: #f7768e; }
+
+/* ── Launcher (⌘⇧P) ─────────────────────────────────────────────────── */
+#solveit-launcher { position: fixed; inset: 0; z-index: 1200; display: none; justify-content: center; align-items: flex-start; padding-top: 12vh; background: #0008; }
+#solveit-launcher.open { display: flex; }
+#solveit-launcher .solveit-launcher-card { width: min(640px, 92vw); background: #1f2030; border: 1px solid #ffffff1a; border-radius: 8px; box-shadow: 0 16px 48px #000c; overflow: hidden; }
+#solveit-launcher input { box-sizing: border-box; width: 100%; padding: 10px 14px; border: 0; border-bottom: 1px solid #ffffff14; outline: 0; background: transparent; color: #cfc9c2; font-size: 14px; }
+#solveit-launcher ul { max-height: 50vh; overflow-y: auto; margin: 0; padding: 4px; list-style: none; }
+#solveit-launcher li { display: flex; align-items: baseline; gap: 10px; padding: 5px 10px; border-radius: 4px; color: #cfc9c2; font-size: 12.5px; cursor: pointer; }
+#solveit-launcher li[aria-selected="true"] { background: #2b2e43; }
+#solveit-launcher li .label { flex: 0 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#solveit-launcher li .detail { flex: 1 1 0%; min-width: 0; color: #cfc9c266; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#solveit-launcher li .hint { flex: 0 0 auto; color: #cfc9c288; font: 11px monospace; }
+#solveit-launcher li.kind-dialog .hint { color: #bb9af7; }
+#solveit-launcher li.empty { color: #cfc9c266; cursor: default; }
+
+/* Iosevka: code only; remote font files, with a system monospace fallback. */
+@font-face { font-family: 'Craft Iosevka'; font-style: normal; font-weight: 400; font-display: swap; src: url('https://iosevka-webfonts.github.io/iosevka/WOFF2/Iosevka-Regular.woff2') format('woff2'); }
+@font-face { font-family: 'Craft Iosevka'; font-style: italic; font-weight: 400; font-display: swap; src: url('https://iosevka-webfonts.github.io/iosevka/WOFF2/Iosevka-Italic.woff2') format('woff2'); }
+@font-face { font-family: 'Craft Iosevka'; font-style: normal; font-weight: 700; font-display: swap; src: url('https://iosevka-webfonts.github.io/iosevka/WOFF2/Iosevka-Bold.woff2') format('woff2'); }
+@font-face { font-family: 'Craft Iosevka'; font-style: italic; font-weight: 700; font-display: swap; src: url('https://iosevka-webfonts.github.io/iosevka/WOFF2/Iosevka-BoldItalic.woff2') format('woff2'); }
+:root { --craft-code-family: 'Craft Iosevka', monospace; }
+.msg-content pre, .msg-content code { font-family: var(--craft-code-family) !important; }
+
+
+/* Compact dialog headers only: preserve action-icon sizes and editor layout. */
+.msg-card > .uk-card-header,
+.msg-card > .uk-card-header > nav.monster-navbar {
+  padding-block: 0 !important;
+  min-height: 0 !important;
+}

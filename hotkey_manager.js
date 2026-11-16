@@ -1,7 +1,7 @@
 /* ── Hotkey manager ───────────────────────────────────────────────────
    Shared registry for page-level shortcuts, plus a settings modal that
-   lists them all and lets you rebind them (press '?', or the ⌨ button
-   in the file tree header). Overrides are saved per browser.
+   lists them all and lets you rebind them (press '?', or solveit's own
+   shortcuts icon). Overrides are saved per browser.
 
    API on window.solveitHotkeys:
      register({id, label, group, combo, handler})  combo like 'Mod+B', '?', 'Escape'
@@ -297,7 +297,17 @@
     renderRows();
   }
 
-  window.solveitHotkeys = {register, dispatch, openMenu, effective, formatCombo, refreshChips};
+  /* For the launcher: every action with its live combo, and run-by-id. Built-ins
+     run by re-firing their original keys on the focused element, as a rebind does. */
+  function list() { return order.map(id => { const s = actions.get(id); return {id, label: s.label, group: s.group, combo: effective(id), builtin: !!s.builtin}; }); }
+  function run(id) {
+    const spec = actions.get(id);
+    if (!spec) return false;
+    if (spec.builtin) { redispatch({target: document.activeElement || document.body, code: ''}, spec.combo); return true; }
+    return spec.handler() === true;
+  }
+
+  window.solveitHotkeys = {register, dispatch, openMenu, effective, formatCombo, refreshChips, list, run};
 
   register({id: 'hotkeys-menu', label: 'Show this shortcuts menu', group: 'Hotkey manager', combo: '?', handler: openMenu});
   (window.__hotkeyQueue || []).splice(0).forEach(register);  // replay early registrations

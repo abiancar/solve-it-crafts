@@ -20,9 +20,12 @@
   const QUERCUS_JS = '/static/quercus-treeview.js', QUERCUS_CSS = '/static/quercus-treeview.css';
   let panel, tree, loaded = false, rootRows, filterText = '', restoring = false, previousFocus;
   let refreshTimer;
+  const DOTS_KEY = 'solveit-file-tree:hide-dots';
+  let hideDots = false;
+  try { hideDots = localStorage.getItem(DOTS_KEY) === '1'; } catch {}
   window.__hotkeyRegister?.({id: 'file-tree-toggle', label: 'Toggle file tree', group: 'File tree', combo: 'Mod+B', handler: () => { toggle(); return true; }});
   const rowsByPath = new Map(), fetchedAtByPath = new Map(), expandedPaths = new Set(), loadingPaths = new Set();
-  const CACHE_KEY = 'solveit-file-tree:v2', CACHE_MAX_AGE = 180000;
+  const CACHE_KEY = 'solveit-file-tree:v3', CACHE_MAX_AGE = 180000;
   try {
     const cached = JSON.parse(sessionStorage.getItem(CACHE_KEY));
     if (cached) { cached.rows.forEach(([path, rows]) => rowsByPath.set(path, rows)); cached.fetchedAt.forEach(([path, time]) => fetchedAtByPath.set(path, time)); cached.expanded.forEach(path => expandedPaths.add(path)); }
@@ -53,12 +56,12 @@
       if (!link) return null;
       const href = link.getAttribute('href'), hxPost = link.getAttribute('hx-post'), isDir = !!hxPost;
       const path = isDir ? new URL(hxPost, location.href).searchParams.get('at') : null;
-      return {id: path || href || link.textContent.trim(), name: link.textContent.trim(), kind: isDir ? 'directory' : href?.startsWith('/dialog_?') ? 'dialog' : 'file', href: href !== '#' ? href : null, path};
+      return {id: path || href || link.textContent.trim(), name: link.textContent.trim(), kind: isDir ? 'directory' : href?.startsWith('/dialog_?') ? 'dialog' : 'file', href: href !== '#' ? href : null, path, delUrl: row.querySelector('a.file-del')?.getAttribute('hx-post') || null};
     }).filter(Boolean);
   }
 
   function nodesFor(path) {
-    return (rowsByPath.get(path) || []).map(node => node.kind !== 'directory' ? node : ({...node, children: rowsByPath.has(node.path) ? nodesFor(node.path) : [{id: `loading:${node.path}`, name: 'Loading…', kind: 'loading', selectable: false}]}));
+    return (rowsByPath.get(path) || []).filter(n => !hideDots || !n.name.startsWith('.')).map(node => node.kind !== 'directory' ? node : ({...node, children: rowsByPath.has(node.path) ? nodesFor(node.path) : [{id: `loading:${node.path}`, name: 'Loading…', kind: 'loading', selectable: false}]}));
   }
 
   function findNode(path) {
@@ -145,17 +148,65 @@
     else if (node.href) openNode(node);
   }
 
+  /* Right-click menu: Open / Duplicate / Delete. Delete posts to the row's own
+     /delete_file_ URL (scraped from the listing), after a confirm. Solveit only
+     exposes duplication for dialogs, so Duplicate is disabled for other files. */
+  let menu = null;
+  function closeMenu() { if (!menu) return false; menu.remove(); menu = null; return true; }
+  async function deleteNode(node) {
+    if (!confirm(`Delete '${node.name}'? This cannot be undone.`)) return;
+    try {
+      const r = await fetch(new URL(node.delUrl, location.href), {method: 'POST', credentials: 'same-origin', headers: {'HX-Request': 'true'}});
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      if (node.kind === 'directory') [...rowsByPath.keys()].filter(p => p === node.path || p.startsWith(node.path + '/')).forEach(p => { rowsByPath.delete(p); expandedPaths.delete(p); });
+      await refreshTree();
+    } catch (err) { panel.querySelector('.solveit-tree-status').textContent = `Could not delete: ${err.message || err}`; }
+  }
+  function duplicateNode(name) {
+    window.open('/duplicate_curr_dialog_?name=' + encodeURIComponent(name), '_blank');
+    setTimeout(refreshTree, 1500);
+  }
+  function showMenu(e) {
+    const li = e.target.closest('li[data-node-data]');
+    if (!li) return;
+    const node = JSON.parse(li.dataset.nodeData);
+    if (node.kind === 'loading') return;
+    e.preventDefault(); e.stopPropagation(); closeMenu();
+    const dlgName = node.kind === 'dialog' && node.href ? new URL(node.href, location.href).searchParams.get('name') : null;
+    menu = document.createElement('div'); menu.className = 'solveit-tree-menu'; menu.setAttribute('role', 'menu');
+    const item = (label, fn, {disabled = false, title = '', danger = false} = {}) => {
+      const b = document.createElement('button'); b.type = 'button'; b.setAttribute('role', 'menuitem'); b.textContent = label;
+      b.disabled = disabled; if (title) b.title = title; if (danger) b.className = 'danger';
+      b.onclick = ev => { ev.stopPropagation(); closeMenu(); fn(); };
+      menu.append(b);
+    };
+    if (node.kind !== 'directory') item('Open', () => openNode(node), {disabled: !node.href});
+    item('Duplicate', () => duplicateNode(dlgName), {disabled: !dlgName, title: dlgName ? 'Duplicate dialog (opens the copy in a new tab)' : 'Solveit only offers duplication for dialogs'});
+    item('Delete…', () => deleteNode(node), {disabled: !node.delUrl, danger: true});
+    panel.append(menu);
+    const at = (e.clientX || e.clientY) ? {x: e.clientX, y: e.clientY} : (b => ({x: b.left + 24, y: b.bottom}))(li.getBoundingClientRect());
+    const r = menu.getBoundingClientRect();
+    menu.style.left = Math.min(at.x, innerWidth - r.width - 4) + 'px';
+    menu.style.top = Math.min(at.y, innerHeight - r.height - 4) + 'px';
+    menu.querySelector('button:not(:disabled)')?.focus();
+  }
+
   function makePanel() {
     if (panel) return panel;
     panel = document.createElement('aside'); panel.id = 'solveit-file-tree-panel';
-    panel.innerHTML = '<div class="solveit-tree-brand"><span class="solveit-tree-appname">solveit</span></div><header><strong>Files</strong><kbd class="solveit-tree-shortcut" data-hotkey="file-tree-toggle">⌘B</kbd><button class="solveit-tree-refresh" type="button" aria-label="Refresh files" title="Refresh files">↻</button><button class="solveit-tree-close" type="button" aria-label="Close">×</button></header><input class="solveit-tree-filter" type="search" placeholder="Filter loaded files…" autocomplete="off"><div class="solveit-tree-status" role="status"></div><div id="solveit-file-tree" role="tree"></div>';
+    panel.innerHTML = '<div class="solveit-tree-brand"><span class="solveit-tree-appname">solveit</span></div><header><strong>Files</strong><kbd class="solveit-tree-shortcut" data-hotkey="file-tree-toggle">⌘B</kbd><button class="solveit-tree-dots" type="button" aria-pressed="false" aria-label="Hide dot files" title="Hide dot files">.*</button><button class="solveit-tree-refresh" type="button" aria-label="Refresh files" title="Refresh files">↻</button><button class="solveit-tree-home" type="button" aria-label="Dialogs home" title="Dialogs home">⌂</button><button class="solveit-tree-close" type="button" aria-label="Close">×</button></header><input class="solveit-tree-filter" type="search" placeholder="Filter loaded files…" autocomplete="off"><div class="solveit-tree-status" role="status"></div><div id="solveit-file-tree" role="tree"></div>';
     const dlgName = document.querySelector('nav.monster-navbar h2#dlg-name');
     if (dlgName) panel.querySelector('.solveit-tree-brand').append(dlgName);
     panel.addEventListener('click', e => e.stopPropagation());
     panel.querySelector('.solveit-tree-close').onclick = closePanel;
     panel.querySelector('.solveit-tree-refresh').onclick = refreshTree;
+    const dots = panel.querySelector('.solveit-tree-dots');
+    dots.setAttribute('aria-pressed', String(hideDots));
+    dots.onclick = () => { hideDots = !hideDots; dots.setAttribute('aria-pressed', String(hideDots)); try { localStorage.setItem(DOTS_KEY, hideDots ? '1' : '0'); } catch {} if (tree) renderTree(); };
+    panel.querySelector('.solveit-tree-home').onclick = () => { location.href = '/?at=.'; };
     window.solveitHotkeys?.refreshChips();
     panel.querySelector('.solveit-tree-filter').addEventListener('input', e => { filterText = e.target.value; tree?.search(filterText); });
+    panel.querySelector('#solveit-file-tree').addEventListener('contextmenu', showMenu);
     panel.querySelector('#solveit-file-tree').addEventListener('click', handleTreeClick, true);
     panel.querySelector('#solveit-file-tree').addEventListener('keydown', e => {
       const current = e.target.closest('.treeview-node-content');
@@ -219,19 +270,30 @@
 
   function closePanel() {
     if (!panel) return;
-    panel.classList.remove('open'); panel.inert = true; previousFocus?.focus();
+    closeMenu(); panel.classList.remove('open'); panel.inert = true; previousFocus?.focus();
   }
   document.addEventListener('click', e => { if (panel?.classList.contains('open') && !panel.contains(e.target)) closePanel(); });
+  document.addEventListener('pointerdown', e => { if (menu && !menu.contains(e.target)) closeMenu(); }, true);
 
   window.addEventListener('keydown', e => {
+    if (document.querySelector('#solveit-launcher.open')) return;
     const active = panel?.classList.contains('open') && panel.contains(document.activeElement);
     if (active && ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
       e.stopImmediatePropagation();
       if (!e.target.closest?.('.solveit-tree-filter')) handleTreeKeys(e);
       return;
     }
+    if (e.key === 'Escape' && closeMenu()) { e.preventDefault(); e.stopImmediatePropagation(); return; }
     if (e.key === 'Escape' && panel?.classList.contains('open')) { e.preventDefault(); e.stopImmediatePropagation(); closePanel(); }
   }, true);
+
+  window.solveitFileTree = {
+    toggle, open: openNode,
+    async entries() {  // every loaded dialog/file, for the launcher
+      if (!rowsByPath.has('.')) { rowsByPath.set('.', await getRows('.')); fetchedAtByPath.set('.', Date.now()); saveCache(); }
+      return [...rowsByPath.entries()].filter(([p]) => !hideDots || !p.split('/').some(part => part !== '.' && part.startsWith('.'))).flatMap(([, rows]) => rows).filter(n => n.kind !== 'directory' && (!hideDots || !n.name.startsWith('.')));
+    },
+  };
 })();
 
 (() => {
@@ -310,26 +372,103 @@
 })();
 
 /* ── Compact Monaco line height ──────────────────────────────────── */
-/* Monaco derives line height from an editor option (not CSS) and the
-   app leaves it at the default (~1.35em). Tighten every editor — the
-   composer, diff panes, and any editor created later — to fontSize+2px,
-   scaled from each editor's own font size. Monaco heights are uniform,
-   so blank lines share the same compact height; the extra gap for blank
-   lines lives in rendered markdown's paragraph margins instead. */
+/* Code size and family come from CRAFT.css. Monaco line-height matches the
+   code size; remeasure after webfonts load to keep cursor columns aligned. */
 (() => {
   let tries = 0;
   const go = () => {
     const mon = window.monaco?.editor;
     if (!mon) return ++tries < 40 && setTimeout(go, 250);
+    // Recompute character widths after the webfonts replace the fallback.
+    if (document.fonts) Promise.all([
+      document.fonts.load('10px "Craft Iosevka"'),
+      document.fonts.load('italic 10px "Craft Iosevka"'),
+      document.fonts.load('bold 10px "Craft Iosevka"'),
+      document.fonts.load('italic bold 10px "Craft Iosevka"')
+    ]).then(() => { mon.remeasureFonts(); mon.getEditors().forEach(ed => ed.layout()); })
+      .catch(err => console.warn('Iosevka could not load; using monospace fallback.', err));
     const compact = ed => {
       try {
-        const fs = ed.getOption(mon.EditorOption.fontSize);
-        ed.updateOptions({ lineHeight: fs + 2 });
+        const fs = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--craft-code')) || ed.getOption(mon.EditorOption.fontSize);
+        ed.updateOptions({ fontSize: fs, lineHeight: fs, fontFamily: getComputedStyle(document.documentElement).getPropertyValue('--craft-code-family').trim() || 'monospace'  });  // line height = font size: glyphs just touch
       } catch (e) {}
     };
     mon.onDidCreateEditor?.(compact);
     mon.getEditors().forEach(compact);
-    try { mon.getDiffEditors().forEach(d => d.updateOptions({ lineHeight: 16 })); } catch (e) {}
+    try { mon.getDiffEditors().forEach(d => { const fs = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--craft-code')) || 10; d.updateOptions({ fontSize: fs, lineHeight: fs, fontFamily: getComputedStyle(document.documentElement).getPropertyValue('--craft-code-family').trim() || 'monospace'  }); }); } catch (e) {}
   };
   go();
+})();
+
+/* ── Launcher (⌘⇧P) ──────────────────────────────────────────────────
+   One fuzzy box over commands (every hotkey-registry action, custom and
+   Solveit built-in) and dialogs/files (whatever the file tree has loaded).
+   Enter runs or opens the selection; Esc or a click outside closes. */
+(() => {
+  let root, input, list, results = [], sel = 0, pool = [], prevFocus;
+
+  function score(q, text) {
+    if (!q) return 1;
+    const t = text.toLowerCase();
+    let i = 0, s = 0, run = 0, last = -2;
+    for (const ch of q) {
+      const j = t.indexOf(ch, i);
+      if (j < 0) return 0;
+      run = j === last + 1 ? run + 1 : 0;
+      s += 1 + run * 2 + (j === 0 || /[\s/_.-]/.test(t[j - 1]) ? 3 : 0);
+      last = j; i = j + 1;
+    }
+    return s - t.length * 0.01;
+  }
+
+  const where = n => { try { const u = new URL(n.href, location.href); return u.searchParams.get('name') || u.searchParams.get('fp') || decodeURIComponent(u.pathname); } catch { return ''; } };
+
+  function build() {
+    root = document.createElement('div'); root.id = 'solveit-launcher';
+    root.innerHTML = '<div class="solveit-launcher-card" role="dialog" aria-label="Launcher"><input type="text" placeholder="Run a command or open a dialog/file…" autocomplete="off" spellcheck="false" aria-label="Search commands and files"><ul role="listbox"></ul></div>';
+    input = root.querySelector('input'); list = root.querySelector('ul');
+    root.addEventListener('mousedown', e => { if (e.target === root) close(); });
+    input.addEventListener('input', () => { sel = 0; render(); });
+    input.addEventListener('keydown', e => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); sel = (sel + (e.key === 'ArrowDown' ? 1 : -1) + results.length) % Math.max(results.length, 1); paint(); }
+      else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); run(results[sel]); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+    });
+    list.addEventListener('click', e => { const li = e.target.closest('li[data-i]'); if (li) run(results[+li.dataset.i]); });
+    document.body.append(root);
+  }
+
+  function render() {
+    const q = input.value.trim().toLowerCase();
+    results = pool.map(it => ({it, s: score(q, it.label + ' ' + it.detail)})).filter(r => r.s > 0).sort((a, b) => b.s - a.s).slice(0, 60).map(r => r.it);
+    sel = Math.min(sel, Math.max(results.length - 1, 0));
+    list.replaceChildren(...(results.length ? results.map((it, i) => {
+      const li = document.createElement('li'); li.dataset.i = i; li.className = 'kind-' + it.kind; li.setAttribute('role', 'option');
+      for (const [cls, text] of [['label', it.label], ['detail', it.detail], ['hint', it.hint]]) { const s = document.createElement('span'); s.className = cls; s.textContent = text; li.append(s); }
+      return li;
+    }) : [Object.assign(document.createElement('li'), {className: 'empty', textContent: 'No matches'})]));
+    paint();
+  }
+
+  function paint() {
+    list.querySelectorAll('li[data-i]').forEach(li => { const on = +li.dataset.i === sel; li.setAttribute('aria-selected', String(on)); if (on) li.scrollIntoView({block: 'nearest'}); });
+  }
+
+  async function open() {
+    if (!root) build();
+    prevFocus = document.activeElement;
+    const hk = window.solveitHotkeys;
+    const cmds = (hk?.list?.() || []).filter(a => a.id !== 'launcher').map(a => ({kind: 'command', label: a.label, detail: a.group || '', hint: a.combo ? hk.formatCombo(a.combo) : '', go: () => hk.run(a.id)}));
+    pool = cmds; root.classList.add('open'); input.value = ''; sel = 0; render(); input.focus();
+    try {
+      const entries = await window.solveitFileTree?.entries?.() || [];
+      pool = cmds.concat(entries.map(n => ({kind: n.kind, label: n.name, detail: where(n), hint: n.kind, go: () => window.solveitFileTree.open(n)})));
+      if (root.classList.contains('open')) render();
+    } catch {}
+  }
+
+  function close() { if (!root?.classList.contains('open')) return; root.classList.remove('open'); prevFocus?.focus?.(); }
+  function run(item) { if (!item) return; close(); setTimeout(() => Promise.resolve().then(item.go).catch(err => { console.error('Launcher action failed', err); alert('Action failed: ' + (err.message || err)); }), 0); }
+
+  window.__hotkeyRegister?.({id: 'launcher', label: 'Open launcher', group: 'Launcher', combo: 'Mod+Shift+P', handler: () => { if (root?.classList.contains('open')) close(); else open(); return true; }});
 })();

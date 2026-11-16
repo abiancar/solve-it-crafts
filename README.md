@@ -55,7 +55,17 @@ Solveit's built-in shortcuts are listed too, from a snapshot of the reference ma
 ## Theme
 
 Palette from `nishantg96/Tokyo-Night-Pure-VSCode`:
-`#16161e` canvas · `#1a1b26` cards · `#222434` outputs · `#cfc9c2` text ·
-`#7aa2f7` active · `#1779b2` links.
+`#16161e` canvas · `#1f2030` cards · `#25273a` outputs · `#cfc9c2` text ·
+`#7aa2f7` active · `#7dcfff` links.
 
-Prose 13px, code 12px, line-height 1.15 throughout.
+Prose 11px and code 10px, controlled by `--craft-prose` and `--craft-code` in CRAFT.css. Line-height is 1; Monaco reads the code-size variable and uses the same pixel line height. Cell gaps are 4px, cell-header vertical padding is removed, and paragraph/list margins are reduced. No cell-type colour bars are applied.
+
+Code blocks, inline code, and Monaco use Iosevka, with regular/italic/bold/bold-italic webfonts loaded from `iosevka-webfonts.github.io`. This requires browser network access to that third-party host; if blocked or offline, system monospace is used. Prose keeps its existing family. Monaco remeasures character widths after loading. `setup.sh` needs no additional font-install step: the font declarations are included in CRAFT.css.
+
+## File tree and launcher
+
+- **⌘B** opens the file tree. The header contains the live, editable dialog name, refresh, a **⌂** button linking to the Dialogs page, and close.
+- **.*** toggles hiding dot-files and dot-directories; the choice is remembered in localStorage.
+- **Right-click a file** for Open, Duplicate, and Delete. Delete asks for confirmation and uses the listing row's own delete action. Duplicate currently uses Solveit's dialog-duplication endpoint and is disabled for plain files; browser verification is still needed.
+- **⌘⇧P** opens the launcher: search registered commands and files/dialogs from the root listing and folders already loaded by the tree. Arrow keys select, Enter runs/opens, Escape closes. It is not a recursive disk-wide file search. Commands retain their native page/editor/selection requirements.
+- Reload after updating CRAFT assets. Browser-level reserved shortcuts may take precedence over page shortcuts.
