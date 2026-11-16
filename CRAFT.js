@@ -148,11 +148,12 @@
   function makePanel() {
     if (panel) return panel;
     panel = document.createElement('aside'); panel.id = 'solveit-file-tree-panel';
-    panel.innerHTML = '<header><strong>Files</strong><kbd class="solveit-tree-shortcut" data-hotkey="file-tree-toggle">⌘B</kbd><button class="solveit-tree-hotkeys" type="button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts">⌨</button><button class="solveit-tree-refresh" type="button" aria-label="Refresh files" title="Refresh files">↻</button><button class="solveit-tree-close" type="button" aria-label="Close">×</button></header><input class="solveit-tree-filter" type="search" placeholder="Filter loaded files…" autocomplete="off"><div class="solveit-tree-status" role="status"></div><div id="solveit-file-tree" role="tree"></div>';
+    panel.innerHTML = '<div class="solveit-tree-brand"><span class="solveit-tree-appname">solveit</span></div><header><strong>Files</strong><kbd class="solveit-tree-shortcut" data-hotkey="file-tree-toggle">⌘B</kbd><button class="solveit-tree-refresh" type="button" aria-label="Refresh files" title="Refresh files">↻</button><button class="solveit-tree-close" type="button" aria-label="Close">×</button></header><input class="solveit-tree-filter" type="search" placeholder="Filter loaded files…" autocomplete="off"><div class="solveit-tree-status" role="status"></div><div id="solveit-file-tree" role="tree"></div>';
+    const dlgName = document.querySelector('nav.monster-navbar h2#dlg-name');
+    if (dlgName) panel.querySelector('.solveit-tree-brand').append(dlgName);
     panel.addEventListener('click', e => e.stopPropagation());
     panel.querySelector('.solveit-tree-close').onclick = closePanel;
     panel.querySelector('.solveit-tree-refresh').onclick = refreshTree;
-    panel.querySelector('.solveit-tree-hotkeys').onclick = () => window.solveitHotkeys?.openMenu();
     window.solveitHotkeys?.refreshChips();
     panel.querySelector('.solveit-tree-filter').addEventListener('input', e => { filterText = e.target.value; tree?.search(filterText); });
     panel.querySelector('#solveit-file-tree').addEventListener('click', handleTreeClick, true);

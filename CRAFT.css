@@ -192,6 +192,12 @@ div.editable[data-diff="added"] { background: transparent !important; }
 .uk-container > nav.monster-navbar span.rounded-full.size-4 {
   display: none !important;              /* the round status dot */
 }
+/* The brand link (📚 solveit) is removed outright; the dialog name moves into
+   the file tree header — CRAFT.js relocates the live #dlg-name element there,
+   so this navbar-scoped rule hides only the spot it leaves behind (and keeps
+   the navbar clean until the tree is first opened). */
+.uk-container > nav.monster-navbar a:has(> h1),
+.uk-container > nav.monster-navbar h2#dlg-name { display: none !important; }
 
 /* No containers: strip the action wrapper, the chips, and the <select> frame */
 .uk-container > nav.monster-navbar > div.ml-auto,
@@ -216,9 +222,13 @@ div.editable[data-diff="added"] { background: transparent !important; }
 .uk-container > nav.monster-navbar select { padding-inline: 2px !important; }
 .uk-container > nav.monster-navbar .uk-btn:hover { color: #ffffff !important; }
 
-/* Active state lives in the glyph colour, not a chip */
-.uk-container > nav.monster-navbar input:checked + label.uk-btn,
-.uk-container > nav.monster-navbar label.uk-btn.uk-active,
+/* Active state lives in the glyph colour plus a light glow, not a chip.
+   The app nests each toggle's hidden checkbox inside its own label (default
+   code, tools, diff) or button (brain), so :has() is what actually matches. */
+.uk-container > nav.monster-navbar :is(label, button):has(input:checked) {
+  color: #7aa2f7 !important;
+  filter: drop-shadow(0 0 4px #7aa2f7cc) drop-shadow(0 0 10px #7aa2f766);
+}
 .uk-container > nav.monster-navbar .uk-btn.uk-active { color: #7aa2f7 !important; }
 
 /* Dropdown list is OS-rendered once the select is transparent */
@@ -278,9 +288,12 @@ div.editable[data-diff="added"] { background: transparent !important; }
   box-shadow: 8px 0 24px #0008;
 }
 #solveit-file-tree-panel > header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+#solveit-file-tree-panel .solveit-tree-brand { display: flex; align-items: baseline; gap: 6px; margin-bottom: 6px; min-width: 0; }
+#solveit-file-tree-panel .solveit-tree-appname { flex: 0 0 auto; font-weight: 700; font-size: 13px; letter-spacing: .02em; color: #cfc9c2; }
+#solveit-file-tree-panel h2#dlg-name { flex: 1 1 0%; min-width: 0; font-size: 12.5px !important; line-height: 1.3 !important; font-weight: 400 !important; padding: 0 !important; color: #cfc9c2cc !important; }
 #solveit-file-tree-panel > header button { border: 0; background: transparent; color: inherit; font-size: 1.4rem; cursor: pointer; }
 #solveit-file-tree-panel .solveit-tree-shortcut { margin-left: auto; color: #cfc9c288; font: 11px monospace; }
-#solveit-file-tree-panel .solveit-tree-refresh, #solveit-file-tree-panel .solveit-tree-hotkeys { margin-left: 8px; }
+#solveit-file-tree-panel .solveit-tree-refresh { margin-left: 8px; }
 #solveit-file-tree-panel .treeview-node-content:focus-visible { outline: none; box-shadow: inset 0 0 0 2px #7aa2f7; background: #30364d; }
 #solveit-file-tree-panel .solveit-tree-close { margin-left: 8px; }
 #solveit-file-tree-panel .solveit-tree-back { margin-left: auto; }
