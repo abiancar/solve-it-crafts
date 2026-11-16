@@ -471,3 +471,14 @@ body:has(#solveit-temp-editor.open) #solveit-file-tree-panel.open {
     overflow: hidden !important;
   }
 }
+
+.editable.craft-omitted { display: none !important; }
+.craft-omit-marker { display: block; flex: none; width: fit-content; margin: 2px 0; padding: 1px 6px; border: 0; border-radius: 3px; background: transparent; color: #9a9eb5; font: inherit; font-size: 11px; line-height: 18px; cursor: pointer; }
+.craft-omit-marker:hover { color: #cfc9c2; }
+.craft-omit-marker:focus-visible { outline: 1px solid #7aa2f7; outline-offset: 1px; }
+
+
+.msg-card.craft-part-hidden { display: none !important; }
+.craft-part-restore { justify-self: start; margin: 0; padding: 0 6px; border: 0; border-radius: 3px; background: transparent; color: #9a9eb5; font: inherit; line-height: 18px; cursor: pointer; }
+.craft-part-restore:hover { color: #cfc9c2; }
+.craft-part-restore:focus-visible { outline: 1px solid #7aa2f7; }

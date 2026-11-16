@@ -682,3 +682,293 @@
   };
   sync();
 })();
+
+(() => {
+  const preserved = [...document.querySelectorAll('.editable.craft-omitted')].map(e => e.id);
+  window.craftOmit?.disable();
+  const omitted = new Set(preserved), markers = new Map();
+  let frame, approach = 1;
+  const root = () => document.getElementById('dialog-container');
+  const cells = () => [...(root()?.querySelectorAll(':scope > .editable') || [])];
+  const eligible = e => !e.hidden && !e.matches('.filter-hidden,.heading-hidden,.hidden');
+  const marker = () => document.activeElement?.closest('.craft-omit-marker');
+  const blocked = () => !!document.activeElement?.closest('input,textarea,select,[contenteditable],.monaco-editor,#full_editor,.hk-overlay.open,#solveit-launcher.open,[role="dialog"],.uk-modal.uk-open');
+  const selected = () => cells().filter(e => e.matches('[data-sm="primary"],[data-sm="secondary"]') && e.offsetParent !== null);
+  const clearSelection = () => document.querySelectorAll('[data-sm="primary"],[data-sm="secondary"]').forEach(e => e.setAttribute('data-sm', 'unselected'));
+  const choose = (e, direction = 1) => {
+    if (!e) return;
+    approach = direction;
+    if (e.matches('.craft-omit-marker')) {
+      clearSelection();
+      e.focus({preventScroll: true});
+      e.scrollIntoView({block: 'nearest'});
+    } else {
+      marker()?.blur();
+      window.selectMsg(window.$(e));
+      document.activeElement?.closest('.craft-omit-marker')?.blur();
+    }
+  };
+  const restore = button => {
+    const ids = JSON.parse(button.dataset.omitIds);
+    ids.forEach(id => { omitted.delete(id); window.craftParts?.restoreCell(id); });
+    const target = document.getElementById(approach < 0 ? ids.at(-1) : ids[0]);
+    sync();
+    if (target) choose(target);
+    return true;
+  };
+  const sync = () => {
+    frame = null;
+    const all = cells(), runs = [];
+    let run;
+    for (const e of all) {
+      const hide = omitted.has(e.id) || !!window.craftParts?.fullyHidden(e);
+      if (e.classList.contains('craft-omitted') !== hide) e.classList.toggle('craft-omitted', hide);
+      if (!eligible(e) || !hide) { run = null; continue; }
+      if (!run) { run = []; runs.push(run); }
+      run.push(e);
+    }
+    const keys = new Set();
+    for (const group of runs) {
+      const key = group[0].id, ids = group.map(e => e.id);
+      keys.add(key);
+      let button = markers.get(key);
+      if (!button) {
+        button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'craft-omit-marker';
+        button.addEventListener('click', () => restore(button));
+        button.addEventListener('focus', clearSelection);
+        markers.set(key, button);
+      }
+      const text = `▸ ${ids.length}`, label = `Expand ${ids.length} omitted ${ids.length === 1 ? 'cell' : 'cells'}`;
+      if (button.textContent !== text) button.textContent = text;
+      if (button.getAttribute('aria-label') !== label) {
+        button.setAttribute('aria-label', label);
+        button.title = label + ' · Right arrow, Enter, or Omit';
+      }
+      button.setAttribute('aria-expanded', 'false');
+      button.dataset.omitIds = JSON.stringify(ids);
+      if (button.nextElementSibling !== group[0]) group[0].before(button);
+    }
+    for (const [key, button] of markers) {
+      if (keys.has(key)) continue;
+      const focused = document.activeElement === button;
+      const ids = JSON.parse(button.dataset.omitIds);
+      button.remove();
+      markers.delete(key);
+      if (focused) {
+        const replacement = [...markers.values()].find(b => JSON.parse(b.dataset.omitIds).some(id => ids.includes(id)));
+        replacement?.focus();
+      }
+    }
+    window.craftCellChains?.sync();
+  };
+  const toggle = () => {
+    if (blocked()) return false;
+    if (marker()) return restore(marker());
+    const targets = selected();
+    if (!targets.length) return false;
+    const editing = document.getElementById('id_')?.value;
+    if (targets.some(e => e.dataset.editing === 'true' || e.id === '_' + editing)) {
+      window.UIkit?.notification('Finish editing the cell before omitting it.', {status: 'warning'});
+      return true;
+    }
+    targets.forEach(e => omitted.add(e.id));
+    sync();
+    const button = [...markers.values()].find(b => JSON.parse(b.dataset.omitIds).includes(targets[0].id));
+    choose(button);
+    return true;
+  };
+  const stop = e => { e.preventDefault(); e.stopImmediatePropagation(); };
+  const keys = e => {
+    if (blocked() || e.isComposing) return;
+    const current = marker();
+    if (!e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+      if (current && ['ArrowRight', 'Enter', ' '].includes(e.key)) { stop(e); restore(current); return; }
+      const direction = ['ArrowDown','j'].includes(e.key) ? 1 : ['ArrowUp','k'].includes(e.key) ? -1 : 0;
+      if (direction) {
+        const visible = [...(root()?.children || [])].filter(n => n.matches('.editable,.craft-omit-marker') && n.offsetParent !== null);
+        const active = current || document.querySelector('#dialog-container > [data-sm="primary"]');
+        const index = visible.indexOf(active), next = visible[index + direction];
+        if (current || next?.matches('.craft-omit-marker')) { stop(e); choose(next, direction); return; }
+      }
+      if (current && ['Home','End'].includes(e.key)) {
+        const visible = [...root().children].filter(n => n.matches('.editable,.craft-omit-marker') && n.offsetParent !== null);
+        stop(e); choose(e.key === 'Home' ? visible[0] : visible.at(-1)); return;
+      }
+    }
+    if (current && e.key !== 'Tab') stop(e);
+  };
+  const schedule = records => {
+    if (records && !records.some(r => r.target === root() || r.target.closest?.('#dialog-container'))) return;
+    if (!frame) frame = requestAnimationFrame(sync);
+  };
+  const pointer = e => { if (marker() && !e.target.closest('.craft-omit-marker')) marker().blur(); };
+  const observer = new MutationObserver(schedule);
+  observer.observe(document.body, {subtree: true, childList: true, attributes: true, attributeFilter: ['class','hidden','data-sm-header']});
+  document.addEventListener('keydown', keys, true);
+  document.addEventListener('pointerdown', pointer, true);
+  window.__hotkeyRegister?.({id: 'cell-omit', label: 'Toggle omit cells', group: 'Dialog · Presentation', combo: 'u', handler: () => window.craftOmit?.toggle() === true});
+  window.craftOmit = {
+    toggle, sync,
+    disable() {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+      document.removeEventListener('keydown', keys, true);
+      document.removeEventListener('pointerdown', pointer, true);
+      markers.forEach(b => b.remove());
+      cells().forEach(e => e.classList.remove('craft-omitted'));
+      window.craftCellChains?.sync();
+    }
+  };
+  sync();
+})();
+
+
+(() => {
+  window.craftParts?.disable();
+  const states = new Map(), controls = new Map(), pending = new Map();
+  const originals = window.solveitHotkeys?.list().filter(s => ['si-i','si-o'].includes(s.id)) || [];
+  let bypass = false, frame;
+  const cells = () => [...document.querySelectorAll('#dialog-container > .editable')];
+  const card = (e, side) => e.querySelector(side === 'input' ? ':scope > .card-in' : ':scope > .card-out');
+  const button = (e, side) => card(e, side)?.querySelector('[hx-post="/collapse_"]');
+  const present = (e, side) => side === 'input' ? !!card(e, side) : !!card(e, side)?.querySelector('.msg-body');
+  const blocked = () => !!document.activeElement?.closest('input,textarea,select,[contenteditable],.monaco-editor,#full_editor,[role="dialog"],.uk-modal.uk-open');
+  const busy = e => e.dataset.editing === 'true' || e.id === '_' + document.getElementById('id_')?.value;
+  const waiting = (e, side) => {
+    const key = e.id + side, p = pending.get(key);
+    if (p && (p.collapsed !== !!card(e, side)?.classList.contains('collapsed') || performance.now() > p.until)) pending.delete(key);
+    return pending.has(key);
+  };
+  const native = (e, side) => {
+    const b = button(e, side);
+    if (!b || waiting(e, side)) return;
+    const selection = cells().map(n => [n, n.getAttribute('data-sm')]);
+    window.selectMsg($(e), {scroll: false});
+    pending.set(e.id + side, {collapsed: !!card(e, side)?.classList.contains('collapsed'), until: performance.now() + 5000});
+    bypass = true;
+    try { b.click(); }
+    finally {
+      bypass = false;
+      selection.forEach(([n, value]) => value === null ? n.removeAttribute('data-sm') : n.setAttribute('data-sm', value));
+    }
+  };
+  const restore = (id, side) => {
+    const state = states.get(id), e = document.getElementById(id);
+    if (!state || !e) return;
+    state.hidden.delete(side);
+    if (!state.hidden.size) states.delete(id);
+    sync();
+    if (card(e, side)?.classList.contains('collapsed')) native(e, side);
+    window.selectMsg($(e), {scroll: false});
+  };
+  const restoreCell = id => {
+    const state = states.get(id);
+    if (state) restore(id, state.last);
+  };
+  const fullyHidden = e => {
+    const state = states.get(e.id);
+    return !!state && ['input','output'].filter(s => present(e, s)).every(s => state.hidden.has(s));
+  };
+  const focusMarker = id => {
+    const b = [...document.querySelectorAll('.craft-omit-marker')].find(n => JSON.parse(n.dataset.omitIds).includes(id));
+    b?.focus({preventScroll: true});
+  };
+  const sync = () => {
+    frame = null;
+    const live = new Set();
+    for (const e of cells()) {
+      const state = states.get(e.id), full = fullyHidden(e);
+      for (const side of ['input','output']) {
+        const c = card(e, side), hidden = !!state?.hidden.has(side), key = e.id + ':' + side;
+        if (c && c.classList.contains('craft-part-hidden') !== hidden) c.classList.toggle('craft-part-hidden', hidden);
+        if (!hidden || !c || full) continue;
+        live.add(key);
+        let b = controls.get(key);
+        if (!b) {
+          b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'craft-part-restore';
+          b.textContent = side === 'input' ? '⌃' : '⌄';
+          b.setAttribute('aria-label', `Restore ${side}`);
+          b.title = `Restore ${side}`;
+          b.addEventListener('click', () => restore(e.id, side));
+          controls.set(key, b);
+        }
+        if (side === 'input') {
+          const output = card(e, 'output');
+          if (output && b.nextElementSibling !== output) output.before(b);
+        } else if (b.previousElementSibling !== card(e, 'input')) card(e, 'input')?.after(b);
+      }
+    }
+    for (const [key, b] of controls) if (!live.has(key)) { b.remove(); controls.delete(key); }
+    window.craftOmit?.sync();
+  };
+  const cycleOne = (e, side) => {
+    if (!present(e, side) || waiting(e, side)) return;
+    if (busy(e)) {
+      window.UIkit?.notification('Finish editing before minimizing this cell.', {status: 'warning'});
+      return;
+    }
+    const state = states.get(e.id);
+    if (state?.hidden.has(side)) { restore(e.id, side); return; }
+    if (!card(e, side).classList.contains('collapsed')) { native(e, side); return; }
+    const next = state || {hidden: new Set(), last: side};
+    next.hidden.add(side);
+    next.last = side;
+    states.set(e.id, next);
+    sync();
+    if (fullyHidden(e)) focusMarker(e.id);
+  };
+  const cycle = side => {
+    if (blocked()) return false;
+    const marker = document.activeElement?.closest('.craft-omit-marker');
+    if (marker) {
+      for (const id of JSON.parse(marker.dataset.omitIds)) if (states.get(id)?.hidden.has(side)) restore(id, side);
+      return true;
+    }
+    const selected = cells().filter(e => e.matches('[data-sm="primary"],[data-sm="secondary"]') && e.offsetParent !== null);
+    selected.forEach(e => cycleOne(e, side));
+    return !!selected.length;
+  };
+  const click = event => {
+    if (bypass) return;
+    const b = event.target.closest('[hx-post="/collapse_"]');
+    const c = b?.closest('.msg-card'), e = c?.closest('.editable');
+    if (!e) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    cycleOne(e, c.classList.contains('card-in') ? 'input' : 'output');
+  };
+  const finished = event => {
+    const b = event.detail?.elt?.closest?.('[hx-post="/collapse_"]');
+    const c = b?.closest('.msg-card'), e = c?.closest('.editable');
+    if (e) pending.delete(e.id + (c.classList.contains('card-in') ? 'input' : 'output'));
+  };
+  const schedule = records => {
+    if (!records.some(r => r.target.id === 'dialog-container' || r.target.closest?.('#dialog-container'))) return;
+    if (!frame) frame = requestAnimationFrame(sync);
+  };
+  const observer = new MutationObserver(schedule);
+  observer.observe(document.body, {subtree: true, childList: true, attributes: true, attributeFilter: ['class']});
+  document.addEventListener('click', click, true);
+  document.addEventListener('htmx:afterRequest', finished);
+  window.__hotkeyRegister?.({id: 'si-i', label: 'Cycle input: expanded / collapsed / hidden', group: 'Solveit · Dialog (selection mode)', combo: 'i', handler: () => cycle('input')});
+  window.__hotkeyRegister?.({id: 'si-o', label: 'Cycle output: expanded / collapsed / hidden', group: 'Solveit · Dialog (selection mode)', combo: 'o', handler: () => cycle('output')});
+  window.craftParts = {
+    cycle, sync, fullyHidden, restoreCell,
+    disable() {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+      document.removeEventListener('click', click, true);
+      document.removeEventListener('htmx:afterRequest', finished);
+      controls.forEach(b => b.remove());
+      states.clear();
+      document.querySelectorAll('.craft-part-hidden').forEach(c => c.classList.remove('craft-part-hidden'));
+      originals.forEach(s => window.__hotkeyRegister?.({...s, handler: () => true}));
+      window.craftOmit?.sync();
+    }
+  };
+  sync();
+})();
