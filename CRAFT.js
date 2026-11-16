@@ -303,9 +303,12 @@
         '.msg-card.card-in[data-mtype="prompt"]'
       );
       const body = prompt?.querySelector('.msg-body');
-      const isDot = body?.textContent.trim() === '.';
+      const isDot = !!body && ['', '.'].includes(body.textContent.trim()) && !body.querySelector('img,video,audio,iframe,canvas,svg');
 
       editable.classList.toggle('dot-prompt', isDot);
+      const response = editable.querySelector(':scope > .card-out .msg-content');
+      const hasResponse = !!response && (!!response.textContent.trim() || !!response.querySelector('img,video,audio,iframe,canvas,svg'));
+      editable.classList.toggle('dot-prompt-response', isDot && hasResponse);
     });
   }
 
@@ -471,4 +474,211 @@
   function run(item) { if (!item) return; close(); setTimeout(() => Promise.resolve().then(item.go).catch(err => { console.error('Launcher action failed', err); alert('Action failed: ' + (err.message || err)); }), 0); }
 
   window.__hotkeyRegister?.({id: 'launcher', label: 'Open launcher', group: 'Launcher', combo: 'Mod+Shift+P', handler: () => { if (root?.classList.contains('open')) close(); else open(); return true; }});
+})();
+(() => {
+  window.craftIdleComposer?.disable();
+  if (window.CRAFT_IDLE_COMPOSER === false) return;
+  let editor, originalFocus, subscriptions = [], requested = false, pending = false;
+  const panel = () => document.getElementById('full_editor');
+  const temporary = () => editor?.getModel()?.uri.path.endsWith('/temp');
+  const hasDraft = () => !!window.edValue?.();
+  const reveal = () => {
+    requested = true;
+    panel()?.classList.remove('craft-composer-idle');
+    editor?.layout();
+  };
+  const unbind = () => {
+    subscriptions.forEach(s => s.dispose());
+    subscriptions = [];
+    if (editor && originalFocus) editor.focus = originalFocus;
+  };
+  const sync = () => {
+    pending = false;
+    if (window.editor !== editor) {
+      unbind();
+      editor = window.editor;
+      requested = false;
+      if (editor) {
+        originalFocus = editor.focus;
+        editor.focus = function(...args) { reveal(); return originalFocus.apply(this, args); };
+        subscriptions.push(editor.onDidChangeModel(() => {
+          requested = !temporary() || hasDraft();
+          schedule();
+        }), editor.onDidChangeModelContent(schedule));
+      }
+    }
+    const root = panel();
+    if (!root || !editor?.getModel()) return;
+    const active = requested || !temporary() || hasDraft() || !!document.querySelector('.editable[data-editing="true"]');
+    const idle = !active;
+    if (root.classList.contains('craft-composer-idle') === idle) return;
+    root.classList.toggle('craft-composer-idle', idle);
+    if (active) editor.layout();
+  };
+  const schedule = () => { if (!pending) { pending = true; queueMicrotask(sync); } };
+  const tabClick = e => { if (e.target.closest('#full_editor .tabh')) reveal(); };
+  const observer = new MutationObserver(schedule);
+  observer.observe(document.body, {childList: true, subtree: true, attributes: true, attributeFilter: ['data-editing']});
+  document.addEventListener('click', tabClick, true);
+  document.addEventListener('htmx:afterSettle', schedule);
+  window.craftIdleComposer = {
+    reveal,
+    disable() {
+      observer.disconnect();
+      document.removeEventListener('click', tabClick, true);
+      document.removeEventListener('htmx:afterSettle', schedule);
+      unbind();
+      panel()?.classList.remove('craft-composer-idle');
+      editor?.layout();
+    }
+  };
+  sync();
+})();
+
+(() => {
+  window.craftCellChains?.disable();
+  let frame;
+  const sync = () => {
+    frame = null;
+    const all = [...document.querySelectorAll('#dialog-container > .editable')];
+    const cells = all.filter(e => !e.hidden && getComputedStyle(e).display !== 'none');
+    const type = e => e?.querySelector(':scope > .card-in')?.dataset.mtype;
+    const joins = (a, b) => ['prompt', 'code', 'note'].includes(type(a)) && type(a) === type(b);
+    const prev = new Set(cells.filter((e, i) => i > 0 && joins(cells[i-1], e)));
+    const next = new Set(cells.filter((e, i) => i < cells.length-1 && joins(e, cells[i+1])));
+    for (const e of all) {
+      if (e.classList.contains('craft-chain-prev') !== prev.has(e)) e.classList.toggle('craft-chain-prev', prev.has(e));
+      if (e.classList.contains('craft-chain-next') !== next.has(e)) e.classList.toggle('craft-chain-next', next.has(e));
+    }
+  };
+  const schedule = () => { if (!frame) frame = requestAnimationFrame(sync); };
+  const observer = new MutationObserver(schedule);
+  observer.observe(document.body, {childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'hidden', 'data-mtype']});
+  window.craftCellChains = {
+    sync,
+    disable() {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+      document.querySelectorAll('.craft-chain-prev,.craft-chain-next').forEach(e => e.classList.remove('craft-chain-prev', 'craft-chain-next'));
+    }
+  };
+  sync();
+})();
+
+(() => {
+  window.craftActionMenus?.disable();
+  if (window.CRAFT_ACTION_MENUS === false) return;
+  let current = null, frame = null;
+  const menu = document.createElement('div');
+  menu.className = 'craft-action-menu';
+  menu.id = 'craft-cell-action-menu';
+  menu.setAttribute('popover', 'auto');
+  menu.setAttribute('role', 'menu');
+  document.body.append(menu);
+  const close = (restore = false) => {
+    const trigger = current;
+    current = null;
+    trigger?.setAttribute('aria-expanded', 'false');
+    if (menu.matches(':popover-open')) menu.hidePopover();
+    if (restore && trigger?.isConnected) trigger.focus({preventScroll: true});
+  };
+  const open = trigger => {
+    if (current === trigger) return close(true);
+    close();
+    const card = trigger.closest('.msg-card');
+    const group = card.querySelector('.uk-card-header .uk-btn-group');
+    if (!group) return;
+    menu.replaceChildren();
+    for (const source of group.querySelectorAll('button,a')) {
+      if (source.hidden) continue;
+      const label = source.title || source.querySelector('[title]')?.getAttribute('title') || source.getAttribute('aria-label');
+      if (!label) continue;
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.setAttribute('role', 'menuitem');
+      item.textContent = label;
+      item.disabled = source.disabled;
+      if (/^Delete/i.test(label)) item.dataset.danger = '';
+      item.addEventListener('click', e => {
+        e.stopPropagation();
+        close();
+        if (source.isConnected) source.click();
+        queueMicrotask(() => { if (document.activeElement === document.body && trigger.isConnected) trigger.focus({preventScroll: true}); });
+      });
+      menu.append(item);
+    }
+    current = trigger;
+    trigger.setAttribute('aria-expanded', 'true');
+    menu.setAttribute('aria-label', trigger.getAttribute('aria-label'));
+    menu.showPopover();
+    const r = trigger.getBoundingClientRect();
+    menu.style.left = Math.max(8, Math.min(r.right - menu.offsetWidth, innerWidth - menu.offsetWidth - 8)) + 'px';
+    menu.style.top = Math.max(8, Math.min(r.bottom + 4, innerHeight - menu.offsetHeight - 8)) + 'px';
+    menu.querySelector('button:not(:disabled)')?.focus({preventScroll: true});
+  };
+  const sync = () => {
+    frame = null;
+    if (current && !current.isConnected) close();
+    for (const group of document.querySelectorAll('#dialog-container .msg-card > .uk-card-header .uk-btn-group')) {
+      const nav = group.closest('nav');
+      if (!nav) continue;
+      let shell = group;
+      while (shell.parentElement !== nav && shell.parentElement) shell = shell.parentElement;
+      if (shell === group && shell.parentElement !== nav) continue;
+      shell.classList.add('craft-action-source');
+      for (const button of nav.querySelectorAll(':scope > button[data-uk-toggle]')) button.classList.add('craft-old-action-toggle');
+      if (nav.querySelector(':scope > .craft-action-trigger')) continue;
+      const trigger = document.createElement('button');
+      trigger.type = 'button';
+      trigger.className = 'craft-action-trigger';
+      trigger.textContent = '…';
+      trigger.setAttribute('aria-haspopup', 'menu');
+      trigger.setAttribute('aria-expanded', 'false');
+      trigger.setAttribute('aria-controls', menu.id);
+      const card = nav.closest('.msg-card');
+      trigger.setAttribute('aria-label', card.classList.contains('card-out') ? 'Output actions' : 'Input actions');
+      trigger.addEventListener('click', e => { e.stopPropagation(); open(trigger); });
+      trigger.addEventListener('keydown', e => { if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); open(trigger); } });
+      nav.append(trigger);
+    }
+  };
+  const schedule = () => { if (!frame) frame = requestAnimationFrame(sync); };
+  const keys = e => {
+    if (!current) return;
+    if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); close(true); return; }
+    if (!menu.contains(e.target)) return;
+    e.stopImmediatePropagation();
+    const items = [...menu.querySelectorAll('button:not(:disabled)')];
+    const i = items.indexOf(document.activeElement);
+    if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) {
+      e.preventDefault();
+      const j = e.key === 'Home' ? 0 : e.key === 'End' ? items.length-1 : (i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+      items[j]?.focus();
+    }
+  };
+  const focus = e => { if (current && !menu.contains(e.target) && e.target !== current) close(); };
+  const toggled = () => { if (!menu.matches(':popover-open') && current) close(); };
+  const observer = new MutationObserver(schedule);
+  observer.observe(document.getElementById('dialog-container') || document.body, {childList: true, subtree: true});
+  document.addEventListener('keydown', keys, true);
+  document.addEventListener('focusin', focus);
+  document.addEventListener('htmx:beforeSwap', closeForSwap);
+  function closeForSwap() { close(); }
+  menu.addEventListener('toggle', toggled);
+  window.craftActionMenus = {
+    sync,
+    close,
+    disable() {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+      close();
+      document.removeEventListener('keydown', keys, true);
+      document.removeEventListener('focusin', focus);
+      document.removeEventListener('htmx:beforeSwap', closeForSwap);
+      document.querySelectorAll('.craft-action-trigger').forEach(e => e.remove());
+      document.querySelectorAll('.craft-action-source,.craft-old-action-toggle').forEach(e => e.classList.remove('craft-action-source', 'craft-old-action-toggle'));
+      menu.remove();
+    }
+  };
+  sync();
 })();

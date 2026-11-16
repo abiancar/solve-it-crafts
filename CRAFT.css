@@ -41,7 +41,7 @@
    ──────────────────────────────────────────────────────────────────── */
 
 /* ── 1. Canvas and scroller ─────────────────────────────────────────── */
-body { background-color: #16161e !important; }
+html, body { background-color: #1f2030 !important; }
 
 div.overflow-y-auto.border.px-3 {        /* the only scroller; was a grey panel */
   background: transparent !important;
@@ -67,10 +67,9 @@ div.overflow-y-auto:hover::-webkit-scrollbar { width: 8px; height: 8px; }
 .editable {
   margin-block: 0 4px !important;        /* compact dialog cell gap */
   gap: 0 !important;                     /* input and output are flush */
-  /* No border/outline/box-shadow resets here. Tailwind's `ring-2` on .editable
-     paints the selection ring as a box-shadow, and the app's [data-editing]
-     rule uses outline — both must survive for the cursor to stay visible. */
 }
+/* Keep the selection ring, but remove the outer green editing outline. */
+.editable[data-editing] { outline: none !important; }
 /* The green halo was never a border: it is the app's diff tint. Only the
    `added` state is neutralised; `deleted` (red) and `changed` (yellow) stand. */
 div.editable[data-diff="added"] { background: transparent !important; }
@@ -408,4 +407,67 @@ body:has(#solveit-temp-editor.open) #solveit-file-tree-panel.open {
 .msg-card > .uk-card-header > nav.monster-navbar {
   padding-block: 0 !important;
   min-height: 0 !important;
+}
+#full_editor.craft-composer-idle { display: none !important; }
+.msg-card[data-mtype="note"] { background: transparent !important; }
+
+.editable.craft-chain-next { margin-bottom: 0 !important; padding-bottom: 0 !important; border-bottom-left-radius: 0 !important; border-bottom-right-radius: 0 !important; }
+.editable.craft-chain-prev { margin-top: 0 !important; padding-top: 0 !important; border-top-left-radius: 0 !important; border-top-right-radius: 0 !important; }
+.editable.craft-chain-next > .msg-card { border-bottom-left-radius: 0 !important; border-bottom-right-radius: 0 !important; }
+.editable.craft-chain-prev > .msg-card { border-top-left-radius: 0 !important; border-top-right-radius: 0 !important; }
+.editable.craft-chain-prev > .card-in:is([data-mtype="prompt"], [data-mtype="code"]) > .uk-card-header [data-tokens] { display: none !important; }
+
+.editable:not(.craft-chain-next) { margin-bottom: 25px !important; }
+.editable > .msg-card[data-mtype="prompt"] { background: #1f2030 !important; }
+.editable > .card-out[data-mtype="prompt"] { padding-top: 0px !important; }
+.editable.craft-chain-prev > .card-in[data-mtype="prompt"] { padding-top: 0px !important; }
+.editable > .card-out[data-mtype="code"] { background: transparent !important; padding-top: 2px !important; padding-bottom: 2px !important; }
+.editable.craft-chain-next:has(> .card-in[data-mtype="code"]) { margin-bottom: 12px !important; }
+.editable.craft-chain-prev > .card-in[data-mtype="code"] { border-top: 0 !important; }
+
+.msg-card[data-mtype="code"] > .uk-card-header nav > div.grow > p { opacity: 0; }
+.editable:is(:hover, :focus-within) > .msg-card[data-mtype="code"] > .uk-card-header nav > div.grow > p { opacity: 1; }
+@media (hover: none) {
+  .msg-card[data-mtype="code"] > .uk-card-header nav > div.grow > p { opacity: 1; }
+}
+
+.msg-card[data-mtype="prompt"] > .uk-card-header nav > div.grow > p::before { content: "You"; color: #a9b1d6 !important; font-size: 11px; }
+.msg-card.card-out[data-mtype="prompt"] > .uk-card-header nav > div.grow > p::before { content: "Assistant"; }
+.editable > .msg-card[data-mtype="prompt"] > .uk-card-header [data-tokens] { display: inline !important; font-size: 0 !important; }
+.msg-card[data-mtype="prompt"] > .uk-card-header [data-tokens]::after { content: " · " attr(data-tokens) " tokens"; font-size: 11px; }
+.msg-card[data-mtype="prompt"] > .uk-card-header nav > div.grow > p > span { opacity: 0; }
+.msg-card[data-mtype="prompt"]:is(:hover, :focus-within) > .uk-card-header nav > div.grow > p > span { opacity: 1; }
+.msg-card.card-in[data-mtype="prompt"] .msg-content,
+.msg-card.card-in[data-mtype="prompt"] .msg-content .prose { color: #e0dcd5 !important; }
+@media (hover: none) {
+  .msg-card[data-mtype="prompt"] > .uk-card-header nav > div.grow > p > span { opacity: 1; }
+}
+
+#dialog-container { padding-top: 24px !important; }
+#dialog-container .editable { border-radius: 0 !important; }
+#dialog-container > .editable[data-sm]:not([data-sm="unselected"]) { position: relative; z-index: 2; box-shadow: none !important; }
+#dialog-container > .editable[data-sm]:not([data-sm="unselected"])::after { content: ""; position: absolute; inset: 0; border: 2px solid oklch(62.3% 0.214 259.815); border-radius: 0 !important; pointer-events: none; z-index: 100; }
+
+.editable.dot-prompt-response:not([data-editing="true"]) > .card-in { display: none !important; }
+.editable.dot-prompt-response:not([data-editing="true"]) > .card-out { padding-top: 0 !important; }
+.editable.dot-prompt-response.craft-chain-prev:not([data-editing="true"]) > .card-out { padding-top: 16px !important; }
+.editable.dot-prompt-response:not(.craft-chain-prev):not([data-editing="true"]) > .card-out { border-top-left-radius: 8px !important; border-top-right-radius: 8px !important; }
+
+.craft-action-source, .craft-old-action-toggle { display: none !important; }
+.msg-card .craft-action-trigger { opacity: 0; pointer-events: none; width: 28px; height: 22px; flex: 0 0 28px; padding: 0 !important; background: transparent !important; border: 0 !important; color: #a9b1d6; font-size: 20px; line-height: 20px; cursor: pointer; }
+.msg-card:hover .craft-action-trigger, .msg-card:focus-within .craft-action-trigger, .craft-action-trigger[aria-expanded="true"] { opacity: 1; pointer-events: auto; }
+.craft-action-menu { position: fixed; inset: auto; margin: 0; width: 260px; max-width: calc(100vw - 16px); max-height: min(70vh, 540px); overflow: auto; padding: 6px; background: #242638; color: #cfc9c2; border: 1px solid #ffffff24; border-radius: 6px; box-shadow: 0 8px 28px #0008; }
+.craft-action-menu button { display: block; width: 100%; padding: 7px 9px; text-align: left; background: transparent; color: inherit; border: 0; border-radius: 3px; font: inherit; cursor: pointer; }
+.craft-action-menu button:is(:hover,:focus-visible) { background: #34374f; outline: 1px solid #7aa2f7; }
+.craft-action-menu button:disabled { opacity: .4; cursor: default; }
+.craft-action-menu button[data-danger] { color: #f7768e; }
+@media (hover: none) { .msg-card .craft-action-trigger { opacity: 1; pointer-events: auto; } }
+
+@media (hover: hover) {
+  .editable:not(:hover):not(:focus-within):not([data-editing="true"]):not(:has(.craft-action-trigger[aria-expanded="true"])) > .card-in[data-mtype="code"] > .uk-card-header {
+    height: 0 !important;
+    min-height: 0 !important;
+    padding-block: 0 !important;
+    overflow: hidden !important;
+  }
 }
