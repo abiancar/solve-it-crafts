@@ -103,9 +103,9 @@ Built-in actions normally redispatch their original keys so Solveit handles them
 
 ## Theme and fonts
 
-Tokyo Night Pure colors include `#1f2030` for the reading canvas, `#16161e` for recessed/code surfaces, `#cfc9c2` text, `#7aa2f7` selection, and `#7dcfff` links. Prose is 11px and code 10px by default, controlled by `--craft-prose` and `--craft-code`; Monaco uses the code-size setting and compact line height.
+Tokyo Night Pure colors include `#1f2030` for the reading canvas, `#16161e` for recessed/code surfaces, `#cfc9c2` text, `#7aa2f7` selection, and `#7dcfff` links. Prose is 9px with an 8px line height (`--craft-prose`, `--craft-prose-lh`) and code is 10px with a 10px line height (`--craft-code`); Monaco uses the code-size setting and compact line height.
 
-Code blocks, inline code, and Monaco use Iosevka webfonts from `iosevka-webfonts.github.io`, with a system monospace fallback. Browser network access to that third-party host is required for the webfont; no font installation is needed.
+Prose uses Unica One webfonts from jsDelivr (`@fontsource/unica-one`), with a system sans-serif fallback (`--craft-prose-family`). Code blocks, inline code, and Monaco use Iosevka webfonts from `iosevka-webfonts.github.io`, with a system monospace fallback (`--craft-code-family`). Browser network access to those hosts is required for the webfonts; no OS font installation is needed.
 
 ## Working on it
 

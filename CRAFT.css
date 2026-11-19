@@ -75,11 +75,10 @@ div.overflow-y-auto:hover::-webkit-scrollbar { width: 8px; height: 8px; }
 div.editable[data-diff="added"] { background: transparent !important; }
 .msg-body { padding: 2px 6px !important; }
 .card-out .msg-body { padding-left: 14px !important; }  /* subliminal offset */
-.msg-content, .msg-content pre, .msg-content code { line-height: 1 !important; }
 /* Type scale in one place; CRAFT.js reads --craft-code for Monaco editors too. */
-:root { --craft-prose: 11px; --craft-code: 10px; }
-.msg-content, .msg-content .prose { font-size: var(--craft-prose) !important; }
-.msg-content pre, .msg-content code { font-size: var(--craft-code) !important; }
+:root { --craft-prose: 9px; --craft-prose-lh: 8px; --craft-code: 10px; }
+.msg-content, .msg-content .prose { font-size: var(--craft-prose) !important; line-height: var(--craft-prose-lh) !important; }
+.msg-content pre, .msg-content code { font-size: var(--craft-code) !important; line-height: 1 !important; }
 .msg-content .prose p { margin: 0.15em 0 !important; }
 
 /* ── 3. Surfaces and text ───────────────────────────────────────────── */
@@ -355,7 +354,7 @@ body:has(#solveit-temp-editor.open) #solveit-file-tree-panel.open {
 /* ── Compact typography: minimal line and block spacing ─────────── */
 /* Blank lines in source become paragraph breaks in rendered markdown:
    their gap stays slightly larger than the gap between wrapped lines. */
-.msg-content .prose { line-height: 1 !important; }
+.msg-content .prose { line-height: var(--craft-prose-lh) !important; }
 .msg-content .prose > * + * { margin-top: 0.15em !important; }
 .msg-content .prose h1, .msg-content .prose h2, .msg-content .prose h3,
 .msg-content .prose h4, .msg-content .prose h5, .msg-content .prose h6 {
@@ -406,6 +405,12 @@ body:has(#solveit-temp-editor.open) #solveit-file-tree-panel.open {
 #solveit-launcher li .hint { flex: 0 0 auto; color: #cfc9c288; font: 11px monospace; }
 #solveit-launcher li.kind-dialog .hint { color: #bb9af7; }
 #solveit-launcher li.empty { color: #cfc9c266; cursor: default; }
+
+/* Unica One: prose; remote Fontsource WOFF2, with a system sans-serif fallback. */
+@font-face { font-family: 'Craft Unica One'; font-style: normal; font-weight: 400; font-display: swap; src: url('https://cdn.jsdelivr.net/npm/@fontsource/unica-one/files/unica-one-latin-ext-400-normal.woff2') format('woff2'); unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF; }
+@font-face { font-family: 'Craft Unica One'; font-style: normal; font-weight: 400; font-display: swap; src: url('https://cdn.jsdelivr.net/npm/@fontsource/unica-one/files/unica-one-latin-400-normal.woff2') format('woff2'); unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+:root { --craft-prose-family: 'Craft Unica One', -apple-system, sans-serif; }
+.msg-content, .msg-content .prose { font-family: var(--craft-prose-family) !important; }
 
 /* Iosevka: code only; remote font files, with a system monospace fallback. */
 @font-face { font-family: 'Craft Iosevka'; font-style: normal; font-weight: 400; font-display: swap; src: url('https://iosevka-webfonts.github.io/iosevka/WOFF2/Iosevka-Regular.woff2') format('woff2'); }
