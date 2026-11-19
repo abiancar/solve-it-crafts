@@ -9,7 +9,7 @@ git clone https://github.com/abiancar/solve-it-crafts.git ~/.craft
 bash ~/.craft/setup.sh
 ```
 
-Reload the browser page. Solveit loads CRAFT CSS/JS at page load and discovers them by walking up from the dialog's folder. Installing at the data root (`$HOME`, normally `/app/data`) applies the customizations to dialogs below it; folder-specific CRAFTs can layer on top.
+Reload the browser page. `setup.sh` places `CRAFT.css` and `CRAFT.js` at the data root and all supporting scripts, styles, and icons inside `.craft-assets/` to keep the root directory uncluttered. Solveit loads CRAFT CSS/JS at page load and discovers them by walking up from the dialog's folder. Installing at the data root (`$HOME`, normally `/app/data`) applies the customizations to dialogs below it; folder-specific CRAFTs can layer on top.
 
 Optional terminal setup:
 
@@ -42,7 +42,7 @@ Use `--dest DIR` to install into a different data root or a disposable test dire
 | `hotkey_builtins.js` | Snapshot of Solveit's built-in shortcuts; update it when upstream bindings change |
 | `quercus-treeview.js`, `quercus-treeview.css` | File-tree widget |
 | `vscode-icons/` | File/folder icons and their license |
-| `setup.sh` | Deploys the UI assets, with preservation or explicit backup-and-replace modes |
+| `setup.sh` | Deploys `CRAFT.css`/`CRAFT.js` to `$HOME` and support assets into `$HOME/.craft-assets/`, with preservation or backup-and-replace modes |
 | `zsh-setup.sh` | Optional user-space zsh and oh-my-zsh installation |
 
 ## Document-style dialogs
@@ -84,10 +84,13 @@ Normal collapse uses Solveit's existing server-backed behavior. The fully hidden
 
 ## File tree, dashboard access, and launcher
 
-- **Mod+B** toggles the file tree. Its header contains the live editable dialog name, refresh, a home button for the Dialogs dashboard, and close.
-- The dot-files toggle remembers its setting in localStorage.
-- Right-click a file for Open, Duplicate, and Delete. Deletion asks for confirmation and uses the listing row's own action. Duplicate is currently dialog-only and still needs dedicated browser verification.
+- **Mod+B** (rebindable as `file-tree-toggle`) opens or hides the explorer. It stays open on outside clicks and Escape, and its state is restored on reload or dialog navigation in the same tab via `sessionStorage['solveit-file-tree:open']`.
+- The tree stays rooted at `~/` and expands the active dialog's folder. Dotfiles are hidden by default; the `.*` toggle remembers your preference in `localStorage`.
+- Right-click a folder or the root bar for **New Dialog**, **New File**, and **New Folder**. Double-click blank explorer space to create in the current folder, or double-click the `~/` bar to create at root. In this quick-create flow, `notes` and `notes.ipynb` create dialogs; `notes.txt` creates a plain file.
+- The inline name field submits on Enter and cancels on Escape or a click outside it. Canceling clears the draft, not the explorer. Errors stay inline; successful creation refreshes the folder without opening the new item.
+- Rows offer Copy and Delete; paste into a destination folder or the root bar. Drag and drop moves items. Folder copy, move, and delete include descendants; moves copy first, then remove the source. Delete asks for confirmation.
 - Plain files open in a temporary editor overlay. Dialogs open through Solveit's normal dialog route.
+- Maintainers: `CRAFT.js` owns the panel, draft, and gestures; Quercus renders the rows. `renderTree()` remounts the draft after row replacement. `CRAFT.css` styles the inline field. Reload after changing the live assets in `~`; the repository copies in `~/.craft` are separate.
 - **Mod+Shift+P** opens the searchable command/file launcher by default. Arrow keys select, Enter runs/opens, and Escape closes. File results cover the root and folders already loaded by the tree, not a recursive disk-wide search.
 
 `Mod` means Command on macOS and Control elsewhere. Your browser-local rebindings may differ from these defaults; browser-reserved combinations can take precedence. These are enhancements around Solveit's existing dashboard, not a replacement dashboard application.
@@ -114,7 +117,7 @@ git -C ~/.craft diff --check
 git -C ~/.craft diff --stat
 ```
 
-Other deployed assets (hotkey files, tree widget, icons) must also be copied back if changed. Review, stage explicit files, commit, then push. Update README when behavior changes and setup.sh when the asset list or installation behavior changes.
+Other deployed assets in `~/.craft-assets/` (hotkey files, tree widget, icons) must also be copied back if changed. Review, stage explicit files, commit, then push. Update README when behavior changes and setup.sh when the asset list or installation behavior changes.
 
 Suggested checks before publishing:
 
@@ -130,4 +133,4 @@ Browser checks: new/edit/save/Escape, prompt/note/code chains, action menus, omi
 
 ## Optional terminal setup
 
-`zsh-setup.sh` installs user-space zsh from Debian packages into `~/opt/zsh`, plus oh-my-zsh, and configures new interactive shells to use the robbyrussell theme and git plugin. It needs no root access; existing terminals and noninteractive code-cell shell commands are unaffected. Files live on the persistent volume, and an installed system zsh is preferred if available.
+`zsh-setup.sh` installs user-space zsh from Debian packages into `~/.craft-assets/zsh`, plus oh-my-zsh, and configures new interactive shells to use the robbyrussell theme and git plugin. It needs no root access; existing terminals and noninteractive code-cell shell commands are unaffected. Files live on the persistent volume, and an installed system zsh is preferred if available.

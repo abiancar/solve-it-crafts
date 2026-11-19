@@ -1,12 +1,12 @@
 /* ── Hotkey manager bootstrap ──────────────────────────────────────
    The shared shortcut registry lives in hotkey_manager.js (served from
-   ~ at /static/hotkey_manager.js). Load it first so the sections below
+   ~/.craft-assets at /static/.craft-assets/hotkey_manager.js). Load it first so the sections below
    can register their shortcuts; registrations made before it finishes
    loading are queued and replayed by the manager. */
 (() => {
   window.__hotkeyQueue ||= [];
   window.__hotkeyRegister = spec => { if (window.solveitHotkeys) window.solveitHotkeys.register(spec); else window.__hotkeyQueue.push(spec); };
-  for (const [src, tag] of [['/static/hotkey_manager.js', '1'], ['/static/hotkey_builtins.js', 'builtins']])
+  for (const [src, tag] of [['/static/.craft-assets/hotkey_manager.js', '1'], ['/static/.craft-assets/hotkey_builtins.js', 'builtins']])
     if (!document.querySelector(`script[data-solveit-hotkeys="${tag}"]`)) {
       const s = document.createElement('script');
       s.src = src; s.dataset.solveitHotkeys = tag;
@@ -17,27 +17,166 @@
 
 /* ── Lightweight file tree ─────────────────────────────────────────── */
 (() => {
-  const QUERCUS_JS = '/static/quercus-treeview.js', QUERCUS_CSS = '/static/quercus-treeview.css';
-  let panel, tree, loaded = false, rootRows, filterText = '', restoring = false, previousFocus;
-  let refreshTimer;
+  window.solveitFileTree?.disable?.();
+  const QUERCUS_JS = '/static/.craft-assets/quercus-treeview.js', QUERCUS_CSS = '/static/.craft-assets/quercus-treeview.css';
   const DOTS_KEY = 'solveit-file-tree:hide-dots';
-  let hideDots = false;
-  try { hideDots = localStorage.getItem(DOTS_KEY) === '1'; } catch {}
+  const CACHE_KEY = 'solveit-file-tree:v4', CLIP_KEY = 'solveit-file-tree:clipboard', CACHE_MAX_AGE = 180000;
+  let panel, tree, loaded = false, filterText = '', restoring = false, previousFocus;
+  let refreshTimer, busy = false, menu = null;
+  let workspaceRow = null, dlgNameNode = null, dlgNameOrigParent = null, dlgNameOrigNext = null;
+  let draggedNode = null, dropHighlightEl = null, hoverExpandTimer = null, hoverExpandPath = null;
+
+  let hideDots = true;
+  try { const v = localStorage.getItem(DOTS_KEY); if (v !== null) hideDots = v === '1'; } catch {}
+
+  const OPEN_KEY = 'solveit-file-tree:open';
+  function saveOpen(open) { try { sessionStorage.setItem(OPEN_KEY, open ? '1' : '0'); } catch {} }
   window.__hotkeyRegister?.({id: 'file-tree-toggle', label: 'Toggle file tree', group: 'File tree', combo: 'Mod+B', handler: () => { toggle(); return true; }});
+
   const rowsByPath = new Map(), fetchedAtByPath = new Map(), expandedPaths = new Set(), loadingPaths = new Set();
-  const CACHE_KEY = 'solveit-file-tree:v3', CACHE_MAX_AGE = 180000;
   try {
     const cached = JSON.parse(sessionStorage.getItem(CACHE_KEY));
-    if (cached) { cached.rows.forEach(([path, rows]) => rowsByPath.set(path, rows)); cached.fetchedAt.forEach(([path, time]) => fetchedAtByPath.set(path, time)); cached.expanded.forEach(path => expandedPaths.add(path)); }
+    if (cached) {
+      cached.rows.forEach(([path, rows]) => rowsByPath.set(path, rows));
+      cached.fetchedAt.forEach(([path, time]) => fetchedAtByPath.set(path, time));
+      cached.expanded.forEach(path => expandedPaths.add(path));
+    }
   } catch {}
   function saveCache() {
     try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({rows: [...rowsByPath], fetchedAt: [...fetchedAtByPath], expanded: [...expandedPaths]})); } catch {}
   }
 
+  /* ── Path & clipboard helpers ──────────────────────────────────────── */
+  const normPath = p => {
+    const s = String(p || '').trim().replace(/^\/+/, '').replace(/^\.\//, '').replace(/\/+$/, '');
+    return s || '.';
+  };
+  const parentOf = p => {
+    const n = normPath(p);
+    if (n === '.') return '.';
+    const i = n.lastIndexOf('/');
+    return i > 0 ? n.slice(0, i) : '.';
+  };
+  const baseOf = p => {
+    const n = normPath(p);
+    if (n === '.') return '.';
+    const i = n.lastIndexOf('/');
+    return i >= 0 ? n.slice(i + 1) : n;
+  };
+  const joinPath = (dir, name) => (!dir || dir === '.' ? name : `${dir}/${name}`);
+  const staticUrl = p => '/static/' + normPath(p).split('/').map(encodeURIComponent).join('/') + '?download=true';
+  const ancestorsOf = dir => {
+    const n = normPath(dir);
+    if (n === '.') return ['.'];
+    const parts = n.split('/'), out = ['.'];
+    for (let i = 0; i < parts.length; i++) out.push(parts.slice(0, i + 1).join('/'));
+    return out;
+  };
+  function getCurrentContext() {
+    const params = new URLSearchParams(location.search);
+    if (location.pathname.startsWith('/dialog_')) {
+      const raw = normPath(params.get('name') || '');
+      if (raw !== '.') {
+        const dlgPath = raw.endsWith('.ipynb') ? raw : `${raw}.ipynb`;
+        return {dir: parentOf(dlgPath), dlgPath};
+      }
+    }
+    if (location.pathname === '/') return {dir: normPath(params.get('at') || '.'), dlgPath: null};
+    return {dir: '.', dlgPath: null};
+  }
+  function getClipboard() {
+    try { return JSON.parse(sessionStorage.getItem(CLIP_KEY)) || null; } catch { return null; }
+  }
+  function setClipboard(item) {
+    try {
+      if (item) sessionStorage.setItem(CLIP_KEY, JSON.stringify(item));
+      else sessionStorage.removeItem(CLIP_KEY);
+    } catch {}
+  }
+  function setStatus(msg) {
+    const el = panel?.querySelector('.solveit-tree-status');
+    if (el) el.textContent = msg || '';
+  }
+
+  /* ── Minimal ZIP builders (for mkdir & renamed recursive folder copy) ── */
+  function makeEmptyDirZip(dirName) {
+    const nameBytes = new TextEncoder().encode(dirName.replace(/\/+$/, '') + '/');
+    const n = nameBytes.length;
+    const lfh = new Uint8Array(30 + n), lv = new DataView(lfh.buffer);
+    lv.setUint32(0, 0x04034b50, true); lv.setUint16(4, 20, true); lv.setUint16(26, n, true);
+    lfh.set(nameBytes, 30);
+    const cdh = new Uint8Array(46 + n), cv = new DataView(cdh.buffer);
+    cv.setUint32(0, 0x02014b50, true); cv.setUint16(4, 0x0314, true); cv.setUint16(6, 20, true);
+    cv.setUint16(28, n, true); cv.setUint32(38, 0x41ed0010, true); cv.setUint32(42, 0, true);
+    cdh.set(nameBytes, 46);
+    const eocd = new Uint8Array(22), ev = new DataView(eocd.buffer);
+    ev.setUint32(0, 0x06054b50, true); ev.setUint16(8, 1, true); ev.setUint16(10, 1, true);
+    ev.setUint32(12, cdh.length, true); ev.setUint32(16, lfh.length, true);
+    return new Blob([lfh, cdh, eocd], {type: 'application/zip'});
+  }
+  function renameZipTopDir(bytes, oldTop, newTop) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const dec = new TextDecoder(), enc = new TextEncoder();
+    let eocd = bytes.length - 22;
+    while (eocd >= 0 && view.getUint32(eocd, true) !== 0x06054b50) eocd--;
+    if (eocd < 0) throw new Error('Invalid zip archive');
+    const cdCount = view.getUint16(eocd + 10, true);
+    if (cdCount === 0xffff) throw new Error('ZIP64 archives are not supported');
+    const cdOff = view.getUint32(eocd + 16, true);
+    const entries = [];
+    let p = cdOff;
+    for (let i = 0; i < cdCount; i++) {
+      const nLen = view.getUint16(p + 28, true);
+      const exLen = view.getUint16(p + 30, true);
+      const cmLen = view.getUint16(p + 32, true);
+      const lfhOff = view.getUint32(p + 42, true);
+      const name = dec.decode(bytes.subarray(p + 46, p + 46 + nLen));
+      entries.push({cdOff: p, cdLen: 46 + nLen + exLen + cmLen, nLen, lfhOff, name});
+      p += 46 + nLen + exLen + cmLen;
+    }
+    const byLfh = [...entries].sort((a, b) => a.lfhOff - b.lfhOff);
+    const prefix = oldTop.replace(/\/+$/, '') + '/';
+    const newPrefix = newTop.replace(/\/+$/, '') + '/';
+    const localParts = [];
+    let curOff = 0;
+    for (let i = 0; i < byLfh.length; i++) {
+      const e = byLfh[i];
+      const nextOff = i + 1 < byLfh.length ? byLfh[i + 1].lfhOff : cdOff;
+      const origLfhNameLen = view.getUint16(e.lfhOff + 26, true);
+      const renamed = e.name.startsWith(prefix) ? newPrefix + e.name.slice(prefix.length) : newPrefix + e.name;
+      e.newNameBytes = enc.encode(renamed);
+      e.newLfhOff = curOff;
+      const head = new Uint8Array(bytes.subarray(e.lfhOff, e.lfhOff + 30));
+      new DataView(head.buffer).setUint16(26, e.newNameBytes.length, true);
+      const rest = bytes.subarray(e.lfhOff + 30 + origLfhNameLen, nextOff);
+      localParts.push(head, e.newNameBytes, rest);
+      curOff += head.length + e.newNameBytes.length + rest.length;
+    }
+    const newCdOff = curOff, cdParts = [];
+    let newCdSize = 0;
+    for (const e of entries) {
+      const head = new Uint8Array(bytes.subarray(e.cdOff, e.cdOff + 46));
+      const hv = new DataView(head.buffer);
+      hv.setUint16(28, e.newNameBytes.length, true);
+      hv.setUint32(42, e.newLfhOff, true);
+      const rest = bytes.subarray(e.cdOff + 46 + e.nLen, e.cdOff + e.cdLen);
+      cdParts.push(head, e.newNameBytes, rest);
+      newCdSize += head.length + e.newNameBytes.length + rest.length;
+    }
+    const newEocd = new Uint8Array(bytes.subarray(eocd));
+    const ev = new DataView(newEocd.buffer);
+    ev.setUint32(12, newCdSize, true);
+    ev.setUint32(16, newCdOff, true);
+    return new Blob([...localParts, ...cdParts, newEocd], {type: 'application/zip'});
+  }
+
+  /* ── Backend requests ──────────────────────────────────────────────── */
   function loadAssets() {
-    if (loaded) return Promise.resolve();
-    const css = document.createElement('link');
-    css.rel = 'stylesheet'; css.href = QUERCUS_CSS; css.dataset.solveitTree = '1'; document.head.append(css);
+    if (loaded || typeof window.Treeview === 'function') { loaded = true; return Promise.resolve(); }
+    if (!document.querySelector('link[data-solveit-tree="1"]')) {
+      const css = document.createElement('link');
+      css.rel = 'stylesheet'; css.href = QUERCUS_CSS; css.dataset.solveitTree = '1'; document.head.append(css);
+    }
     return new Promise((resolve, reject) => {
       const script = document.createElement('script');
       script.src = QUERCUS_JS; script.dataset.solveitTree = '1';
@@ -47,68 +186,217 @@
     });
   }
 
-  async function getRows(path) {
-    const response = await fetch(`/?at=${encodeURIComponent(path)}`, {method: 'POST', credentials: 'same-origin', headers: {'HX-Request': 'true'}});
+  async function getRows(dirPath) {
+    const cleanDir = normPath(dirPath);
+    const response = await fetch(`/?at=${encodeURIComponent(cleanDir)}`, {method: 'POST', credentials: 'same-origin', headers: {'HX-Request': 'true'}});
     if (!response.ok) throw new Error(`File listing failed: ${response.status}`);
     const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
     return [...doc.querySelectorAll('.tbl-row')].map(row => {
       const link = row.querySelector('a.file-link');
       if (!link) return null;
       const href = link.getAttribute('href'), hxPost = link.getAttribute('hx-post'), isDir = !!hxPost;
-      const path = isDir ? new URL(hxPost, location.href).searchParams.get('at') : null;
-      return {id: path || href || link.textContent.trim(), name: link.textContent.trim(), kind: isDir ? 'directory' : href?.startsWith('/dialog_?') ? 'dialog' : 'file', href: href !== '#' ? href : null, path, delUrl: row.querySelector('a.file-del')?.getAttribute('hx-post') || null};
+      const kind = isDir ? 'directory' : href?.startsWith('/dialog_?') ? 'dialog' : 'file';
+      const label = link.textContent.trim();
+      let relPath = isDir
+        ? new URL(hxPost, location.href).searchParams.get('at')
+        : (link.getAttribute('title') || null);
+      if (!relPath && href && href !== '#') {
+        const u = new URL(href, location.href);
+        relPath = u.searchParams.get('fp') || u.searchParams.get('name');
+      }
+      relPath = normPath(relPath || joinPath(cleanDir, kind === 'dialog' && !label.endsWith('.ipynb') ? `${label}.ipynb` : label));
+      const filename = baseOf(relPath);
+      return {
+        id: relPath,
+        name: label,
+        filename,
+        kind,
+        href: href && href !== '#' ? href : null,
+        path: relPath,
+        parentPath: parentOf(relPath),
+        delUrl: row.querySelector('a.file-del')?.getAttribute('hx-post') || null,
+        dlUrl: row.querySelector('a[download]')?.getAttribute('href') || null,
+      };
     }).filter(Boolean);
   }
 
-  function nodesFor(path) {
-    return (rowsByPath.get(path) || []).filter(n => !hideDots || !n.name.startsWith('.')).map(node => node.kind !== 'directory' ? node : ({...node, children: rowsByPath.has(node.path) ? nodesFor(node.path) : [{id: `loading:${node.path}`, name: 'Loading…', kind: 'loading', selectable: false}]}));
+  async function uploadBlob(folder, filename, blob, extract = false) {
+    const fd = new FormData();
+    fd.append('files', new File([blob], filename, {type: blob.type || 'application/octet-stream'}));
+    if (extract) fd.append('extract_archives', 'on');
+    const r = await fetch(`/upload_file_?folder=${encodeURIComponent(normPath(folder))}`, {
+      method: 'POST', credentials: 'same-origin', headers: {'HX-Request': 'true'}, body: fd,
+    });
+    if (!r.ok) throw new Error(`Upload failed: HTTP ${r.status} ${(await r.text()).trim()}`);
+  }
+
+  async function downloadBytes(node) {
+    const url = node.dlUrl || staticUrl(node.path);
+    const r = await fetch(new URL(url, location.href), {credentials: 'same-origin'});
+    if (!r.ok) throw new Error(`Download failed: HTTP ${r.status}`);
+    return new Uint8Array(await r.arrayBuffer());
+  }
+
+  async function deleteRecursive(node) {
+    if (node.kind === 'directory') {
+      const children = await getRows(node.path);
+      for (const child of children) await deleteRecursive(child);
+    }
+    const url = node.delUrl || (node.kind === 'dialog'
+      ? `/rm_dialog_?name=${encodeURIComponent(node.path)}`
+      : `/delete_file_?filename=${encodeURIComponent(node.path)}`);
+    const r = await fetch(new URL(url, location.href), {method: 'POST', credentials: 'same-origin', headers: {'HX-Request': 'true'}});
+    if (!r.ok) {
+      const detail = (await r.text()).trim();
+      throw new Error(detail || `HTTP ${r.status}`);
+    }
+  }
+
+  function purgeDirCache(dirPath) {
+    const prefix = dirPath + '/';
+    [...rowsByPath.keys()].filter(p => p === dirPath || p.startsWith(prefix)).forEach(p => {
+      rowsByPath.delete(p); fetchedAtByPath.delete(p); expandedPaths.delete(p);
+    });
+  }
+
+  /* ── Tree rendering & navigation ───────────────────────────────────── */
+  function nodesFor(path, curAncestors) {
+    return (rowsByPath.get(path) || [])
+      .filter(n => {
+        const fname = n.filename || n.name || '';
+        if (!hideDots || !fname.startsWith('.')) return true;
+        return n.kind === 'directory' && curAncestors.has(n.path);
+      })
+      .map(node => node.kind !== 'directory' ? node : ({
+        ...node,
+        children: rowsByPath.has(node.path)
+          ? nodesFor(node.path, curAncestors)
+          : [{id: `loading:${node.path}`, name: 'Loading…', kind: 'loading', selectable: false}],
+      }));
   }
 
   function findNode(path) {
-    return [...panel.querySelectorAll('#solveit-file-tree li[data-node-data]')].find(li => JSON.parse(li.dataset.nodeData).path === path);
+    return [...(panel?.querySelectorAll('#solveit-file-tree li[data-node-data]') || [])]
+      .find(li => JSON.parse(li.dataset.nodeData).path === path);
+  }
+
+  function focusPath(path) {
+    const li = findNode(path);
+    const content = li?.querySelector(':scope > .treeview-node-content');
+    if (content) {
+      content.scrollIntoView({block: 'nearest'});
+      content.focus();
+      return true;
+    }
+    return false;
   }
 
   function renderNode(node, content) {
-    content.classList.add('solveit-tree-' + node.kind); content.tabIndex = 0; content.setAttribute('role', 'treeitem');
+    const {dir, dlgPath} = getCurrentContext();
+    content.classList.add('solveit-tree-' + node.kind);
+    content.tabIndex = 0;
+    content.setAttribute('role', 'treeitem');
+    if (node.kind !== 'loading') content.draggable = true;
     if (node.kind === 'directory') content.setAttribute('aria-expanded', String(expandedPaths.has(node.path)));
-    if (node.kind !== 'loading') {
-      const ext = node.name.includes('.') ? node.name.split('.').pop().toLowerCase() : '';
-      const icons = {js: 'file_type_js.svg', css: 'file_type_css.svg', json: 'file_type_json.svg'};
-      const icon = node.kind === 'directory' ? expandedPaths.has(node.path) ? 'default_folder_opened.svg' : 'default_folder.svg' : node.kind === 'dialog' ? 'file_type_ipynb.svg' : icons[ext] || 'default_file.svg';
-      const img = document.createElement('img'); img.className = 'solveit-tree-icon'; img.src = `/static/vscode-icons/${icon}`; img.alt = ''; content.append(img);
+    if ((dlgPath && node.path === dlgPath) || (!dlgPath && dir !== '.' && node.path === dir)) {
+      content.classList.add('solveit-tree-current');
     }
-    const label = document.createElement('span'); label.className = 'treeview-node-text'; label.textContent = node.name; content.append(label);
+    if (node.kind !== 'loading') {
+      const fname = node.filename || node.name || '';
+      const ext = fname.includes('.') ? fname.split('.').pop().toLowerCase() : '';
+      const icons = {js: 'file_type_js.svg', css: 'file_type_css.svg', json: 'file_type_json.svg'};
+      const icon = node.kind === 'directory'
+        ? (expandedPaths.has(node.path) ? 'default_folder_opened.svg' : 'default_folder.svg')
+        : node.kind === 'dialog' ? 'file_type_ipynb.svg' : (icons[ext] || 'default_file.svg');
+      const img = document.createElement('img');
+      img.className = 'solveit-tree-icon'; img.src = `/static/.craft-assets/vscode-icons/${icon}`; img.alt = '';
+      content.append(img);
+    }
+    const label = document.createElement('span');
+    label.className = 'treeview-node-text'; label.textContent = node.name;
+    content.append(label);
   }
 
   function renderTree() {
-    if (!tree) tree = new Treeview({containerId: 'solveit-file-tree', data: nodesFor('.'), initiallyExpanded: false, nodeSelectionEnabled: false, onRenderNode: renderNode});
-    else tree.setData(nodesFor('.'));
+    if (!panel) return;
+    const focused = createDraft?.input;
+    const draftFocus = focused && document.activeElement === focused ? [focused.selectionStart, focused.selectionEnd] : null;
+    const {dir} = getCurrentContext();
+    const curAncestors = new Set(ancestorsOf(dir));
+    const data = nodesFor('.', curAncestors);
+    if (!tree) tree = new Treeview({containerId: 'solveit-file-tree', data, initiallyExpanded: false, nodeSelectionEnabled: false, onRenderNode: renderNode});
+    else tree.setData(data);
     restoring = true;
     [...expandedPaths].sort((a, b) => a.length - b.length).forEach(path => {
-      const li = findNode(path), expander = li?.querySelector('.treeview-expander');
+      const li = findNode(path), expander = li?.querySelector(':scope > .treeview-node-content > .treeview-expander');
       if (expander && !li.classList.contains('expanded')) expander.click();
     });
     restoring = false;
     if (filterText) tree.search(filterText);
+    mountCreate();
+    if (draftFocus && createDraft?.input.isConnected) {
+      const input = createDraft.input;
+      input.focus({preventScroll: true});
+      input.setSelectionRange(...draftFocus);
+    }
+    const rootLabel = panel.querySelector('.solveit-tree-rootbar-path');
+    if (rootLabel) rootLabel.textContent = dir === '.' ? '~/' : `~/${dir}`;
   }
 
-  async function loadFolder(path) {
-    if (rowsByPath.has(path) || loadingPaths.has(path)) return;
-    loadingPaths.add(path);
-    try { rowsByPath.set(path, await getRows(path)); fetchedAtByPath.set(path, Date.now()); saveCache(); renderTree(); }
-    catch (err) { panel.querySelector('.solveit-tree-status').textContent = `Could not load folder: ${err.message || err}`; }
-    finally { loadingPaths.delete(path); }
-  }
-  async function refreshTree() {
-    const status = panel.querySelector('.solveit-tree-status'), button = panel.querySelector('.solveit-tree-refresh');
-    button.disabled = true; status.textContent = 'Refreshing files…';
+  async function loadFolder(path, force = false) {
+    const clean = normPath(path);
+    if ((!force && rowsByPath.has(clean)) || loadingPaths.has(clean)) return;
+    loadingPaths.add(clean);
     try {
-      const fresh = await Promise.all([...rowsByPath.keys()].map(async path => [path, await getRows(path)]));
-      fresh.forEach(([path, rows]) => { rowsByPath.set(path, rows); fetchedAtByPath.set(path, Date.now()); });
+      rowsByPath.set(clean, await getRows(clean));
+      fetchedAtByPath.set(clean, Date.now());
       saveCache();
-      renderTree(); status.textContent = '';
-    } catch (err) { status.textContent = `Could not refresh files: ${err.message || err}`; }
+      renderTree();
+    } catch (err) { setStatus(`Could not load folder: ${err.message || err}`); }
+    finally { loadingPaths.delete(clean); }
+  }
+
+  async function refreshDirs(...dirs) {
+    const targets = [...new Set(dirs.map(normPath))];
+    await Promise.all(targets.map(async p => {
+      rowsByPath.set(p, await getRows(p));
+      fetchedAtByPath.set(p, Date.now());
+    }));
+    saveCache();
+    renderTree();
+  }
+
+  async function refreshTree() {
+    const button = panel.querySelector('.solveit-tree-refresh');
+    button.disabled = true; setStatus('Refreshing files…');
+    try {
+      const keys = rowsByPath.size ? [...rowsByPath.keys()] : ['.'];
+      const results = await Promise.allSettled(keys.map(async p => [p, await getRows(p)]));
+      results.forEach((res, i) => {
+        if (res.status === 'fulfilled') {
+          const [p, rows] = res.value;
+          rowsByPath.set(p, rows); fetchedAtByPath.set(p, Date.now());
+        } else if (keys[i] !== '.') {
+          rowsByPath.delete(keys[i]); fetchedAtByPath.delete(keys[i]); expandedPaths.delete(keys[i]);
+        }
+      });
+      saveCache();
+      renderTree(); setStatus('');
+    } catch (err) { setStatus(`Could not refresh files: ${err.message || err}`); }
     finally { button.disabled = false; }
+  }
+
+  async function ensureCurrentDirLoaded() {
+    const {dir} = getCurrentContext();
+    const chain = ancestorsOf(dir);
+    for (const p of chain) {
+      if (p !== '.') expandedPaths.add(p);
+      if (!rowsByPath.has(p)) {
+        rowsByPath.set(p, await getRows(p));
+        fetchedAtByPath.set(p, Date.now());
+      }
+    }
+    saveCache();
   }
 
   function openNode(node) {
@@ -131,123 +419,511 @@
   }
 
   function handleTreeClick(e) {
-    if (restoring) return;
+    if (restoring || e.target.closest('.solveit-tree-create')) return;
     const li = e.target.closest('li[data-node-data]');
     if (!li) return;
     const node = JSON.parse(li.dataset.nodeData), expander = e.target.closest('.treeview-expander');
     if (node.kind === 'directory' && !expander) {
-      e.preventDefault(); e.stopPropagation(); li.querySelector('.treeview-expander')?.click(); return;
+      e.preventDefault(); e.stopPropagation(); li.querySelector(':scope > .treeview-node-content > .treeview-expander')?.click(); return;
     }
     if (node.kind === 'directory' && expander) queueMicrotask(() => {
       if (!li.isConnected) return;
-      const open = li.classList.contains('expanded'), icon = li.querySelector('img.solveit-tree-icon');
-      if (open) { expandedPaths.add(node.path); if (icon) icon.src = '/static/vscode-icons/default_folder_opened.svg'; loadFolder(node.path); }
-      else { expandedPaths.delete(node.path); if (icon) icon.src = '/static/vscode-icons/default_folder.svg'; }
+      const open = li.classList.contains('expanded'), icon = li.querySelector(':scope > .treeview-node-content > img.solveit-tree-icon');
+      li.querySelector(':scope > .treeview-node-content')?.setAttribute('aria-expanded', String(open));
+      if (open) { expandedPaths.add(node.path); if (icon) icon.src = '/static/.craft-assets/vscode-icons/default_folder_opened.svg'; loadFolder(node.path); }
+      else { expandedPaths.delete(node.path); if (icon) icon.src = '/static/.craft-assets/vscode-icons/default_folder.svg'; }
       saveCache();
     });
     else if (node.href) openNode(node);
   }
 
-  /* Right-click menu: Open / Duplicate / Delete. Delete posts to the row's own
-     /delete_file_ URL (scraped from the listing), after a confirm. Solveit only
-     exposes duplication for dialogs, so Duplicate is disabled for other files. */
-  let menu = null;
-  function closeMenu() { if (!menu) return false; menu.remove(); menu = null; return true; }
+  /* ── File operations: Create, Delete, Copy/Paste, Drag-Move ────────── */
+  function validateName(raw, kind) {
+    const trimmed = raw.trim();
+    if (!trimmed) throw new Error('Enter a name.');
+    if (trimmed === '.' || trimmed === '..' || /[\\/]/.test(trimmed)) throw new Error('Name cannot be "." or ".." or contain slashes.');
+    if (kind === 'dialog') return trimmed.endsWith('.ipynb') ? trimmed : `${trimmed}.ipynb`;
+    return trimmed;
+  }
+
+  function uniqueName(existingSet, filename, kind) {
+    if (!existingSet.has(filename)) return filename;
+    let stem = filename, ext = '';
+    if (kind !== 'directory') {
+      const dot = filename.lastIndexOf('.');
+      if (dot > 0) { stem = filename.slice(0, dot); ext = filename.slice(dot); }
+    }
+    let candidate = `${stem} copy${ext}`, n = 2;
+    while (existingSet.has(candidate)) candidate = `${stem} copy ${n++}${ext}`;
+    return candidate;
+  }
+
+  async function withBusy(label, fn) {
+    if (busy) { setStatus('Wait for the current file action to finish…'); return; }
+    busy = true; setStatus(label);
+    try { return await fn(); }
+    catch (err) { setStatus(err.message || String(err)); }
+    finally { busy = false; }
+  }
+
+  async function createItem(targetDir, kind, filename) {
+    const existing = await getRows(targetDir);
+    if (existing.some(r => r.filename === filename)) throw new Error(`'${filename}' already exists in this folder.`);
+  if (kind === 'directory') {
+    await uploadBlob(targetDir, '__mkdir__.zip', makeEmptyDirZip(filename), true);
+  } else if (kind === 'dialog') {
+    const nb = JSON.stringify({cells: [], metadata: {solveit: {mode: 'learning'}}, nbformat: 4, nbformat_minor: 5}, null, 1);
+    await uploadBlob(targetDir, filename, new Blob([nb], {type: 'application/json'}), false);
+  } else {
+    await uploadBlob(targetDir, filename, new Blob([''], {type: 'text/plain'}), false);
+  }
+  }
+
+  let createDraft;
+  function dismissCreate(restoreFocus = false) {
+    if (!createDraft) return;
+    const {form, dir} = createDraft;
+    createDraft = null;
+    form.remove();
+    if (restoreFocus && !focusPath(dir)) panel?.querySelector('.solveit-tree-filter')?.focus();
+  }
+
+  function mountCreate() {
+    if (!createDraft) return;
+    const {dir, form} = createDraft;
+    if (dir === '.') panel.querySelector('#solveit-file-tree').prepend(form);
+    else findNode(dir)?.querySelector(':scope > .treeview-node-content')?.after(form);
+  }
+
+  function beginCreate(dir, kind) {
+    if (busy) { setStatus('Wait for the current file action to finish…'); return; }
+    dismissCreate();
+    const label = {dialog: 'New dialog name', file: 'New file name', directory: 'New folder name', auto: 'New name (.ipynb by default)'}[kind];
+    const form = document.createElement('form');
+    form.className = 'solveit-tree-create';
+    form.innerHTML = '<input type="text" autocomplete="off" spellcheck="false" enterkeyhint="done" aria-describedby="solveit-tree-create-error"><div id="solveit-tree-create-error" role="alert"></div>';
+    const input = form.querySelector('input'), error = form.querySelector('[role="alert"]');
+    input.placeholder = label;
+    input.setAttribute('aria-label', label);
+    const setError = msg => { error.textContent = msg; input.setAttribute('aria-invalid', String(!!msg)); };
+    const draft = createDraft = {dir, form, input};
+    form.addEventListener('keydown', e => {
+      e.stopPropagation();
+      if (e.key === 'Escape' && !e.isComposing) { e.preventDefault(); if (!input.readOnly) dismissCreate(true); }
+    });
+    input.addEventListener('input', () => setError(''));
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      if (input.readOnly) return;
+      if (busy) { setError('Wait for the current file action to finish.'); return; }
+      const raw = input.value.trim();
+      const resolvedKind = kind === 'auto' ? (/^.+\.[^.]+$/.test(raw) && !raw.endsWith('.ipynb') ? 'file' : 'dialog') : kind;
+      let filename;
+      try { filename = validateName(raw, resolvedKind); }
+      catch (err) { setError(err.message); return; }
+      setError('');
+      input.readOnly = busy = true;
+      setStatus(`Creating '${filename}'…`);
+      try {
+        await createItem(dir, resolvedKind, filename);
+      } catch (err) {
+        setStatus('');
+        setError(err.message || String(err));
+        if (createDraft === draft) input.focus();
+        return;
+      } finally { input.readOnly = false; busy = false; }
+      if (createDraft === draft) dismissCreate();
+      if (dir !== '.') expandedPaths.add(dir);
+      try { await refreshDirs(dir); }
+      catch (err) { setStatus(`Created '${filename}', but could not refresh: ${err.message || err}`); return; }
+      if (!createDraft && panel?.classList.contains('open')) focusPath(joinPath(dir, filename));
+      setStatus(hideDots && filename.startsWith('.') ? `Created '${filename}' (hidden by .* filter)` : `Created '${filename}'`);
+    });
+    const folder = dir === '.' ? null : findNode(dir);
+    if (folder && !folder.classList.contains('expanded')) folder.querySelector(':scope > .treeview-node-content > .treeview-expander')?.click();
+    mountCreate();
+    input.focus();
+  }
+
   async function deleteNode(node) {
-    if (!confirm(`Delete '${node.name}'? This cannot be undone.`)) return;
-    try {
-      const r = await fetch(new URL(node.delUrl, location.href), {method: 'POST', credentials: 'same-origin', headers: {'HX-Request': 'true'}});
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      if (node.kind === 'directory') [...rowsByPath.keys()].filter(p => p === node.path || p.startsWith(node.path + '/')).forEach(p => { rowsByPath.delete(p); expandedPaths.delete(p); });
-      await refreshTree();
-    } catch (err) { panel.querySelector('.solveit-tree-status').textContent = `Could not delete: ${err.message || err}`; }
+    const {dlgPath} = getCurrentContext();
+    const affectsActive = dlgPath && (dlgPath === node.path || (node.kind === 'directory' && dlgPath.startsWith(node.path + '/')));
+    const msg = node.kind === 'directory'
+      ? `Delete folder '${node.name}' and all its contents? This cannot be undone.`
+      : `Delete '${node.filename || node.name}'? This cannot be undone.`;
+    if (!confirm(affectsActive ? `${msg}\n\nNote: This includes the currently open dialog.` : msg)) return;
+    await withBusy(`Deleting '${node.filename || node.name}'…`, async () => {
+      await deleteRecursive(node);
+      if (node.kind === 'directory') purgeDirCache(node.path);
+      const clip = getClipboard();
+      if (clip && (clip.path === node.path || (node.kind === 'directory' && clip.path.startsWith(node.path + '/')))) {
+        setClipboard(null);
+      }
+      await refreshDirs(node.parentPath || '.');
+      setStatus(`Deleted '${node.filename || node.name}'`);
+      if (affectsActive) location.href = '/?at=.';
+    });
   }
-  function duplicateNode(name) {
-    window.open('/duplicate_curr_dialog_?name=' + encodeURIComponent(name), '_blank');
-    setTimeout(refreshTree, 1500);
+
+  function copyNode(node) {
+    setClipboard({
+      path: node.path,
+      filename: node.filename || baseOf(node.path),
+      name: node.name,
+      kind: node.kind,
+      dlUrl: node.dlUrl || staticUrl(node.path),
+      parentPath: node.parentPath || parentOf(node.path),
+    });
+    setStatus(`Copied '${node.filename || node.name}'`);
   }
-  function showMenu(e) {
-    const li = e.target.closest('li[data-node-data]');
-    if (!li) return;
-    const node = JSON.parse(li.dataset.nodeData);
-    if (node.kind === 'loading') return;
+
+  function canPaste(src, destDir) {
+    if (!src) return false;
+    const d = normPath(destDir);
+    if (src.kind === 'directory' && (d === src.path || d.startsWith(src.path + '/'))) return false;
+    return true;
+  }
+
+  async function pasteNodeInto(src, destDir) {
+    const targetDir = normPath(destDir);
+    if (!canPaste(src, targetDir)) { setStatus('Cannot paste a folder into itself.'); return; }
+    await withBusy(`Pasting '${src.filename}'…`, async () => {
+      const existing = await getRows(targetDir);
+      const existingNames = new Set(existing.map(r => r.filename));
+      const targetName = uniqueName(existingNames, src.filename, src.kind);
+      const bytes = await downloadBytes(src);
+      if (src.kind === 'directory') {
+        const zipBlob = targetName === src.filename
+          ? new Blob([bytes], {type: 'application/zip'})
+          : renameZipTopDir(bytes, src.filename, targetName);
+        await uploadBlob(targetDir, `${targetName}.zip`, zipBlob, true);
+      } else {
+        await uploadBlob(targetDir, targetName, new Blob([bytes]), false);
+      }
+      if (targetDir !== '.') expandedPaths.add(targetDir);
+      await refreshDirs(targetDir);
+      const newPath = joinPath(targetDir, targetName);
+      focusPath(newPath);
+      setStatus(`Pasted '${targetName}'`);
+    });
+  }
+
+  function canDrop(src, destDir) {
+    if (!src || src.kind === 'loading') return false;
+    const d = normPath(destDir);
+    if ((src.parentPath || parentOf(src.path)) === d) return false;
+    if (src.kind === 'directory' && (d === src.path || d.startsWith(src.path + '/'))) return false;
+    return true;
+  }
+
+  async function moveNode(src, destDir) {
+    const targetDir = normPath(destDir);
+    if (!canDrop(src, targetDir)) return;
+    const {dlgPath} = getCurrentContext();
+    const affectsActive = dlgPath && (dlgPath === src.path || (src.kind === 'directory' && dlgPath.startsWith(src.path + '/')));
+    if (affectsActive && !confirm(`'${src.filename}' includes the currently open dialog. Moving it will reload at the new location. Continue?`)) return;
+
+    await withBusy(`Moving '${src.filename}' to ${targetDir === '.' ? '~/' : targetDir + '/'}…`, async () => {
+      const destBefore = await getRows(targetDir);
+      if (destBefore.some(r => r.filename === src.filename)) {
+        throw new Error(`Cannot move: '${src.filename}' already exists in ${targetDir === '.' ? '~/' : targetDir}`);
+      }
+      const bytes = await downloadBytes(src);
+      if (src.kind === 'directory') {
+        await uploadBlob(targetDir, `${src.filename}.zip`, new Blob([bytes], {type: 'application/zip'}), true);
+      } else {
+        await uploadBlob(targetDir, src.filename, new Blob([bytes]), false);
+      }
+      // Verify destination before deleting source
+      const destAfter = await getRows(targetDir);
+      const created = destAfter.find(r => r.filename === src.filename && r.kind === src.kind);
+      if (!created) throw new Error(`Move aborted: '${src.filename}' did not appear at destination`);
+
+      await deleteRecursive(src);
+      const wasExpanded = src.kind === 'directory' && expandedPaths.has(src.path);
+      if (src.kind === 'directory') purgeDirCache(src.path);
+      const newPath = joinPath(targetDir, src.filename);
+      if (wasExpanded) expandedPaths.add(newPath);
+      if (targetDir !== '.') expandedPaths.add(targetDir);
+
+      const clip = getClipboard();
+      if (clip && (clip.path === src.path || (src.kind === 'directory' && clip.path.startsWith(src.path + '/')))) {
+        setClipboard(null);
+      }
+      rowsByPath.set(targetDir, destAfter); fetchedAtByPath.set(targetDir, Date.now());
+      await refreshDirs(src.parentPath || '.', ...(wasExpanded ? [newPath] : []));
+      focusPath(newPath);
+      setStatus(`Moved '${src.filename}' to ${targetDir === '.' ? '~/' : targetDir + '/'}`);
+
+      if (affectsActive) {
+        const nextDlg = dlgPath === src.path ? newPath : newPath + dlgPath.slice(src.path.length);
+        location.href = `/dialog_?name=${encodeURIComponent(nextDlg)}`;
+      }
+    });
+  }
+
+  /* ── Context menu ──────────────────────────────────────────────────── */
+  function closeMenu() { if (!menu) return false; menu.remove(); menu = null; return true; }
+
+  function showMenu(e, forcedDir = null) {
+    if (e.target.closest('.solveit-tree-create')) return;
+    const li = forcedDir ? null : e.target.closest('li[data-node-data]');
+    const node = li ? JSON.parse(li.dataset.nodeData) : null;
+    if (node?.kind === 'loading') return;
     e.preventDefault(); e.stopPropagation(); closeMenu();
-    const dlgName = node.kind === 'dialog' && node.href ? new URL(node.href, location.href).searchParams.get('name') : null;
-    menu = document.createElement('div'); menu.className = 'solveit-tree-menu'; menu.setAttribute('role', 'menu');
+
+    const clip = getClipboard();
+    menu = document.createElement('div');
+    menu.className = 'solveit-tree-menu';
+    menu.setAttribute('role', 'menu');
     const item = (label, fn, {disabled = false, title = '', danger = false} = {}) => {
-      const b = document.createElement('button'); b.type = 'button'; b.setAttribute('role', 'menuitem'); b.textContent = label;
+      const b = document.createElement('button');
+      b.type = 'button'; b.setAttribute('role', 'menuitem'); b.textContent = label;
       b.disabled = disabled; if (title) b.title = title; if (danger) b.className = 'danger';
       b.onclick = ev => { ev.stopPropagation(); closeMenu(); fn(); };
       menu.append(b);
     };
-    if (node.kind !== 'directory') item('Open', () => openNode(node), {disabled: !node.href});
-    item('Duplicate', () => duplicateNode(dlgName), {disabled: !dlgName, title: dlgName ? 'Duplicate dialog (opens the copy in a new tab)' : 'Solveit only offers duplication for dialogs'});
-    item('Delete…', () => deleteNode(node), {disabled: !node.delUrl, danger: true});
+    const sep = () => {
+      const hr = document.createElement('hr');
+      hr.className = 'solveit-tree-menu-sep';
+      menu.append(hr);
+    };
+
+    if (!node || node.kind === 'directory') {
+      const targetDir = forcedDir ? normPath(forcedDir) : (node ? node.path : '.');
+      item('New Dialog…', () => beginCreate(targetDir, 'dialog'));
+      item('New File…', () => beginCreate(targetDir, 'file'));
+      item('New Folder…', () => beginCreate(targetDir, 'directory'));
+      sep();
+      if (node) item('Copy', () => copyNode(node));
+      item(clip ? `Paste '${clip.filename}'` : 'Paste', () => pasteNodeInto(clip, targetDir), {
+        disabled: !clip || !canPaste(clip, targetDir),
+        title: !clip ? 'Copy a file, dialog, or folder first' : (!canPaste(clip, targetDir) ? 'Cannot paste a folder into itself' : ''),
+      });
+      if (node) {
+        sep();
+        item('Delete…', () => deleteNode(node), {danger: true});
+      }
+    } else {
+      const targetDir = node.parentPath || '.';
+      item('Open', () => openNode(node), {disabled: !node.href});
+      sep();
+      item('Copy', () => copyNode(node));
+      item(clip ? `Paste '${clip.filename}'` : 'Paste', () => pasteNodeInto(clip, targetDir), {
+        disabled: !clip || !canPaste(clip, targetDir),
+        title: !clip ? 'Copy a file, dialog, or folder first' : (!canPaste(clip, targetDir) ? 'Cannot paste a folder into itself' : ''),
+      });
+      item('Duplicate', () => pasteNodeInto(node, targetDir));
+      sep();
+      item('Delete…', () => deleteNode(node), {danger: true});
+    }
+
+    menu.addEventListener('keydown', ev => {
+      if (ev.key !== 'ArrowDown' && ev.key !== 'ArrowUp') return;
+      ev.preventDefault(); ev.stopPropagation();
+      const btns = [...menu.querySelectorAll('button:not(:disabled)')];
+      if (!btns.length) return;
+      const i = btns.indexOf(document.activeElement);
+      btns[(i + (ev.key === 'ArrowDown' ? 1 : -1) + btns.length) % btns.length].focus();
+    });
+
     panel.append(menu);
-    const at = (e.clientX || e.clientY) ? {x: e.clientX, y: e.clientY} : (b => ({x: b.left + 24, y: b.bottom}))(li.getBoundingClientRect());
+    const anchor = li || e.currentTarget;
+    const at = (e.clientX || e.clientY) ? {x: e.clientX, y: e.clientY} : (b => ({x: b.left + 24, y: b.bottom}))(anchor.getBoundingClientRect());
     const r = menu.getBoundingClientRect();
-    menu.style.left = Math.min(at.x, innerWidth - r.width - 4) + 'px';
-    menu.style.top = Math.min(at.y, innerHeight - r.height - 4) + 'px';
+    menu.style.left = Math.max(4, Math.min(at.x, innerWidth - r.width - 4)) + 'px';
+    menu.style.top = Math.max(4, Math.min(at.y, innerHeight - r.height - 4)) + 'px';
     menu.querySelector('button:not(:disabled)')?.focus();
+  }
+
+  /* ── Drag and drop ─────────────────────────────────────────────────── */
+  function clearDropState() {
+    if (dropHighlightEl) { dropHighlightEl.classList.remove('solveit-tree-drop-target'); dropHighlightEl = null; }
+    clearTimeout(hoverExpandTimer); hoverExpandTimer = null; hoverExpandPath = null;
+  }
+
+  function resolveDropTarget(targetEl) {
+    const rootbar = panel?.querySelector('.solveit-tree-rootbar');
+    if (targetEl.closest?.('.solveit-tree-rootbar')) return {destDir: '.', highlightEl: rootbar, dirLi: null};
+    const li = targetEl.closest?.('li[data-node-data]');
+    if (!li) return {destDir: '.', highlightEl: rootbar, dirLi: null};
+    const node = JSON.parse(li.dataset.nodeData);
+    if (node.kind === 'loading') return null;
+    if (node.kind === 'directory') {
+      return {destDir: node.path, highlightEl: li.querySelector(':scope > .treeview-node-content'), dirLi: li};
+    }
+    const destDir = node.parentPath || '.';
+    const parentLi = destDir === '.' ? null : findNode(destDir);
+    return {
+      destDir,
+      highlightEl: parentLi ? parentLi.querySelector(':scope > .treeview-node-content') : rootbar,
+      dirLi: parentLi,
+    };
+  }
+
+  function wireDragAndDrop(treeEl, rootbar) {
+    treeEl.addEventListener('dragstart', e => {
+      const li = e.target.closest('li[data-node-data]');
+      if (!li) return;
+      const node = JSON.parse(li.dataset.nodeData);
+      if (node.kind === 'loading') { e.preventDefault(); return; }
+      closeMenu();
+      draggedNode = node;
+      li.classList.add('solveit-tree-dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      try {
+        e.dataTransfer.setData('application/x-solveit-node', JSON.stringify(node));
+        e.dataTransfer.setData('text/plain', node.path);
+      } catch {}
+    });
+
+    const onDragOver = e => {
+      if (!draggedNode) return;
+      const target = resolveDropTarget(e.target);
+      if (!target || !canDrop(draggedNode, target.destDir)) {
+        clearDropState();
+        e.dataTransfer.dropEffect = 'none';
+        return;
+      }
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if (dropHighlightEl !== target.highlightEl) {
+        if (dropHighlightEl) dropHighlightEl.classList.remove('solveit-tree-drop-target');
+        dropHighlightEl = target.highlightEl;
+        dropHighlightEl?.classList.add('solveit-tree-drop-target');
+      }
+      if (target.dirLi && !target.dirLi.classList.contains('expanded') && target.destDir !== '.') {
+        if (hoverExpandPath !== target.destDir) {
+          clearTimeout(hoverExpandTimer);
+          hoverExpandPath = target.destDir;
+          const dirLi = target.dirLi;
+          hoverExpandTimer = setTimeout(() => {
+            if (dirLi.isConnected && !dirLi.classList.contains('expanded')) {
+              dirLi.querySelector(':scope > .treeview-node-content > .treeview-expander')?.click();
+            }
+          }, 600);
+        }
+      } else {
+        clearTimeout(hoverExpandTimer); hoverExpandTimer = null; hoverExpandPath = null;
+      }
+    };
+
+    const onDrop = e => {
+      if (!draggedNode) return;
+      e.preventDefault(); e.stopPropagation();
+      const src = draggedNode;
+      const target = resolveDropTarget(e.target);
+      clearDropState();
+      panel?.querySelectorAll('li.solveit-tree-dragging').forEach(el => el.classList.remove('solveit-tree-dragging'));
+      draggedNode = null;
+      if (target && canDrop(src, target.destDir)) moveNode(src, target.destDir);
+    };
+
+    const onDragEnd = () => {
+      clearDropState();
+      panel?.querySelectorAll('li.solveit-tree-dragging').forEach(el => el.classList.remove('solveit-tree-dragging'));
+      draggedNode = null;
+    };
+
+    treeEl.addEventListener('dragover', onDragOver);
+    treeEl.addEventListener('drop', onDrop);
+    treeEl.addEventListener('dragend', onDragEnd);
+    rootbar.addEventListener('dragover', onDragOver);
+    rootbar.addEventListener('drop', onDrop);
+  }
+
+  /* ── Panel construction & lifecycle ────────────────────────────────── */
+  function updateDotsBtn() {
+    const dots = panel?.querySelector('.solveit-tree-dots');
+    if (!dots) return;
+    dots.setAttribute('aria-pressed', String(hideDots));
+    const lbl = hideDots ? 'Hidden files are hidden (click to show)' : 'Showing all files (click to hide dot files)';
+    dots.title = lbl; dots.setAttribute('aria-label', lbl);
   }
 
   function makePanel() {
     if (panel) return panel;
     panel = document.createElement('aside'); panel.id = 'solveit-file-tree-panel';
-    panel.innerHTML = '<div class="solveit-tree-brand"><span class="solveit-tree-appname">solveit</span></div><header><strong>Files</strong><kbd class="solveit-tree-shortcut" data-hotkey="file-tree-toggle">⌘B</kbd><button class="solveit-tree-dots" type="button" aria-pressed="false" aria-label="Hide dot files" title="Hide dot files">.*</button><button class="solveit-tree-refresh" type="button" aria-label="Refresh files" title="Refresh files">↻</button><button class="solveit-tree-home" type="button" aria-label="Dialogs home" title="Dialogs home">⌂</button><button class="solveit-tree-close" type="button" aria-label="Close">×</button></header><input class="solveit-tree-filter" type="search" placeholder="Filter loaded files…" autocomplete="off"><div class="solveit-tree-status" role="status"></div><div id="solveit-file-tree" role="tree"></div>';
-    const dlgName = document.querySelector('nav.monster-navbar h2#dlg-name');
-    if (dlgName) panel.querySelector('.solveit-tree-brand').append(dlgName);
+    panel.innerHTML =
+      '<div class="solveit-tree-brand"><span class="solveit-tree-appname">solveit</span></div>' +
+      '<header><strong>Files</strong>' +
+      '<kbd class="solveit-tree-shortcut" data-hotkey="file-tree-toggle">⌘B</kbd>' +
+      '<button class="solveit-tree-dots" type="button" aria-pressed="true">.*</button>' +
+      '<button class="solveit-tree-refresh" type="button" aria-label="Refresh files" title="Refresh files">↻</button>' +
+      '<button class="solveit-tree-home" type="button" aria-label="Dialogs home" title="Dialogs home">⌂</button>' +
+      '</header>' +
+      '<input class="solveit-tree-filter" type="search" placeholder="Filter loaded files…" autocomplete="off">' +
+      '<div class="solveit-tree-status" role="status"></div>' +
+      '<div class="solveit-tree-rootbar" title="Right-click to create/paste in root; drop here to move to root"><span class="solveit-tree-rootbar-path">~/</span><span class="solveit-tree-rootbar-hint">root · drop / right-click</span></div>' +
+      '<div id="solveit-file-tree" role="tree"></div>';
+
+    dlgNameNode = document.querySelector('nav.monster-navbar h2#dlg-name');
+    if (dlgNameNode) {
+      dlgNameOrigParent = dlgNameNode.parentNode;
+      dlgNameOrigNext = dlgNameNode.nextSibling;
+      panel.querySelector('.solveit-tree-brand').append(dlgNameNode);
+    }
     panel.addEventListener('click', e => e.stopPropagation());
-    panel.querySelector('.solveit-tree-close').onclick = closePanel;
     panel.querySelector('.solveit-tree-refresh').onclick = refreshTree;
-    const dots = panel.querySelector('.solveit-tree-dots');
-    dots.setAttribute('aria-pressed', String(hideDots));
-    dots.onclick = () => { hideDots = !hideDots; dots.setAttribute('aria-pressed', String(hideDots)); try { localStorage.setItem(DOTS_KEY, hideDots ? '1' : '0'); } catch {} if (tree) renderTree(); };
+    updateDotsBtn();
+    panel.querySelector('.solveit-tree-dots').onclick = () => {
+      hideDots = !hideDots;
+      updateDotsBtn();
+      try { localStorage.setItem(DOTS_KEY, hideDots ? '1' : '0'); } catch {}
+      if (tree) renderTree();
+    };
     panel.querySelector('.solveit-tree-home').onclick = () => { location.href = '/?at=.'; };
     window.solveitHotkeys?.refreshChips();
     panel.querySelector('.solveit-tree-filter').addEventListener('input', e => { filterText = e.target.value; tree?.search(filterText); });
-    panel.querySelector('#solveit-file-tree').addEventListener('contextmenu', showMenu);
-    panel.querySelector('#solveit-file-tree').addEventListener('click', handleTreeClick, true);
-    panel.querySelector('#solveit-file-tree').addEventListener('keydown', e => {
-      const current = e.target.closest('.treeview-node-content');
-      if (!current) return;
-      const li = current.closest('li[data-node-data]'), node = JSON.parse(li.dataset.nodeData);
-      const items = [...panel.querySelectorAll('#solveit-file-tree li[data-node-data] > .treeview-node-content')].filter(item => {
-        const itemLi = item.closest('li[data-node-data]');
-        if (itemLi.closest('li.hidden')) return false;
-        let parent = itemLi.parentElement.closest('li[data-node-data]');
-        while (parent) { if (!parent.classList.contains('expanded')) return false; parent = parent.parentElement.closest('li[data-node-data]'); }
-        return true;
-      });
-      const index = items.indexOf(current);
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); items[Math.max(0, Math.min(items.length - 1, index + (e.key === 'ArrowDown' ? 1 : -1)))]?.focus(); }
-      else if (e.key === 'ArrowRight' && node.kind === 'directory') { e.preventDefault(); if (li.classList.contains('expanded')) li.querySelector('ul li[data-node-data] > .treeview-node-content')?.focus(); else li.querySelector('.treeview-expander')?.click(); }
-      else if (e.key === 'ArrowLeft' && node.kind === 'directory') { e.preventDefault(); if (li.classList.contains('expanded')) li.querySelector('.treeview-expander')?.click(); else li.parentElement.closest('li[data-node-data]')?.querySelector(':scope > .treeview-node-content')?.focus(); }
-      else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (node.kind === 'directory') li.querySelector('.treeview-expander')?.click(); else if (node.href) openNode(node); }
+
+    const treeEl = panel.querySelector('#solveit-file-tree');
+    const rootbar = panel.querySelector('.solveit-tree-rootbar');
+    treeEl.addEventListener('contextmenu', e => showMenu(e));
+    rootbar.addEventListener('contextmenu', e => showMenu(e, '.'));
+    panel.addEventListener('contextmenu', e => {
+      if (e.target === panel || e.target.matches('.solveit-tree-status')) showMenu(e, '.');
     });
+    panel.addEventListener('dblclick', e => {
+      const atRoot = rootbar.contains(e.target);
+      const onBlank = e.target === panel || e.target.matches('.solveit-tree-status') || (treeEl.contains(e.target) && !e.target.closest('li[data-node-data], .solveit-tree-create'));
+      if (!atRoot && !onBlank) return;
+      e.preventDefault(); e.stopPropagation();
+      closeMenu();
+      beginCreate(atRoot ? '.' : getCurrentContext().dir, 'auto');
+    });
+    treeEl.addEventListener('click', handleTreeClick, true);
+    wireDragAndDrop(treeEl, rootbar);
+
     panel.inert = true;
     const scroller = document.querySelector('.uk-container > .overflow-y-auto');
     if (scroller) {
-      const row = document.createElement('div');
-      row.className = 'solveit-tree-workspace';
-      scroller.before(row);
-      row.append(panel, scroller);
+      workspaceRow = document.createElement('div');
+      workspaceRow.className = 'solveit-tree-workspace';
+      scroller.before(workspaceRow);
+      workspaceRow.append(panel, scroller);
     } else document.body.append(panel);
     return panel;
   }
 
-  async function toggle() {
+  async function toggle(focus = true) {
     const p = makePanel(), opening = !p.classList.contains('open');
     if (!opening) { closePanel(); return; }
     previousFocus = document.activeElement; p.inert = false; p.classList.add('open');
-    if (!refreshTimer) refreshTimer = setInterval(() => { if (panel?.classList.contains('open') && [...rowsByPath.keys()].some(path => Date.now() - (fetchedAtByPath.get(path) || 0) > CACHE_MAX_AGE)) refreshTree(); }, CACHE_MAX_AGE);
+    saveOpen(true);
+    if (!refreshTimer) refreshTimer = setInterval(() => {
+      if (panel?.classList.contains('open') && [...rowsByPath.keys()].some(path => Date.now() - (fetchedAtByPath.get(path) || 0) > CACHE_MAX_AGE)) refreshTree();
+    }, CACHE_MAX_AGE);
     try {
+      setStatus('Loading files…');
       await loadAssets();
-      if (!rowsByPath.has('.')) { p.querySelector('.solveit-tree-status').textContent = 'Loading files…'; rowsByPath.set('.', await getRows('.')); fetchedAtByPath.set('.', Date.now()); saveCache(); }
-      renderTree(); p.querySelector('.solveit-tree-status').textContent = '';
-      panel.querySelector('#solveit-file-tree .treeview-node-content')?.focus();
+      await ensureCurrentDirLoaded();
+      renderTree(); setStatus('');
+      if (focus && p.classList.contains('open')) {
+        const {dir, dlgPath} = getCurrentContext();
+        if (!(dlgPath && focusPath(dlgPath)) && !(dir !== '.' && focusPath(dir))) p.querySelector('#solveit-file-tree .treeview-node-content')?.focus();
+      }
       if ([...rowsByPath.keys()].some(path => Date.now() - (fetchedAtByPath.get(path) || 0) > CACHE_MAX_AGE)) refreshTree();
-    } catch (err) { p.querySelector('.solveit-tree-status').textContent = 'Unable to load files: ' + (err.message || err); }
+    } catch (err) { setStatus('Unable to load files: ' + (err.message || err)); }
   }
 
   function handleTreeKeys(e) {
@@ -262,38 +938,86 @@
       return true;
     });
     const index = items.indexOf(current);
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); items[Math.max(0, Math.min(items.length - 1, index + (e.key === 'ArrowDown' ? 1 : -1)))]?.focus(); }
-    else if (e.key === 'ArrowRight' && node.kind === 'directory') { e.preventDefault(); if (li.classList.contains('expanded')) li.querySelector('ul li[data-node-data] > .treeview-node-content')?.focus(); else li.querySelector('.treeview-expander')?.click(); }
-    else if (e.key === 'ArrowLeft' && node.kind === 'directory') { e.preventDefault(); if (li.classList.contains('expanded')) li.querySelector('.treeview-expander')?.click(); else li.parentElement.closest('li[data-node-data]')?.querySelector(':scope > .treeview-node-content')?.focus(); }
-    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (node.kind === 'directory') li.querySelector('.treeview-expander')?.click(); else if (node.href) openNode(node); }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      items[Math.max(0, Math.min(items.length - 1, index + (e.key === 'ArrowDown' ? 1 : -1)))]?.focus();
+    } else if (e.key === 'ArrowRight' && node.kind === 'directory') {
+      e.preventDefault();
+      if (li.classList.contains('expanded')) li.querySelector('ul li[data-node-data] > .treeview-node-content')?.focus();
+      else li.querySelector(':scope > .treeview-node-content > .treeview-expander')?.click();
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      if (node.kind === 'directory' && li.classList.contains('expanded')) li.querySelector(':scope > .treeview-node-content > .treeview-expander')?.click();
+      else li.parentElement.closest('li[data-node-data]')?.querySelector(':scope > .treeview-node-content')?.focus();
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      if (node.kind === 'directory') li.querySelector(':scope > .treeview-node-content > .treeview-expander')?.click();
+      else if (node.href) openNode(node);
+    } else if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+      e.preventDefault(); showMenu({target: current, currentTarget: current, clientX: 0, clientY: 0, preventDefault() {}, stopPropagation() {}});
+    }
   }
 
   function closePanel() {
     if (!panel) return;
-    closeMenu(); panel.classList.remove('open'); panel.inert = true; previousFocus?.focus();
+    closeMenu(); dismissCreate(); clearDropState(); panel.classList.remove('open'); panel.inert = true; previousFocus?.focus();
+    saveOpen(false);
   }
-  document.addEventListener('click', e => { if (panel?.classList.contains('open') && !panel.contains(e.target)) closePanel(); });
-  document.addEventListener('pointerdown', e => { if (menu && !menu.contains(e.target)) closeMenu(); }, true);
 
-  window.addEventListener('keydown', e => {
+  const onDocPointerDown = e => {
+    if (menu && !menu.contains(e.target)) closeMenu();
+    if (createDraft && !createDraft.input.readOnly && !createDraft.form.contains(e.target)) dismissCreate();
+  };
+  const onWinKeyDown = e => {
     if (document.querySelector('#solveit-launcher.open')) return;
+    if (e.target.closest?.('.solveit-tree-create')) return;
+    if (e.key === 'Escape' && closeMenu()) { e.preventDefault(); e.stopImmediatePropagation(); return; }
     const active = panel?.classList.contains('open') && panel.contains(document.activeElement);
-    if (active && ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+    if (active && !menu && !e.target.closest?.('.solveit-tree-filter') && ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Enter', ' ', 'ContextMenu', 'F10'].includes(e.key)) {
+      if (e.key === 'F10' && !e.shiftKey) return;
       e.stopImmediatePropagation();
-      if (!e.target.closest?.('.solveit-tree-filter')) handleTreeKeys(e);
+      handleTreeKeys(e);
       return;
     }
-    if (e.key === 'Escape' && closeMenu()) { e.preventDefault(); e.stopImmediatePropagation(); return; }
-    if (e.key === 'Escape' && panel?.classList.contains('open')) { e.preventDefault(); e.stopImmediatePropagation(); closePanel(); }
-  }, true);
+  };
+  document.addEventListener('pointerdown', onDocPointerDown, true);
+  window.addEventListener('keydown', onWinKeyDown, true);
+
+  function disable() {
+    clearInterval(refreshTimer); refreshTimer = null;
+    closeMenu(); dismissCreate(); clearDropState();
+    document.removeEventListener('DOMContentLoaded', restoreOpen);
+    document.removeEventListener('pointerdown', onDocPointerDown, true);
+    window.removeEventListener('keydown', onWinKeyDown, true);
+    if (dlgNameNode && dlgNameOrigParent) {
+      if (dlgNameOrigNext && dlgNameOrigNext.parentNode === dlgNameOrigParent) dlgNameOrigParent.insertBefore(dlgNameNode, dlgNameOrigNext);
+      else dlgNameOrigParent.append(dlgNameNode);
+    }
+    if (workspaceRow) {
+      const scroller = workspaceRow.querySelector(':scope > .overflow-y-auto');
+      if (scroller) workspaceRow.before(scroller);
+      workspaceRow.remove();
+      workspaceRow = null;
+    }
+    panel?.remove();
+    panel = null; tree = null;
+  }
 
   window.solveitFileTree = {
-    toggle, open: openNode,
+    toggle, open: openNode, disable,
     async entries() {  // every loaded dialog/file, for the launcher
       if (!rowsByPath.has('.')) { rowsByPath.set('.', await getRows('.')); fetchedAtByPath.set('.', Date.now()); saveCache(); }
-      return [...rowsByPath.entries()].filter(([p]) => !hideDots || !p.split('/').some(part => part !== '.' && part.startsWith('.'))).flatMap(([, rows]) => rows).filter(n => n.kind !== 'directory' && (!hideDots || !n.name.startsWith('.')));
+      return [...rowsByPath.entries()]
+        .filter(([p]) => !hideDots || !p.split('/').some(part => part !== '.' && part.startsWith('.')))
+        .flatMap(([, rows]) => rows)
+        .filter(n => n.kind !== 'directory' && (!hideDots || !(n.filename || n.name).startsWith('.')));
     },
   };
+  function restoreOpen() {
+    try { if (sessionStorage.getItem(OPEN_KEY) === '1' && !panel?.classList.contains('open')) toggle(false); } catch {}
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', restoreOpen, {once: true});
+  else restoreOpen();
 })();
 
 (() => {
@@ -682,6 +1406,7 @@
   };
   sync();
 })();
+
 
 (() => {
   const preserved = [...document.querySelectorAll('.editable.craft-omitted')].map(e => e.id);

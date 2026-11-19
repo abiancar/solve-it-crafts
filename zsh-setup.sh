@@ -3,7 +3,7 @@
 # solveit terminal. No root needed; everything lands on the persistent
 # volume (~ = /app/data). Re-running writes nothing that already works.
 set -e
-ZSH_PREFIX="$HOME/opt/zsh"
+ZSH_PREFIX="$HOME/.craft-assets/zsh"
 ZSH_BIN="$ZSH_PREFIX/bin/zsh"
 DEB_BASE='http://deb.debian.org/debian/pool/main/z/zsh'
 DEB_BIN="$DEB_BASE/zsh_5.9-4+b15_amd64.deb"
@@ -33,7 +33,7 @@ done
 cat > "$HOME/.bashrc" <<'EOF'
 # solveit terminal: interactive shells exec into zsh (system, else user-space)
 if [[ $- == *i* && -z $ZSH_VERSION ]]; then
-  for z in /usr/bin/zsh "$HOME/opt/zsh/bin/zsh"; do
+  for z in /usr/bin/zsh "$HOME/.craft-assets/zsh/bin/zsh"; do
     [[ -x $z ]] && exec "$z" -l
   done
 fi
@@ -42,7 +42,7 @@ EOF
 printf '[[ -f ~/.bashrc ]] && . ~/.bashrc\n' > "$HOME/.bash_profile"
 
 cat > "$HOME/.zshrc" <<'EOF'
-P="$HOME/opt/zsh"   # user-space zsh prefix (harmless if zsh is system-installed)
+P="$HOME/.craft-assets/zsh"   # user-space zsh prefix (harmless if zsh is system-installed)
 [[ -d $P/usr/share/zsh/functions ]] && fpath=($P/usr/share/zsh/functions/*(-/) $fpath)
 [[ -d $P/usr/lib/x86_64-linux-gnu/zsh/5.9 ]] && module_path=("$P/usr/lib/x86_64-linux-gnu/zsh/5.9" $module_path)
 export ZSH="$HOME/.oh-my-zsh"

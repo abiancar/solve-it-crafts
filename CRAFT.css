@@ -378,6 +378,20 @@ body:has(#solveit-temp-editor.open) #solveit-file-tree-panel.open {
 .solveit-tree-menu button:hover:not(:disabled), .solveit-tree-menu button:focus-visible { background: #2b2e43; outline: none; }
 .solveit-tree-menu button:disabled { color: #cfc9c255; cursor: default; }
 .solveit-tree-menu button.danger { color: #f7768e; }
+.solveit-tree-menu hr.solveit-tree-menu-sep { margin: 4px 2px; border: 0; border-top: 1px solid #ffffff16; }
+#solveit-file-tree-panel .solveit-tree-rootbar { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 4px 6px; margin-bottom: 4px; border-radius: 4px; font: 11.5px monospace; color: #cfc9c299; background: #16161e88; border: 1px solid transparent; user-select: none; cursor: default; }
+#solveit-file-tree-panel .solveit-tree-rootbar:hover { background: #222434; color: #cfc9c2; }
+#solveit-file-tree-panel .solveit-tree-rootbar-hint { font-size: 10px; color: #cfc9c255; }
+#solveit-file-tree { min-height: 200px; padding-bottom: 56px; }
+#solveit-file-tree .treeview-node-content.solveit-tree-current { background: #7aa2f71c; box-shadow: inset 2px 0 0 #7aa2f7; }
+#solveit-file-tree li.solveit-tree-dragging { opacity: .4; }
+#solveit-file-tree-panel .solveit-tree-drop-target { background: #7aa2f728 !important; box-shadow: inset 0 0 0 1.5px #7aa2f7 !important; color: #cfc9c2 !important; }
+#solveit-file-tree .solveit-tree-create { margin: 3px 6px 5px; }
+#solveit-file-tree li > .solveit-tree-create { margin-left: 22px; }
+#solveit-file-tree .solveit-tree-create input { box-sizing: border-box; width: 100%; min-width: 0; padding: 4px 6px; border: 1px solid #7aa2f7; border-radius: 4px; background: #16161e; color: #cfc9c2; font: inherit; }
+#solveit-file-tree .solveit-tree-create input:focus-visible { outline: 1px solid #7aa2f7; outline-offset: 1px; }
+#solveit-file-tree .solveit-tree-create input[aria-invalid="true"] { border-color: #f7768e; }
+#solveit-tree-create-error:not(:empty) { margin-top: 4px; color: #f7768e; font-size: 11px; overflow-wrap: anywhere; }
 
 /* ── Launcher (⌘⇧P) ─────────────────────────────────────────────────── */
 #solveit-launcher { position: fixed; inset: 0; z-index: 1200; display: none; justify-content: center; align-items: flex-start; padding-top: 12vh; background: #0008; }
@@ -471,6 +485,7 @@ body:has(#solveit-temp-editor.open) #solveit-file-tree-panel.open {
     overflow: hidden !important;
   }
 }
+
 
 .editable.craft-omitted { display: none !important; }
 .craft-omit-marker { display: block; flex: none; width: fit-content; margin: 2px 0; padding: 1px 6px; border: 0; border-radius: 3px; background: transparent; color: #9a9eb5; font: inherit; font-size: 11px; line-height: 18px; cursor: pointer; }
