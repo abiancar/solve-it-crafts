@@ -1495,33 +1495,53 @@
     if (window.editor !== editor) {
       unbind();
       editor = window.editor;
-      requested = false;
       if (editor) {
-        originalFocus = editor.focus;
-        editor.focus = function(...args) { reveal(); return originalFocus.apply(this, args); };
-        subscriptions.push(editor.onDidChangeModel(() => {
-          requested = !temporary() || hasDraft();
-          schedule();
-        }), editor.onDidChangeModelContent(schedule));
+        subscriptions.push(editor.onDidChangeModel(schedule));
+        subscriptions.push(editor.onDidChangeModelContent(schedule));
       }
     }
     const root = panel();
-    if (!root || !editor?.getModel()) return;
-    const active = requested || !temporary() || hasDraft() || !!document.querySelector('.editable[data-editing="true"]');
+    if (!root) return;
+    const editingCell = Boolean(editor?.getModel() && !temporary()) || Boolean(document.querySelector('.editable[data-editing="true"]'));
+    const active = requested || (!insertionHolds.size && (editingCell || hasDraft()));
     const idle = !active;
     if (root.classList.contains('craft-composer-idle') === idle) return;
     root.classList.toggle('craft-composer-idle', idle);
-    if (active) editor.layout();
+    if (active && editor) editor.layout();
   };
   const schedule = () => { if (!pending) { pending = true; queueMicrotask(sync); } };
-  const tabClick = e => { if (e.target.closest('#full_editor .tabh')) reveal(); };
+  const tabClick = e => {
+    const tab = e.target.closest('#full_editor .tabh');
+    if (!tab) return;
+    if (tab.id === 'tabh-code' && window.craftC2?.shouldInterceptCodeTab?.()) return;
+    reveal();
+  };
   let shortcutOpened = false, dismissTimer;
+  const insertionHolds = new Set(), rootEl = document.documentElement;
+  const clearInsertionHolds = () => { insertionHolds.clear(); rootEl.removeAttribute('data-craft-inserting'); };
+  const holdForInsertion = () => {
+    const token = Symbol();
+    insertionHolds.add(token); rootEl.setAttribute('data-craft-inserting', '');
+    return () => {
+      if (!insertionHolds.delete(token) || insertionHolds.size) return;
+      if (!hasDraft() && temporary()) hide();
+      rootEl.removeAttribute('data-craft-inserting');
+    };
+  };
+  const hide = () => {
+    clearTimeout(dismissTimer);
+    shortcutOpened = false;
+    requested = false;
+    sync();
+  };
   const show = () => {
     if (window.editor !== editor) sync();
     const root = panel();
     if (!root || !editor?.getModel()) return false;
     clearTimeout(dismissTimer);
+    clearInsertionHolds();
     shortcutOpened ||= root.classList.contains('craft-composer-idle');
+    reveal();
     editor.focus();
     return true;
   };
@@ -1542,13 +1562,16 @@
   document.addEventListener('htmx:afterSettle', schedule);
   window.craftIdleComposer = {
     reveal,
+    hide,
     show,
+    holdForInsertion,
     disable() {
       observer.disconnect();
       document.removeEventListener('click', tabClick, true);
       document.removeEventListener('htmx:afterSettle', schedule);
       window.removeEventListener('keydown', dismissShortcut, true);
       clearTimeout(dismissTimer);
+      clearInsertionHolds();
       if (window.craftIdleComposer?.show === show) delete window.craftIdleComposer;
       unbind();
       panel()?.classList.remove('craft-composer-idle');
@@ -1564,11 +1587,84 @@
 
 (() => {
   window.craftC2?.disable();
-  const key = 'solveit-craft:c2:v1', requests = new WeakMap();
-  const ids = new Set(), states = new Map(), views = new Map(), pendingSaves = new Map();
+  const key = 'solveit-craft:c2:v1', DLG_KEY = 'solveit-craft:c2:dlgs:v1', ALL_KEY = 'solveit-craft:c2:all', LN_KEY = 'solveit-craft:c2:linenums';
+  const requests = new WeakMap(), staticHlText = new WeakMap(), smartSelHist = new WeakMap();
+  const ids = new Set(), states = new Map(), views = new Map(), pendingSaves = new Map(), dirtyIds = new Set(), failedSaves = new Set();
+  const syncSaveState = id => {
+    const el = document.getElementById('_' + id);
+    if (!el) return;
+    const st = failedSaves.has(id) ? 'error' : (pendingSaves.has(id) ? 'saving' : (dirtyIds.has(id) ? 'dirty' : ''));
+    if (st) el.dataset.c2Save = st;
+    else delete el.dataset.c2Save;
+  };
+  const ghostTimers = new Map(), ghostAborts = new Map(), sigAborts = new Map(), saveWaiters = new Map();
+  const getTooltipPortal = () => {
+    let p = document.getElementById('craft-c2-tooltips');
+    if (!p) { p = document.createElement('div'); p.id = 'craft-c2-tooltips'; p.className = 'craft-c2-tooltips'; document.body.append(p); }
+    return p;
+  };
   try { for (const id of JSON.parse(localStorage.getItem(key) || '[]')) ids.add(id); } catch {}
-  const saveIds = () => { try { localStorage.setItem(key, JSON.stringify([...ids])); } catch {} };
+  let dlgMap = (() => { try { return JSON.parse(localStorage.getItem(DLG_KEY) || '{}') || {}; } catch { return {}; } })();
+  const currentDlgKey = () => new URLSearchParams(location.search).get('name') || location.pathname;
+  const saveIds = () => {
+    try { localStorage.setItem(key, JSON.stringify([...ids])); } catch {}
+    try { localStorage.setItem(DLG_KEY, JSON.stringify(dlgMap)); } catch {}
+  };
+  const recordDlgId = id => {
+    const dk = currentDlgKey();
+    const list = dlgMap[dk] || (dlgMap[dk] = []);
+    if (list.includes(id)) return false;
+    list.push(id);
+    return true;
+  };
+  const removeDlgId = id => {
+    let changed = false;
+    for (const [dk, list] of Object.entries(dlgMap)) {
+      if (!Array.isArray(list)) continue;
+      const i = list.indexOf(id);
+      if (i >= 0) { list.splice(i, 1); changed = true; if (!list.length) delete dlgMap[dk]; }
+    }
+    return changed;
+  };
+  const pruneCurrentDlgIds = domIds => {
+    const dk = currentDlgKey();
+    const list = dlgMap[dk];
+    if (!Array.isArray(list) || !list.length) return false;
+    let changed = false;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const id = list[i];
+      if (!domIds.has(id)) {
+        list.splice(i, 1);
+        ids.delete(id);
+        changed = true;
+      }
+    }
+    if (!list.length) delete dlgMap[dk];
+    return changed;
+  };
+  let allMode = (() => { try { const v = localStorage.getItem(ALL_KEY); return v == null ? true : v === '1'; } catch { return true; } })();
+  let showLineNums = (() => { try { return localStorage.getItem(LN_KEY) === '1'; } catch { return false; } })();
 
+  const isMac = navigator.userAgentData?.platform === 'macOS' || /Mac/.test(navigator.userAgent);
+  let parsedServerPrefs = null;
+  const getServerPrefs = () => {
+    if (!parsedServerPrefs) {
+      let enterComp = false, autoClose = false;
+      try {
+        const s = [...document.querySelectorAll('script')].map(n => n.textContent || '').find(t => t.includes('createMonacoEditor(')) || '';
+        const m = s.match(/createMonacoEditor\([\s\S]*?,\s*(true|false)\s*,\s*(true|false)\s*,\s*['"][^'"]*['"]\s*,\s*(true|false)\s*,\s*(true|false)\s*\)/);
+        if (m) enterComp = m[2] === 'true';
+        const acm = s.match(/['"]autoClosingBrackets['"]\s*:\s*(true|false|['"][^'"]+['"])/);
+        if (acm) autoClose = acm[1] !== 'false' && acm[1] !== "'never'" && acm[1] !== '"never"';
+      } catch {}
+      parsedServerPrefs = {enterComp, autoClose};
+    }
+    const rawAc = window.editor?.getRawOptions?.()?.autoClosingBrackets;
+    const autoClose = rawAc != null ? (rawAc !== 'never' && rawAc !== false) : parsedServerPrefs.autoClose;
+    return {enterComp: parsedServerPrefs.enterComp, autoClose};
+  };
+
+  const LOCAL_CM_BASE = '/static/.craft-assets/cm6';
   const CM_DEPS = 'deps=@codemirror/state@6.5.2,@codemirror/view@6.36.5,@codemirror/language@6.11.0';
   const CM_URLS = {
     state: 'https://esm.sh/@codemirror/state@6.5.2',
@@ -1580,47 +1676,906 @@
     search: 'https://esm.sh/@codemirror/search@6.5.10?deps=@codemirror/state@6.5.2,@codemirror/view@6.36.5',
     hl: 'https://esm.sh/@lezer/highlight@1.2.1',
   };
+  const LOCAL_LANG_LOADERS = {
+    javascript: () => import(`${LOCAL_CM_BASE}/lang-javascript.js`).then(m => m.javascript({jsx: true})),
+    typescript: () => import(`${LOCAL_CM_BASE}/lang-javascript.js`).then(m => m.javascript({typescript: true, jsx: true})),
+    html: () => import(`${LOCAL_CM_BASE}/lang-html.js`).then(m => m.html()),
+    css: () => import(`${LOCAL_CM_BASE}/lang-css.js`).then(m => m.css()),
+    json: () => import(`${LOCAL_CM_BASE}/lang-json.js`).then(m => m.json()),
+    sql: () => import(`${LOCAL_CM_BASE}/lang-sql.js`).then(m => m.sql()),
+    markdown: () => import(`${LOCAL_CM_BASE}/lang-markdown.js`).then(m => m.markdown()),
+    xml: () => import(`${LOCAL_CM_BASE}/lang-xml.js`).then(m => m.xml()),
+    yaml: () => import(`${LOCAL_CM_BASE}/lang-yaml.js`).then(m => m.yaml()),
+    rust: () => import(`${LOCAL_CM_BASE}/lang-rust.js`).then(m => m.rust()),
+    cpp: () => import(`${LOCAL_CM_BASE}/lang-cpp.js`).then(m => m.cpp()),
+    shell: () => import(`${LOCAL_CM_BASE}/mode-shell.js`).then(m => cmCache.lang.StreamLanguage.define(m.shell)),
+  };
+  const CDN_LANG_LOADERS = {
+    javascript: () => import(`https://esm.sh/@codemirror/lang-javascript@6?${CM_DEPS}`).then(m => m.javascript({jsx: true})),
+    typescript: () => import(`https://esm.sh/@codemirror/lang-javascript@6?${CM_DEPS}`).then(m => m.javascript({typescript: true, jsx: true})),
+    html: () => import(`https://esm.sh/@codemirror/lang-html@6?${CM_DEPS}`).then(m => m.html()),
+    css: () => import(`https://esm.sh/@codemirror/lang-css@6?${CM_DEPS}`).then(m => m.css()),
+    json: () => import(`https://esm.sh/@codemirror/lang-json@6?${CM_DEPS}`).then(m => m.json()),
+    sql: () => import(`https://esm.sh/@codemirror/lang-sql@6?${CM_DEPS}`).then(m => m.sql()),
+    markdown: () => import(`https://esm.sh/@codemirror/lang-markdown@6?${CM_DEPS}`).then(m => m.markdown()),
+    xml: () => import(`https://esm.sh/@codemirror/lang-xml@6?${CM_DEPS}`).then(m => m.xml()),
+    yaml: () => import(`https://esm.sh/@codemirror/lang-yaml@6?${CM_DEPS}`).then(m => m.yaml()),
+    rust: () => import(`https://esm.sh/@codemirror/lang-rust@6?${CM_DEPS}`).then(m => m.rust()),
+    cpp: () => import(`https://esm.sh/@codemirror/lang-cpp@6?${CM_DEPS}`).then(m => m.cpp()),
+    shell: () => import(`https://esm.sh/@codemirror/legacy-modes@6.5.1/mode/shell?${CM_DEPS}`).then(m => cmCache.lang.StreamLanguage.define(m.shell)),
+  };
+  const LANG_ALIASES = {
+    py: 'python', py3: 'python', python3: 'python',
+    js: 'javascript', jsx: 'javascript',
+    ts: 'typescript', tsx: 'typescript',
+    md: 'markdown', svg: 'xml', yml: 'yaml', rs: 'rust', c: 'cpp', 'c++': 'cpp', cxx: 'cpp',
+    bash: 'shell', sh: 'shell', zsh: 'shell', shell: 'shell', script: 'shell',
+  };
+  const langCache = window.__craftCM6Langs ??= new Map();
 
-  let cmCache = null, draft = null, frame = null, activeId = null, pendingPointer = null, destroyed = false;
+  let cmCache = null, draft = null, frame = null, activeId = null, pendingPointer = null, bypassMonacoId = null, destroyed = false;
 
-  const loadCM = () => window.__craftCM6Promise ??= Promise.all(
-    Object.entries(CM_URLS).map(async ([k, u]) => [k, await import(u)])
-  ).then(entries => {
-    const cm = Object.fromEntries(entries);
+  const isDark = () => document.documentElement.classList.contains('dark');
+  const kernelLang = () => (document.getElementById('kid')?.dataset.language || 'python').toLowerCase();
+  const fimEnabled = () => kernelLang() === 'python';
+  const dialogMode = () => document.querySelector('[name=mode]')?.value || '';
+  const notifyErr = msg => {
+    const d = document.createElement('div');
+    d.textContent = String(msg || 'Request failed.');
+    if (window.UIkit?.notification) window.UIkit.notification(d.innerHTML, {status: 'destructive', pos: 'bottom-right'});
+    else console.error('craftC2:', msg);
+  };
+
+  const buildStyles = cm => {
     const t = cm.hl.tags;
     cm.ghDarkStyle = cm.lang.HighlightStyle.define([
       {tag: [t.comment, t.lineComment, t.blockComment, t.docComment], color: '#6a737d'},
-      {tag: [t.keyword, t.controlKeyword, t.operatorKeyword, t.definitionKeyword, t.moduleKeyword, t.self, t.operator, t.compareOperator, t.logicOperator, t.arithmeticOperator, t.bitwiseOperator, t.updateOperator], color: '#f97583'},
+      {tag: [t.keyword, t.controlKeyword, t.operatorKeyword, t.definitionKeyword, t.moduleKeyword, t.operator, t.compareOperator, t.logicOperator, t.arithmeticOperator, t.bitwiseOperator, t.updateOperator], color: '#f97583'},
       {tag: [t.string, t.special(t.string), t.docString], color: '#9ecbff'},
       {tag: [t.regexp], color: '#dbedff'},
-      {tag: [t.escape, t.number, t.integer, t.float, t.bool, t.null, t.atom, t.constant(t.variableName), t.propertyName, t.attributeName, t.standard(t.variableName), t.special(t.variableName)], color: '#79b8ff'},
+      {tag: [t.self, t.escape, t.number, t.integer, t.float, t.bool, t.null, t.atom, t.constant(t.variableName), t.propertyName, t.attributeName, t.standard(t.variableName), t.special(t.variableName), t.link, t.url], color: '#79b8ff'},
       {tag: [t.function(t.variableName), t.function(t.propertyName), t.definition(t.function(t.variableName)), t.className, t.definition(t.className), t.typeName, t.meta, t.annotation], color: '#b392f0'},
+      {tag: [t.tagName], color: '#85e89d'},
+      {tag: [t.heading], color: '#79b8ff', fontWeight: 'bold'},
+      {tag: [t.strong], fontWeight: 'bold', color: '#e1e4e8'},
+      {tag: [t.emphasis], fontStyle: 'italic', color: '#e1e4e8'},
       {tag: [t.variableName, t.definition(t.variableName), t.punctuation, t.bracket, t.paren, t.squareBracket, t.brace], color: '#e1e4e8'},
       {tag: [t.invalid], color: '#fdaeb7', fontStyle: 'italic'},
     ]);
-    cm.theme = cm.view.EditorView.theme({'&': {lineHeight: '1'}, '.cm-scroller': {lineHeight: '1'}}, {dark: true});
+    cm.ghLightStyle = cm.lang.HighlightStyle.define([
+      {tag: [t.comment, t.lineComment, t.blockComment, t.docComment], color: '#6a737d'},
+      {tag: [t.keyword, t.controlKeyword, t.operatorKeyword, t.definitionKeyword, t.moduleKeyword, t.operator, t.compareOperator, t.logicOperator, t.arithmeticOperator, t.bitwiseOperator, t.updateOperator], color: '#d73a49'},
+      {tag: [t.string, t.special(t.string), t.docString], color: '#032f62'},
+      {tag: [t.regexp], color: '#032f62'},
+      {tag: [t.self, t.escape, t.number, t.integer, t.float, t.bool, t.null, t.atom, t.constant(t.variableName), t.propertyName, t.attributeName, t.standard(t.variableName), t.special(t.variableName), t.link, t.url], color: '#005cc5'},
+      {tag: [t.function(t.variableName), t.function(t.propertyName), t.definition(t.function(t.variableName)), t.className, t.definition(t.className), t.typeName, t.meta, t.annotation], color: '#6f42c1'},
+      {tag: [t.tagName], color: '#22863a'},
+      {tag: [t.heading], color: '#005cc5', fontWeight: 'bold'},
+      {tag: [t.strong], fontWeight: 'bold', color: '#24292e'},
+      {tag: [t.emphasis], fontStyle: 'italic', color: '#24292e'},
+      {tag: [t.variableName, t.definition(t.variableName), t.punctuation, t.bracket, t.paren, t.squareBracket, t.brace], color: '#24292e'},
+      {tag: [t.invalid], color: '#cb2431', fontStyle: 'italic'},
+    ]);
+    cm.darkTheme = cm.view.EditorView.theme({'&': {lineHeight: '1'}, '.cm-scroller': {lineHeight: '1'}}, {dark: true});
+    cm.lightTheme = cm.view.EditorView.theme({'&': {lineHeight: '1'}, '.cm-scroller': {lineHeight: '1'}}, {dark: false});
+    cm.theme = cm.darkTheme;
     return cm;
-  }).catch(err => {
-    window.__craftCM6Promise = null;
+  };
+
+  const loadCM = () => window.__craftCM6LocalPromise ??= (async () => {
+    try {
+      const mod = await import(`${LOCAL_CM_BASE}/index.js`);
+      const cm = {...mod, _source: 'local'};
+      return buildStyles(cm);
+    } catch (localErr) {
+      console.warn('craftC2: local CM6 bundle unavailable, falling back to esm.sh', localErr);
+      const entries = await Promise.all(Object.entries(CM_URLS).map(async ([k, u]) => [k, await import(u)]));
+      const cm = Object.fromEntries(entries);
+      cm._source = 'cdn';
+      return buildStyles(cm);
+    }
+  })().catch(err => {
+    window.__craftCM6LocalPromise = null;
     console.error('craftC2: failed to load CodeMirror 6', err);
     throw err;
   });
-  loadCM().then(cm => { cmCache = cm; }).catch(() => {});
+  loadCM().then(cm => { cmCache = cm; schedule(); }).catch(() => {});
+
+  let cmExtras = null;
+  const ensureCMExtras = cm => {
+    if (!cm.ghLightStyle) buildStyles(cm);
+    if (cmExtras) return cmExtras;
+    const {state, view} = cm;
+    const setGhost = state.StateEffect.define();
+    const setSigHelp = state.StateEffect.define();
+    const setAiEdit = state.StateEffect.define();
+
+    class GhostWidget extends view.WidgetType {
+      constructor(text) { super(); this.text = text; }
+      eq(other) { return other.text === this.text; }
+      toDOM() {
+        const span = document.createElement('span');
+        span.className = 'craft-c2-ghost';
+        span.textContent = this.text;
+        return span;
+      }
+      ignoreEvent() { return true; }
+    }
+
+    const ghostField = state.StateField.define({
+      create: () => null,
+      update(val, tr) {
+        for (const e of tr.effects) if (e.is(setGhost)) return e.value;
+        if (!val) return null;
+        if (tr.docChanged) {
+          let next = null, count = 0;
+          tr.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
+            count++;
+            if (count === 1 && fromA === toA && fromA === val.pos) {
+              const ins = inserted.toString();
+              if (ins && val.text.startsWith(ins) && ins.length < val.text.length) {
+                next = {pos: val.pos + ins.length, text: val.text.slice(ins.length)};
+              }
+            }
+          });
+          return count === 1 ? next : null;
+        }
+        if (tr.selection) return null;
+        return val;
+      },
+      provide: f => view.EditorView.decorations.from(f, g => (
+        g ? view.Decoration.set([view.Decoration.widget({widget: new GhostWidget(g.text), side: 1}).range(g.pos)]) : view.Decoration.none
+      )),
+    });
+
+    const buildSigTooltip = val => ({
+      pos: val.pos,
+      above: true,
+      strictSide: false,
+      arrow: false,
+      create(edView) {
+        const dom = document.createElement('div');
+        dom.className = 'craft-c2-sighelp';
+        const render = cur => {
+          dom.replaceChildren();
+          const s = cur.values[cur.active] || cur.values[0];
+          if (!s) return;
+          const head = document.createElement('div');
+          head.className = 'craft-c2-sig-head';
+          const sigEl = document.createElement('span');
+          sigEl.className = 'craft-c2-sig-label';
+          const descs = (s.params || []).map(p => typeof p === 'string' ? p : String(p.desc || p.name || '').replace(/^param /, ''));
+          const fullLabel = String(s.label || '');
+          const openIdx = fullLabel.indexOf('('), closeIdx = fullLabel.lastIndexOf(')');
+          const fnName = openIdx >= 0 ? fullLabel.slice(0, openIdx) : fullLabel;
+          const tail = closeIdx >= 0 ? fullLabel.slice(closeIdx) : ')';
+          sigEl.append(fnName + '(');
+          descs.forEach((d, i) => {
+            if (i > 0) sigEl.append(', ');
+            if (i === s.idx) {
+              const st = document.createElement('strong');
+              st.className = 'craft-c2-sig-active';
+              st.textContent = d;
+              sigEl.append(st);
+            } else sigEl.append(d);
+          });
+          sigEl.append(tail);
+          head.append(sigEl);
+          if (cur.values.length > 1) {
+            const nav = document.createElement('span');
+            nav.className = 'craft-c2-sig-nav';
+            const mkBtn = (txt, delta) => {
+              const b = document.createElement('button');
+              b.type = 'button';
+              b.textContent = txt;
+              b.addEventListener('mousedown', e => {
+                e.preventDefault();
+                const n = cur.values.length;
+                edView.dispatch({effects: setSigHelp.of({...cur, active: (cur.active + delta + n) % n})});
+              });
+              return b;
+            };
+            nav.append(mkBtn('▲', -1), ` ${cur.active + 1}/${cur.values.length} `, mkBtn('▼', 1));
+            head.append(nav);
+          }
+          dom.append(head);
+          if (s.typ || s.mod) {
+            const meta = document.createElement('div');
+            meta.className = 'craft-c2-sig-meta';
+            if (s.typ) {
+              const b = document.createElement('b'); b.textContent = 'Type: ';
+              const k = document.createElement('kbd'); k.textContent = s.typ;
+              meta.append(b, k, ' ');
+            }
+            if (s.mod) {
+              const b = document.createElement('b'); b.textContent = 'Module: ';
+              const k = document.createElement('kbd'); k.textContent = s.mod;
+              meta.append(b, k);
+            }
+            dom.append(meta);
+          }
+          if (s.doc) {
+            const pre = document.createElement('pre');
+            pre.className = 'craft-c2-sig-doc';
+            pre.textContent = s.doc;
+            dom.append(pre);
+          }
+        };
+        render(val);
+        return {
+          dom,
+          update(u) {
+            const next = u.state.field(sigHelpField, false);
+            if (next) render(next);
+          },
+        };
+      },
+    });
+
+    const sigHelpField = state.StateField.define({
+      create: () => null,
+      update(val, tr) {
+        for (const e of tr.effects) if (e.is(setSigHelp)) return e.value;
+        if (tr.docChanged || tr.selection) return null;
+        return val;
+      },
+      provide: f => view.showTooltip.from(f, val => val ? buildSigTooltip(val) : null),
+    });
+
+    class AiEditWidget extends view.WidgetType {
+      constructor(spec) { super(); this.spec = spec; }
+      eq(other) { return other.spec === this.spec; }
+      toDOM() {
+        const form = document.createElement('form');
+        form.className = 'craft-c2-ai-form';
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.name = 'query';
+        input.autocomplete = 'off';
+        input.placeholder = 'Enter your query... (Enter to apply, Esc to cancel)';
+        input.className = 'craft-c2-ai-input';
+        form.append(input);
+        form.addEventListener('submit', e => {
+          e.preventDefault();
+          e.stopPropagation();
+          this.spec.onSubmit(input.value);
+        });
+        input.addEventListener('keydown', e => {
+          e.stopPropagation();
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            this.spec.onCancel();
+          }
+        });
+        requestAnimationFrame(() => input.focus());
+        return form;
+      }
+      ignoreEvent() { return true; }
+    }
+
+    const aiEditField = state.StateField.define({
+      create: () => null,
+      update(val, tr) {
+        for (const e of tr.effects) if (e.is(setAiEdit)) return e.value;
+        return val;
+      },
+      provide: f => view.EditorView.decorations.from(f, spec => (
+        spec ? view.Decoration.set([view.Decoration.widget({widget: new AiEditWidget(spec), block: true, side: -1}).range(spec.lineFrom)]) : view.Decoration.none
+      )),
+    });
+
+    const t = cm.hl.tags;
+    const staticHighlighter = cm.hl.tagHighlighter([
+      {tag: [t.comment, t.lineComment, t.blockComment, t.docComment], class: 'color:light-dark(#6a737d,#6a737d)'},
+      {tag: [t.keyword, t.controlKeyword, t.operatorKeyword, t.definitionKeyword, t.moduleKeyword, t.operator, t.compareOperator, t.logicOperator, t.arithmeticOperator, t.bitwiseOperator, t.updateOperator], class: 'color:light-dark(#d73a49,#f97583)'},
+      {tag: [t.string, t.special(t.string), t.docString], class: 'color:light-dark(#032f62,#9ecbff)'},
+      {tag: [t.regexp], class: 'color:light-dark(#032f62,#dbedff)'},
+      {tag: [t.self, t.escape, t.number, t.integer, t.float, t.bool, t.null, t.atom, t.constant(t.variableName), t.propertyName, t.attributeName, t.standard(t.variableName), t.special(t.variableName), t.link, t.url], class: 'color:light-dark(#005cc5,#79b8ff)'},
+      {tag: [t.function(t.variableName), t.function(t.propertyName), t.definition(t.function(t.variableName)), t.className, t.definition(t.className), t.typeName, t.meta, t.annotation], class: 'color:light-dark(#6f42c1,#b392f0)'},
+      {tag: [t.tagName], class: 'color:light-dark(#22863a,#85e89d)'},
+      {tag: [t.heading], class: 'color:light-dark(#005cc5,#79b8ff);font-weight:700'},
+      {tag: [t.strong], class: 'color:light-dark(#24292e,#e1e4e8);font-weight:700'},
+      {tag: [t.emphasis], class: 'color:light-dark(#24292e,#e1e4e8);font-style:italic'},
+      {tag: [t.variableName, t.definition(t.variableName), t.punctuation, t.bracket, t.paren, t.squareBracket, t.brace], class: 'color:light-dark(#24292e,#e1e4e8)'},
+      {tag: [t.invalid], class: 'color:light-dark(#cb2431,#fdaeb7);font-style:italic'},
+    ]);
+
+    const igDeco = view.Decoration.mark({class: 'craft-c2-ig'});
+    const buildIndentGuides = edView => {
+      const builder = new state.RangeSetBuilder();
+      const doc = edView.state.doc;
+      const seen = new Set();
+      for (const {from, to} of edView.visibleRanges) {
+        let pos = from;
+        while (pos <= to) {
+          const line = doc.lineAt(pos);
+          if (!seen.has(line.number)) {
+            seen.add(line.number);
+            const m = line.text.match(/^ +/);
+            if (m && m[0].length < line.text.length) {
+              const spaces = m[0].length;
+              for (let col = 0; col + 4 <= spaces; col += 4) {
+                builder.add(line.from + col, line.from + col + 1, igDeco);
+              }
+            }
+          }
+          if (line.to >= doc.length) break;
+          pos = line.to + 1;
+        }
+      }
+      return builder.finish();
+    };
+    const indentGuidesExt = view.ViewPlugin.fromClass(class {
+      constructor(edView) { this.decorations = buildIndentGuides(edView); }
+      update(u) { if (u.docChanged || u.viewportChanged) this.decorations = buildIndentGuides(u.view); }
+    }, {decorations: p => p.decorations});
+
+    const brDecos = [
+      view.Decoration.mark({class: 'craft-c2-br-0'}),
+      view.Decoration.mark({class: 'craft-c2-br-1'}),
+      view.Decoration.mark({class: 'craft-c2-br-2'}),
+    ];
+    const brErrDeco = view.Decoration.mark({class: 'craft-c2-br-err'});
+    const BR_OPEN = {'(': ')', '[': ']', '{': '}'};
+    const BR_CLOSE = new Set([')', ']', '}']);
+    const SKIP_NODES = new Set(['Comment', 'LineComment', 'BlockComment', 'String', 'FormatString', 'TemplateString', 'RegExp', 'RawString']);
+    const buildRainbowBrackets = edView => {
+      const st = edView.state;
+      const doc = st.doc;
+      if (doc.length > 50_000) return view.Decoration.none;
+      const visible = edView.visibleRanges;
+      if (!visible.length) return view.Decoration.none;
+      const maxTo = visible[visible.length - 1].to;
+      const text = doc.sliceString(0, maxTo);
+      const tree = cm.lang.syntaxTree(st);
+      const builder = new state.RangeSetBuilder();
+      const stack = [];
+      let vIdx = 0;
+      for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        const isOpen = Boolean(BR_OPEN[ch]);
+        if (!isOpen && !BR_CLOSE.has(ch)) continue;
+        let skip = false;
+        for (let n = tree.resolveInner(i, 1); n; n = n.parent) {
+          if (SKIP_NODES.has(n.name)) { skip = true; break; }
+        }
+        if (skip) continue;
+        while (vIdx < visible.length && visible[vIdx].to <= i) vIdx++;
+        const inVis = vIdx < visible.length && i >= visible[vIdx].from && i < visible[vIdx].to;
+        if (isOpen) {
+          const depth = stack.length;
+          stack.push({close: BR_OPEN[ch], depth});
+          if (inVis) builder.add(i, i + 1, brDecos[depth % 3]);
+        } else {
+          let matched = null;
+          for (let j = stack.length - 1; j >= 0; j--) {
+            if (stack[j].close === ch) { matched = stack.splice(j)[0]; break; }
+          }
+          if (inVis) builder.add(i, i + 1, matched ? brDecos[matched.depth % 3] : brErrDeco);
+        }
+      }
+      return builder.finish();
+    };
+    const rainbowBracketsExt = view.ViewPlugin.fromClass(class {
+      constructor(edView) { this.decorations = buildRainbowBrackets(edView); }
+      update(u) { if (u.docChanged || u.viewportChanged || cm.lang.syntaxTree(u.startState) !== cm.lang.syntaxTree(u.state)) this.decorations = buildRainbowBrackets(u.view); }
+    }, {decorations: p => p.decorations});
+
+    const hoverFoldGutter = cm.lang.foldGutter({
+      markerDOM(open) {
+        const span = document.createElement('span');
+        span.className = 'craft-c2-fold ' + (open ? 'is-open' : 'is-closed');
+        span.textContent = open ? '▾' : '▸';
+        return span;
+      },
+    });
+
+    cmExtras = {setGhost, ghostField, setSigHelp, sigHelpField, setAiEdit, aiEditField, staticHighlighter, indentGuidesExt, rainbowBracketsExt, hoverFoldGutter};
+    return cmExtras;
+  };
+
+  const themeExtensions = cm => {
+    ensureCMExtras(cm);
+    return [
+      cm.lang.syntaxHighlighting(isDark() ? cm.ghDarkStyle : cm.ghLightStyle),
+      isDark() ? cm.darkTheme : cm.lightTheme,
+    ];
+  };
+
+  const detectLangKey = text => {
+    const kl = kernelLang();
+    if (kl === 'python') {
+      const m = String(text || '').match(/^%%(\w+)/)?.[1]?.toLowerCase();
+      if (m) return LANG_ALIASES[m] || m;
+    }
+    return LANG_ALIASES[kl] || kl;
+  };
+
+  async function resolveLangExt(cm, langKey) {
+    if (langKey === 'python') return cm.python.python();
+    const cacheKey = `${cm._source || 'cdn'}:${langKey}`;
+    if (langCache.has(cacheKey)) return langCache.get(cacheKey);
+    const loaders = cm._source === 'local' ? LOCAL_LANG_LOADERS : CDN_LANG_LOADERS;
+    const loader = loaders[langKey];
+    if (!loader) return [];
+    try {
+      const ext = await loader();
+      langCache.set(cacheKey, ext);
+      return ext;
+    } catch (err) {
+      console.warn('craftC2: language fallback to plaintext for', langKey, err);
+      return [];
+    }
+  }
+
+  async function syncCellLanguage(id, v) {
+    const rec = views.get(id);
+    if (!rec || !cmCache) return;
+    const want = detectLangKey(v.state.doc.toString());
+    if (rec.langKey === want) return;
+    rec.langKey = want;
+    const ext = await resolveLangExt(cmCache, want);
+    const cur = views.get(id);
+    if (!cur || cur !== rec || cur.langKey !== want) return;
+    cur.view.dispatch({effects: cur.langComp.reconfigure(ext)});
+  }
+
+  function renderStaticHighlight(codeEl, text, tree, langKey) {
+    if (!cmCache || !codeEl || !tree) return;
+    const {staticHighlighter} = ensureCMExtras(cmCache);
+    const frag = document.createDocumentFragment();
+    let pos = 0;
+    cmCache.hl.highlightTree(tree, staticHighlighter, (from, to, cls) => {
+      if (from > pos) frag.append(document.createTextNode(text.slice(pos, from)));
+      if (cls) {
+        const span = document.createElement('span');
+        span.setAttribute('style', cls.trim().replace(/\s+/g, ';'));
+        span.textContent = text.slice(from, to);
+        frag.append(span);
+      } else {
+        frag.append(document.createTextNode(text.slice(from, to)));
+      }
+      pos = to;
+    });
+    if (pos < text.length) frag.append(document.createTextNode(text.slice(pos)));
+    codeEl.replaceChildren(frag);
+    codeEl.dataset.highlighted = 'true';
+    staticHlText.set(codeEl, {text, langKey});
+  }
+
+  function ensureStaticHighlighted(card) {
+    if (!cmCache || !card) return;
+    const codeEl = card.querySelector('.msg-body .msg-content pre code');
+    if (!codeEl) return;
+    const text = codeEl.textContent || '';
+    if (!text.trim()) return;
+    const langKey = detectLangKey(text);
+    const prev = staticHlText.get(codeEl);
+    if (prev && prev.text === text && prev.langKey === langKey && codeEl.querySelector('span[style]')) return;
+    if (langKey === 'python') {
+      const parser = cmCache.python.pythonLanguage?.parser || cmCache.python.python().language?.parser;
+      if (parser) renderStaticHighlight(codeEl, text, parser.parse(text), langKey);
+      return;
+    }
+    const cacheKey = `${cmCache._source || 'cdn'}:${langKey}`;
+    const cached = langCache.get(cacheKey);
+    const parser = cached?.language?.parser || cached?.parser;
+    if (parser) {
+      renderStaticHighlight(codeEl, text, parser.parse(text), langKey);
+      return;
+    }
+    resolveLangExt(cmCache, langKey).then(ext => {
+      if (destroyed || !codeEl.isConnected) return;
+      const curCard = codeEl.closest('.card-in');
+      if (curCard?.classList.contains('craft-c2-mounted')) return;
+      if ((codeEl.textContent || '') !== text) return;
+      const p = ext?.language?.parser || ext?.parser;
+      if (p) renderStaticHighlight(codeEl, text, p.parse(text), langKey);
+    });
+  }
+
+  function syncFindBoxToView(v) {
+    if (!cmCache) return;
+    const box = document.getElementById('find-box');
+    if (!box || box.classList.contains('hidden')) return;
+    const q = document.getElementById('search')?.value || '';
+    if (!q) return;
+    const isRegex = Boolean(document.getElementById('use_regex')?.checked);
+    const useCase = Boolean(document.getElementById('use_case')?.checked);
+    const caseSensitive = typeof window.smartCased === 'function' ? window.smartCased(q, useCase) : (useCase || /\p{Uppercase}/u.test(q));
+    const replRow = document.getElementById('replace-row');
+    const replace = replRow && !replRow.classList.contains('hidden') ? (document.getElementById('replace')?.value || '') : '';
+    try {
+      const sq = new cmCache.search.SearchQuery({search: q, regexp: isRegex, caseSensitive, replace});
+      v.dispatch({effects: cmCache.search.setSearchQuery.of(sq)});
+      cmCache.search.openSearchPanel(v);
+    } catch {}
+  }
+
+  function smartExpandSelection(v) {
+    if (!cmCache) return false;
+    const st = v.state;
+    const sel = st.selection.main;
+    const tree = cmCache.lang.ensureSyntaxTree(st, st.doc.length, 150) || cmCache.lang.syntaxTree(st);
+    let node = tree.resolveInner(sel.from, 1);
+    if (!node || (node.from === sel.from && node.to === sel.to && sel.from > 0)) {
+      const alt = tree.resolveInner(sel.from, -1);
+      if (alt) node = alt;
+    }
+    while (node && !(node.from <= sel.from && node.to >= sel.to && (node.from < sel.from || node.to > sel.to))) {
+      node = node.parent;
+    }
+    if (!node) return false;
+    let hist = smartSelHist.get(v);
+    const cur = {from: sel.from, to: sel.to};
+    if (!hist || hist.doc !== st.doc || !hist.last || hist.last.from !== cur.from || hist.last.to !== cur.to) {
+      hist = {doc: st.doc, stack: [], last: null};
+    }
+    hist.stack.push(cur);
+    hist.last = {from: node.from, to: node.to};
+    smartSelHist.set(v, hist);
+    v.dispatch({selection: {anchor: node.from, head: node.to}, scrollIntoView: true});
+    return true;
+  }
+
+  function smartShrinkSelection(v) {
+    const hist = smartSelHist.get(v);
+    const sel = v.state.selection.main;
+    if (!hist || hist.doc !== v.state.doc || !hist.stack.length || !hist.last || hist.last.from !== sel.from || hist.last.to !== sel.to) {
+      return false;
+    }
+    const prev = hist.stack.pop();
+    hist.last = hist.stack.length ? prev : null;
+    v.dispatch({selection: {anchor: prev.from, head: prev.to}, scrollIntoView: true});
+    return true;
+  }
+
+  async function switchCellType(id, v, mtyp) {
+    if (mtyp === 'code') return;
+    const sel = v.state.selection.main;
+    const selSpec = {anchor: sel.anchor, head: sel.head};
+    cancelGhost(id, v);
+    const saved = await saveCell(id, v.state.doc.toString());
+    if (!saved) return;
+    unmountCell(id);
+    if (ids.delete(id) | removeDlgId(id)) saveIds();
+    const el = getCellEl(id);
+    if (el) window.selectMsg?.(window.$(el), {scroll: false});
+    const kid = document.getElementById('kid')?.value || '';
+    try {
+      await window.htmx.ajax('POST', '/set_mtyp_', {
+        source: '#kid',
+        swap: 'none',
+        values: {kid, id_: '_' + id, ids: '_' + id, mtyp},
+      });
+      if (window.craftMd) {
+        for (let i = 0; i < 60; i++) {
+          if (getCellEl(id)?.querySelector(':scope > .card-in')?.dataset.mtype === mtyp) {
+            window.craftMd.edit(id, selSpec);
+            break;
+          }
+          await new Promise(r => setTimeout(r, 40));
+        }
+      }
+    } catch (err) {
+      notifyErr('Could not change cell type.');
+      console.error('craftC2: set_mtyp failed', err);
+    }
+  }
+
+  async function jumpToLastCell(id) {
+    await exitCell(id);
+    const all = [...document.querySelectorAll('#dialog-container > .editable')].filter(e => !e.hidden && getComputedStyle(e).display !== 'none');
+    const last = all[all.length - 1];
+    if (!last) return;
+    if (isC2El(last) && !getCardIn(last)?.classList.contains('collapsed')) {
+      last.scrollIntoView({block: 'nearest'});
+      openCell(last.id.replace(/^_/, ''), {toEnd: true});
+    } else if (window.craftMd?.manages?.(last.id)) {
+      last.scrollIntoView({block: 'nearest'});
+      window.craftMd.edit(last.id, {toEnd: true});
+    } else {
+      last.querySelector('div[hx-post^="/editor_"]')?.click();
+    }
+  }
 
   const editorId = () => String(document.querySelector('#full_editor #id_')?.value || '').replace(/^_/, '');
   const model = () => window.editor?.getModel();
-  const choice = () => draft && draft.id === editorId() && draft.model === model() ? draft.c2 : ids.has(editorId());
+  const choice = () => draft && draft.id === editorId() && draft.model === model() ? draft.c2 : (allMode || ids.has(editorId()));
   const select = c2 => { draft = {id: editorId(), model: model(), c2}; };
   const getCellEl = id => document.getElementById('_' + id);
   const getCardIn = el => el?.querySelector('.card-in[data-mtype="code"]');
   const getCellText = el => el?.querySelector('form [name="content"]')?.value ?? '';
-  const isC2El = el => !!el && ids.has(el.id.replace(/^_/, '')) && !!getCardIn(el);
+  const hasDiff = el => !!(el && (el.dataset.diff || el.querySelector('[data-diff]')));
+  let nonCodeInsertion = null;
+  const isNonCodeInsertion = id => nonCodeInsertion && !nonCodeInsertion.has(id);
+  const isC2El = el => !!el && !isNonCodeInsertion(el.id) && !!getCardIn(el) && !hasDiff(el) && (allMode || ids.has(el.id.replace(/^_/, '')));
   const typingBlocked = () => !!document.activeElement?.closest('input,textarea,select,[contenteditable],.monaco-editor,#full_editor,.hk-overlay.open,#solveit-launcher.open,[role="dialog"],.uk-modal.uk-open');
+
+  const hasTraceback = el => {
+    const out = el?.querySelector('.card-out');
+    if (!out) return false;
+    const txt = out.textContent || '';
+    return /Traceback \(most recent call last\)|^\s*File ".*", line \d+/m.test(txt) || Boolean(out.querySelector('.ansi-red-fg, .ansi-red-intense-fg'));
+  };
+  const wantsLineNumbers = id => showLineNums || hasTraceback(getCellEl(id));
+  const syncCellLineNumbers = (id, rec) => {
+    if (!rec || !cmCache || !rec.lineNumComp) return;
+    const want = wantsLineNumbers(id);
+    if (rec.showLN === want) return;
+    rec.showLN = want;
+    rec.view.dispatch({effects: rec.lineNumComp.reconfigure(want ? cmCache.view.lineNumbers() : [])});
+    rec.host.classList.toggle('craft-c2-has-ln', want);
+  };
+  const setLineNums = on => {
+    showLineNums = Boolean(on);
+    try { localStorage.setItem(LN_KEY, showLineNums ? '1' : '0'); } catch {}
+    for (const [id, rec] of views) syncCellLineNumbers(id, rec);
+  };
+  const setAllMode = on => {
+    allMode = Boolean(on);
+    try { localStorage.setItem(ALL_KEY, allMode ? '1' : '0'); } catch {}
+    if (!allMode) {
+      for (const id of [...views.keys()]) if (!ids.has(id) && !dirtyIds.has(id)) unmountCell(id);
+    }
+    schedule();
+  };
+  async function openInMonaco(id) {
+    autoEditGuard = null;
+    const k = String(id).replace(/^_/, '');
+    const rec = views.get(k);
+    if (rec) {
+      const ok = await saveCell(k, rec.view.state.doc.toString());
+      if (!ok) return;
+      unmountCell(k);
+    }
+    const btn = getCellEl(k)?.querySelector('.card-in [hx-post="/editor_"]');
+    if (!btn) return;
+    bypassMonacoId = k;
+    window.craftIdleComposer?.reveal();
+    btn.click();
+    setTimeout(() => { if (bypassMonacoId === k) bypassMonacoId = null; }, 500);
+  }
+
+  const pendingAutoEdits = [];
+  let autoEditGuard = null, monacoBoundEditor = null, monacoModelSub = null;
+
+  const monacoHoldsCell = id => {
+    if (!id) return false;
+    if (editorId() === id) return true;
+    const p = model()?.uri?.path || '';
+    if (p.endsWith('/' + id) || p.endsWith('/_' + id)) return true;
+    return getCellEl(id)?.dataset.editing === 'true';
+  };
+
+  const queueAutoEdit = ({tagC2 = false, forceCode = false} = {}) => {
+    autoEditGuard = null;
+    const existing = new Set([...document.querySelectorAll('#dialog-container .editable[id]')].map(el => el.id));
+    pendingAutoEdits.push({existing, tagC2, forceCode, expires: Date.now() + 6000});
+  };
+
+  const claimNewCell = (nid, {tagC2 = false, forceCode = false} = {}) => {
+    autoEditGuard = {id: nid, tagC2, forceCode, wantOpen: true, canceling: false, converted: false, expires: Date.now() + 3000};
+    if (tagC2) { ids.add(nid); recordDlgId(nid); saveIds(); }
+    driveAutoEdit();
+  };
+
+  const releaseMonacoFor = g => {
+    if (g.canceling) return;
+    const cancelBtn = document.getElementById('cancel_btn');
+    if (!cancelBtn || cancelBtn.disabled) return;
+    const rec = views.get(g.id);
+    if (rec) {
+      const curDoc = rec.view.state.doc.toString();
+      const m = model();
+      if (curDoc && m && m.getValue() !== curDoc) m.setValue(curDoc);
+    }
+    g.canceling = true;
+    cancelBtn.click();
+  };
+
+  const driveAutoEdit = () => {
+    if (!autoEditGuard) return;
+    const g = autoEditGuard;
+    if (Date.now() > g.expires) { autoEditGuard = null; return; }
+    const el = getCellEl(g.id);
+    const card = el?.querySelector('.card-in');
+    const isCode = card?.dataset.mtype === 'code';
+    if (el && card && !isCode) {
+      if (g.forceCode) {
+        if (monacoHoldsCell(g.id)) { releaseMonacoFor(g); return; }
+        if (!g.converted) {
+          g.converted = true;
+          const kid = document.getElementById('kid')?.value || '';
+          window.htmx?.ajax('POST', '/set_mtyp_', {
+            source: '#kid', swap: 'none',
+            values: {kid, id_: '_' + g.id, ids: '_' + g.id, mtyp: 'code'},
+          }).catch(err => console.error('craftC2: set_mtyp failed', err));
+        }
+        return;
+      }
+      autoEditGuard = null;
+      return;
+    }
+    if (monacoHoldsCell(g.id)) {
+      releaseMonacoFor(g);
+      return;
+    }
+    if (el && isCode && !hasDiff(el) && g.wantOpen) {
+      g.wantOpen = false;
+      window.craftIdleComposer?.hide?.();
+      el.scrollIntoView({block: 'nearest'});
+      openCell(g.id, {anchor: 0, head: 0});
+    }
+  };
+
+  const checkMonacoHandover = () => {
+    if (destroyed) return;
+    const edId = editorId();
+    if (edId) {
+      if (isNonCodeInsertion('_' + edId)) return;
+      if (autoEditGuard && autoEditGuard.id === edId && Date.now() < autoEditGuard.expires) {
+        autoEditGuard.wantOpen = true;
+        autoEditGuard.canceling = false;
+        driveAutoEdit();
+        return;
+      }
+      if (!autoEditGuard && pendingAutoEdits.length) {
+        const now = Date.now();
+        for (let i = pendingAutoEdits.length - 1; i >= 0; i--) {
+          if (pendingAutoEdits[i].expires < now) pendingAutoEdits.splice(i, 1);
+        }
+        const mtype = document.querySelector('#full_editor #msg_type')?.value;
+        for (let i = 0; i < pendingAutoEdits.length; i++) {
+          const req = pendingAutoEdits[i];
+          if (req.existing.has('_' + edId)) continue;
+          if (!req.forceCode && mtype !== 'code') continue;
+          pendingAutoEdits.splice(i, 1);
+          claimNewCell(edId, req);
+          return;
+        }
+      }
+    } else if (autoEditGuard && autoEditGuard.canceling) {
+      autoEditGuard.canceling = false;
+      autoEditGuard.wantOpen = true;
+      window.craftIdleComposer?.hide?.();
+      driveAutoEdit();
+    }
+  };
+
+  const onFullEditorSettle = e => {
+    if (destroyed) return;
+    const tgt = e.target;
+    if (tgt?.id === 'full_editor' || e.detail?.target?.id === 'full_editor') checkMonacoHandover();
+  };
+
+  const bindMonacoWatcher = () => {
+    const ed = window.editor;
+    if (!ed || ed === monacoBoundEditor) return;
+    monacoModelSub?.dispose?.();
+    monacoBoundEditor = ed;
+    monacoModelSub = ed.onDidChangeModel?.(() => { queueMicrotask(checkMonacoHandover); }) || null;
+  };
+
+  const reconcileAutoEdits = () => {
+    if (!pendingAutoEdits.length) return;
+    const now = Date.now();
+    for (let i = pendingAutoEdits.length - 1; i >= 0; i--) {
+      if (pendingAutoEdits[i].expires < now) pendingAutoEdits.splice(i, 1);
+    }
+    if (!pendingAutoEdits.length) return;
+    const cells = [...document.querySelectorAll('#dialog-container .editable[id]')];
+    for (let i = 0; i < pendingAutoEdits.length; i++) {
+      const req = pendingAutoEdits[i];
+      const added = cells.filter(el => !isNonCodeInsertion(el.id) && !req.existing.has(el.id) && (req.forceCode ? Boolean(el.querySelector('.card-in')) : Boolean(getCardIn(el))));
+      if (!added.length) continue;
+      pendingAutoEdits.splice(i, 1);
+      claimNewCell(added[0].id.replace(/^_/, ''), req);
+      break;
+    }
+  };
+
+  function shouldInterceptCodeTab() {
+    if (!allMode) return false;
+    if (editorId()) return false;
+    const uri = model()?.uri?.path || '';
+    if (uri && !uri.endsWith('/temp')) return false;
+    if (window.edValue?.().trim()) return false;
+    if (document.querySelector('.editable[data-editing="true"]')) return false;
+    return true;
+  }
+
+  async function newCodeCell() {
+    if (destroyed) return false;
+    if (activeId) await exitCell(activeId);
+    const fullEd = document.getElementById('full_editor');
+    if (fullEd?.contains(document.activeElement)) document.activeElement.blur();
+    window.craftIdleComposer?.hide?.();
+    const kid = document.getElementById('kid')?.value || '';
+    if (!kid) return false;
+    const allCells = [...document.querySelectorAll('#dialog-container > .editable[id]')];
+    const last = allCells[allCells.length - 1];
+    queueAutoEdit({tagC2: !allMode, forceCode: true});
+    const unhide = window.craftIdleComposer?.holdForInsertion();
+    try {
+      if (last) {
+        const lastId = last.id.replace(/^_/, '');
+        const after = window.sectionTail ? window.sectionTail(last) : last.id;
+        await window.htmx.ajax('POST', '/add_below_', {
+          source: '#kid', swap: 'none',
+          values: {kid, id_: lastId, after},
+        });
+      } else {
+        await window.htmx.ajax('POST', '/upsert_msg_', {
+          source: '#kid', swap: 'none',
+          values: {kid, id_: '', msg_type: 'code', is_input: '1', content: ''},
+        });
+      }
+      schedule();
+      const existing = new Set(allCells.map(el => el.id)), deadline = Date.now() + 6000;
+      while (Date.now() < deadline) {
+        const added = [...document.querySelectorAll('#dialog-container > .editable[id]')].find(el => !existing.has(el.id) && isC2El(el));
+        if (added && !monacoHoldsCell(added.id.slice(1)) && added.querySelector('.craft-c2-host')) break;
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      return true;
+    } catch (err) {
+      pendingAutoEdits.pop();
+      notifyErr('Could not create code cell.');
+      console.error('craftC2: newCodeCell failed', err);
+      return false;
+    } finally { unhide?.(); }
+  }
+
+  function stepBoundary(id, v, up) {
+    if (!cmCache || !cmExtras) return false;
+    const {sigHelpField, aiEditField} = cmExtras;
+    if (v.state.selection.ranges.length !== 1 || !v.state.selection.main.empty) return false;
+    if (cmCache.ac.completionStatus(v.state) || v.state.field(sigHelpField, false) || v.state.field(aiEditField, false)) return false;
+    const head = v.state.selection.main.head;
+    const doc = v.state.doc;
+    const edgePos = up ? 0 : doc.length;
+    const cHead = v.coordsAtPos(head), cEdge = v.coordsAtPos(edgePos);
+    const atEdge = cHead && cEdge ? Math.abs(cHead.top - cEdge.top) <= 2 : doc.lineAt(head).number === (up ? 1 : doc.lines);
+    if (!atEdge) return false;
+    const el = getCellEl(id);
+    const next = el && window.adjacentMsg?.(window.$(el), up);
+    const nextEl = next?.[0];
+    if (!nextEl || nextEl === el) return false;
+    cancelGhost(id, v);
+    const content = doc.toString();
+    states.set(id, v.state);
+    delete el.dataset.c2Editing;
+    if (activeId === id) activeId = null;
+    v.contentDOM.blur();
+    saveCell(id, content).then(ok => {
+      const cur = views.get(id);
+      if (ok && cur && !cur.view.hasFocus && activeId !== id && !dirtyIds.has(id) && !(cmCache && hasFolds(cmCache, cur.view.state))) unmountCell(id);
+    });
+    if (isC2El(nextEl) && !getCardIn(nextEl)?.classList.contains('collapsed')) {
+      nextEl.scrollIntoView({block: 'nearest'});
+      openCell(nextEl.id.replace(/^_/, ''), up ? {toEnd: true} : {anchor: 0, head: 0});
+    } else if (window.craftMd?.manages?.(nextEl.id)) {
+      nextEl.scrollIntoView({block: 'nearest'});
+      window.craftMd.edit(nextEl.id, up ? {toEnd: true} : {anchor: 0, head: 0});
+    } else {
+      window.selectMsg?.(next);
+    }
+    return true;
+  }
 
   const hasFolds = (cm, state) => {
     let any = false;
     cm.lang.foldedRanges(state).between(0, state.doc.length, () => { any = true; return false; });
     return any;
+  };
+
+  const TRIGGER_CHARS = new Set(['.', '(', '[', '{', '@', ',', ' ', '+', '-', '/', '*', '%', '^']);
+  const SURROUND_PAIRS = {'(': ')', '[': ']', '{': '}', "'": "'", '"': '"'};
+
+  const inCommentOrString = (cm, st, pos) => {
+    const name = cm.lang.syntaxTree(st).resolveInner(pos, -1)?.name || '';
+    return name === 'Comment' || name === 'String' || name === 'FormatString';
   };
 
   const kindMap = {
@@ -1633,8 +2588,10 @@
     if (window.svCopts?.scon === false) return null;
     const kid = document.getElementById('kid')?.value;
     if (!kid) return null;
+    if (!context.explicit && cmCache && inCommentOrString(cmCache, context.state, context.pos)) return null;
     const word = context.matchBefore(/[\w./]+/);
-    if (!context.explicit && !word) return null;
+    const prevCh = context.pos > 0 ? context.state.doc.sliceString(context.pos - 1, context.pos) : '';
+    if (!context.explicit && !word && !TRIGGER_CHARS.has(prevCh)) return null;
     const doc = context.state.doc;
     const code = doc.toString();
     if (!code) return null;
@@ -1650,6 +2607,7 @@
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({code, line_no: line.number, col_no: context.pos - line.from + 1, kid}),
         signal: ctrl.signal,
+        priority: 'low',
       });
       if (!r.ok || context.aborted) return null;
       const {completions} = await r.json();
@@ -1662,60 +2620,401 @@
         from = toPos(firstRange.startLineNumber, firstRange.startColumn);
         to = toPos(firstRange.endLineNumber, firstRange.endColumn);
       }
-      const options = completions.map(c => ({
-        label: c.text,
-        apply: c.text,
-        detail: c.detail || undefined,
-        type: kindMap[c.kind] || 'variable',
-        boost: -(Number(c.rank) || 0),
-      }));
+      const options = completions.map(c => {
+        let apply = c.text;
+        if (c.range) {
+          const itemFrom = toPos(c.range.startLineNumber, c.range.startColumn);
+          const itemTo = toPos(c.range.endLineNumber, c.range.endColumn);
+          if (itemFrom !== from || itemTo !== to) {
+            apply = (edView, _comp, _curFrom, curTo) => {
+              const delta = curTo - to;
+              const maxLen = edView.state.doc.length;
+              const a = Math.max(0, Math.min(maxLen, itemFrom));
+              const b = Math.max(a, Math.min(maxLen, itemTo + delta));
+              edView.dispatch({changes: {from: a, to: b, insert: c.text}, selection: {anchor: a + c.text.length}});
+            };
+          }
+        }
+        return {
+          label: c.text,
+          apply,
+          detail: c.detail || undefined,
+          type: kindMap[c.kind] || 'variable',
+          boost: -(Number(c.rank) || 0),
+        };
+      });
       return {from, to, options, validFor: /^\w*$/};
     } catch { return null; }
   }
 
-  async function saveCell(id, content) {
-    const el = getCellEl(id);
-    if (!el) return false;
-    const prev = getCellText(el);
-    if (content === prev) return pendingSaves.get(id) || false;
-    const inp = el.querySelector('form [name="content"]');
-    if (inp) inp.value = content;
-    const kid = document.getElementById('kid')?.value || '';
-    const p = (async () => {
-      try {
-        await Promise.race([
-          window.htmx.ajax('POST', '/set_contents_', {
-            source: '#kid',
-            swap: 'none',
-            values: {kid, id_: '_' + id, ids: id, contents: JSON.stringify({[id]: content})},
-          }),
-          new Promise(r => setTimeout(r, 3000)),
-        ]);
-      } catch (err) {
-        console.error('craftC2: save failed', err);
-      } finally {
-        if (pendingSaves.get(id) === p) pendingSaves.delete(id);
+  function wordComplete(context) {
+    if (!context.explicit && cmCache && inCommentOrString(cmCache, context.state, context.pos)) return null;
+    const word = context.matchBefore(context.explicit ? /[A-Za-z_]\w*/ : /[A-Za-z_]\w+/);
+    if (!word) return null;
+    const seen = new Set([word.text]);
+    const options = [];
+    const text = context.state.doc.toString();
+    for (const m of text.matchAll(/\b[A-Za-z_]\w+\b/g)) {
+      const w = m[0];
+      if (seen.has(w)) continue;
+      seen.add(w);
+      options.push({label: w, type: 'text', boost: -100});
+      if (options.length >= 200) break;
+    }
+    return options.length ? {from: word.from, to: word.to, options, validFor: /^\w*$/} : null;
+  }
+
+  function cancelGhost(id, v = null) {
+    clearTimeout(ghostTimers.get(id));
+    ghostTimers.delete(id);
+    const ab = ghostAborts.get(id);
+    if (ab) { ab.abort(); ghostAborts.delete(id); }
+    const edView = v || views.get(id)?.view;
+    if (edView && cmExtras && edView.state.field(cmExtras.ghostField, false)) {
+      edView.dispatch({effects: cmExtras.setGhost.of(null)});
+    }
+  }
+
+  async function requestGhost(id, v, explicit = false) {
+    if (destroyed || !cmCache || !fimEnabled()) return;
+    const copts = window.svCopts;
+    const kid = document.getElementById('kid')?.value;
+    if (!kid || copts?.scon === false) return;
+    if (!v.hasFocus || !v.state.selection.main.empty || v.state.readOnly) return;
+    if (v.state.doc.length > 32_000) return;
+    if (!explicit && dialogMode() === 'learning') return;
+    if (cmCache.ac.selectedCompletionIndex(v.state) != null) return;
+    const pos = v.state.selection.main.head;
+    const doc = v.state.doc;
+    const line = doc.lineAt(pos);
+    const triggerChars = typeof copts?.triggerc === 'string' ? (() => { try { return JSON.parse(copts.triggerc); } catch { return []; } })() : copts?.triggerc;
+    if (!explicit && !triggerChars?.some(c => line.text.endsWith(c))) return;
+    const prevAb = ghostAborts.get(id);
+    if (prevAb) prevAb.abort();
+    const ctrl = new AbortController();
+    ghostAborts.set(id, ctrl);
+    const pfx = doc.sliceString(0, pos), sfx = doc.sliceString(pos);
+    const prevLine = doc.line(Math.max(line.number - 1, 1)).text;
+    const req_id = Math.random().toString(36).slice(2);
+    const origText = doc.toString();
+    try {
+      const r = await fetch('/ghost_', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({id_: id, mtype: 'code', output: false, pfx, sfx, req_id, kid}),
+        signal: ctrl.signal,
+        priority: 'low',
+      });
+      if (!r.ok || ctrl.signal.aborted) return;
+      const {completions} = await r.json();
+      if (!Array.isArray(completions) || !completions.length || ctrl.signal.aborted) return;
+      const cur = views.get(id);
+      if (!cur || cur.view !== v || !v.hasFocus || v.state.doc.toString() !== origText || v.state.selection.main.head !== pos || !v.state.selection.main.empty) return;
+      const first = completions[0].text;
+      if (!first) return;
+      if (/^\s*$/.test(first) && copts?.acceptichars && !sfx.length && !/^\s*$/.test(prevLine)) {
+        v.dispatch({changes: {from: pos, to: pos, insert: first}, selection: {anchor: pos + first.length}});
+        if (fimEnabled() && copts?.triggeronaccept && dialogMode() !== 'learning') {
+          setTimeout(() => requestGhost(id, v, false), 50);
+        }
+        return;
       }
-    })();
-    pendingSaves.set(id, p);
-    await p;
+      const {setGhost} = ensureCMExtras(cmCache);
+      v.dispatch({effects: setGhost.of({pos, text: first})});
+    } catch (err) {
+      if (err?.name !== 'AbortError') console.error('craftC2: ghost error', err);
+    } finally {
+      if (ghostAborts.get(id) === ctrl) ghostAborts.delete(id);
+    }
+  }
+
+  function scheduleGhost(id, v) {
+    clearTimeout(ghostTimers.get(id));
+    const prevAb = ghostAborts.get(id);
+    if (prevAb) { prevAb.abort(); ghostAborts.delete(id); }
+    if (!fimEnabled() || window.svCopts?.scon === false || dialogMode() === 'learning') return;
+    ghostTimers.set(id, setTimeout(() => {
+      ghostTimers.delete(id);
+      const cur = views.get(id);
+      if (cur && cur.view === v && v.hasFocus) requestGhost(id, v, false);
+    }, 1500));
+  }
+
+  function acceptGhost(id, v) {
+    if (!cmExtras || !v.state.selection.main.empty) return false;
+    const {ghostField, setGhost} = cmExtras;
+    const g = v.state.field(ghostField, false);
+    if (!g) return false;
+    v.dispatch({
+      changes: {from: g.pos, to: g.pos, insert: g.text},
+      selection: {anchor: g.pos + g.text.length},
+      effects: setGhost.of(null),
+    });
+    if (fimEnabled() && window.svCopts?.triggeronaccept && dialogMode() !== 'learning') {
+      setTimeout(() => {
+        const cur = views.get(id);
+        if (cur && cur.view === v && v.hasFocus) requestGhost(id, v, false);
+      }, 50);
+    }
     return true;
   }
 
+  async function triggerSigHelp(id, v) {
+    if (!cmCache || !fimEnabled() || !v.state.selection.main.empty) return false;
+    const {sigHelpField, setSigHelp} = ensureCMExtras(cmCache);
+    if (v.state.field(sigHelpField, false)) return false;
+    const kid = document.getElementById('kid')?.value;
+    if (!kid) return false;
+    const prevAb = sigAborts.get(id);
+    if (prevAb) prevAb.abort();
+    const ctrl = new AbortController();
+    sigAborts.set(id, ctrl);
+    const pos = v.state.selection.main.head;
+    const doc = v.state.doc;
+    const line = doc.lineAt(pos);
+    const origText = doc.toString();
+    try {
+      const res = await fetch('/sig_help_', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({code: origText, line_no: line.number, col_no: pos - line.from, kid}),
+        signal: ctrl.signal,
+      });
+      if (!res.ok || ctrl.signal.aborted) return false;
+      const {values} = await res.json();
+      if (ctrl.signal.aborted) return false;
+      let items = [], active = 0;
+      if (Array.isArray(values)) {
+        items = values.map(s => ({
+          label: String(s.label || ''),
+          params: (s.params || []).map(p => String(p.desc || p.name || '').replace(/^param /, '')),
+          idx: s.idx ?? 0,
+          typ: s.typ || '',
+          mod: s.mod || '',
+          doc: s.doc || '',
+        }));
+      } else if (values && Array.isArray(values.signatures)) {
+        active = values.activeSignature || 0;
+        items = values.signatures.map(s => ({
+          label: String(s.label || ''),
+          params: (s.parameters || []).map(p => (typeof p === 'string' ? p : String(p.label || ''))),
+          idx: s.activeParameter ?? values.activeParameter ?? 0,
+          typ: s.typ || '',
+          mod: s.mod || '',
+          doc: typeof s.documentation === 'string' ? s.documentation : (s.documentation?.value || ''),
+        }));
+      }
+      if (!items.length) return false;
+      const cur = views.get(id);
+      if (!cur || cur.view !== v || v.state.doc.toString() !== origText || v.state.selection.main.head !== pos) return false;
+      cmCache.ac.closeCompletion(v);
+      v.dispatch({effects: setSigHelp.of({pos, values: items, active: Math.max(0, Math.min(items.length - 1, active))})});
+      return true;
+    } catch (err) {
+      if (err?.name !== 'AbortError') console.error('craftC2: sig_help error', err);
+      return false;
+    } finally {
+      if (sigAborts.get(id) === ctrl) sigAborts.delete(id);
+    }
+  }
+
+  function setCellSpinner(rec, on) {
+    if (!rec?.host) return;
+    let sp = rec.host.querySelector('.craft-c2-spinner');
+    if (on && !sp) {
+      sp = document.createElement('div');
+      sp.className = 'craft-c2-spinner';
+      sp.setAttribute('data-uk-spinner', 'ratio: 0.5');
+      rec.host.append(sp);
+    } else if (!on && sp) sp.remove();
+  }
+
+  async function runSuperComplete(id, v, hl, instr, from, to) {
+    const rec = views.get(id);
+    if (!rec || !cmCache || !fimEnabled()) return;
+    const kid = document.getElementById('kid')?.value;
+    if (!kid) return;
+    v.dispatch({effects: rec.readOnlyComp.reconfigure(cmCache.state.EditorState.readOnly.of(true))});
+    setCellSpinner(rec, true);
+    try {
+      const doc = v.state.doc;
+      const pfx = doc.sliceString(0, from), sfx = doc.sliceString(to);
+      const r = await fetch(hl ? '/supere_' : '/superc_', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({id_: id, mtype: 'code', output: false, pfx, sfx, hl, instr, kid}),
+      });
+      const result = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(result.error || 'Completion request failed.');
+      const {completions} = result;
+      const cur = views.get(id);
+      if (cur && cur.view === v) {
+        v.dispatch({effects: rec.readOnlyComp.reconfigure(cmCache.state.EditorState.readOnly.of(false))});
+        if (Array.isArray(completions) && completions.length) {
+          const txt = completions[0].text;
+          v.dispatch({changes: {from, to, insert: txt}, selection: {anchor: from + txt.length}});
+        }
+        v.contentDOM.focus({preventScroll: true});
+      }
+    } catch (err) {
+      const cur = views.get(id);
+      if (cur && cur.view === v) {
+        v.dispatch({effects: rec.readOnlyComp.reconfigure(cmCache.state.EditorState.readOnly.of(false))});
+        v.contentDOM.focus({preventScroll: true});
+      }
+      notifyErr(err?.message || 'Completion request failed.');
+    } finally {
+      setCellSpinner(views.get(id), false);
+    }
+  }
+
+  function triggerSuperComplete(id, v) {
+    const rec = views.get(id);
+    if (!rec || !cmCache || !fimEnabled() || v.state.readOnly) return false;
+    cancelGhost(id, v);
+    const {setAiEdit} = ensureCMExtras(cmCache);
+    const sel = v.state.selection.main;
+    if (sel.empty) {
+      runSuperComplete(id, v, '', '', sel.from, sel.to);
+      return true;
+    }
+    const lineFrom = v.state.doc.lineAt(sel.from).from;
+    const hl = v.state.doc.sliceString(sel.from, sel.to);
+    const dismiss = () => {
+      const cur = views.get(id);
+      if (!cur || cur.view !== v) return;
+      v.dispatch({effects: [setAiEdit.of(null), rec.readOnlyComp.reconfigure(cmCache.state.EditorState.readOnly.of(false))]});
+    };
+    v.dispatch({
+      effects: [
+        rec.readOnlyComp.reconfigure(cmCache.state.EditorState.readOnly.of(true)),
+        setAiEdit.of({
+          lineFrom,
+          onCancel() {
+            dismiss();
+            v.contentDOM.focus({preventScroll: true});
+          },
+          onSubmit(instr) {
+            v.dispatch({effects: setAiEdit.of(null)});
+            runSuperComplete(id, v, hl, instr, sel.from, sel.to);
+          },
+        }),
+      ],
+    });
+    return true;
+  }
+
+  async function splitCell(id, v) {
+    const kid = document.getElementById('kid')?.value || '';
+    const content = v.state.doc.toString();
+    const linenos = [...new Set(v.state.selection.ranges.map(r => v.state.doc.lineAt(r.from).number))];
+    cancelGhost(id, v);
+    try {
+      await window.htmx.ajax('POST', '/split_at_', {
+        source: '#kid',
+        swap: 'none',
+        values: {content, linenos: JSON.stringify(linenos), id_: id, kid, msg_type: 'code', is_input: '1'},
+      });
+      dirtyIds.delete(id);
+      failedSaves.delete(id);
+      syncSaveState(id);
+      unmountCell(id);
+    } catch (err) {
+      notifyErr('Could not split cell.');
+      console.error('craftC2: split failed', err);
+    }
+  }
+
+  async function saveCell(id, content) {
+    const el = getCellEl(id);
+    if (!el) return true;
+    const prev = getCellText(el);
+    if (content === prev) {
+      dirtyIds.delete(id);
+      failedSaves.delete(id);
+      syncSaveState(id);
+      return pendingSaves.get(id) ? await pendingSaves.get(id) : true;
+    }
+    dirtyIds.add(id);
+    failedSaves.delete(id);
+    syncSaveState(id);
+    const kid = document.getElementById('kid')?.value || '';
+    const p = (async () => {
+      let resolveReq;
+      const statusP = new Promise(r => { resolveReq = r; });
+      const waiters = saveWaiters.get(id) || [];
+      waiters.push(resolveReq);
+      saveWaiters.set(id, waiters);
+      let ok = false;
+      try {
+        const ajaxP = window.htmx.ajax('POST', '/set_contents_', {
+          source: '#kid',
+          swap: 'none',
+          values: {kid, id_: '_' + id, ids: id, contents: JSON.stringify({[id]: content})},
+        }).then(() => statusP).catch(() => false);
+        const timeoutP = new Promise(r => setTimeout(() => r(false), 8000));
+        ok = Boolean(await Promise.race([ajaxP, timeoutP]));
+      } catch (err) {
+        console.error('craftC2: save failed', err);
+        ok = false;
+      } finally {
+        const list = saveWaiters.get(id);
+        if (list) {
+          const i = list.indexOf(resolveReq);
+          if (i >= 0) list.splice(i, 1);
+          if (!list.length) saveWaiters.delete(id);
+        }
+        if (pendingSaves.get(id) === p) pendingSaves.delete(id);
+      }
+      if (ok) {
+        failedSaves.delete(id);
+        const curEl = getCellEl(id);
+        const inp = curEl?.querySelector('form [name="content"]');
+        if (inp && inp.value === prev) inp.value = content;
+        const curView = views.get(id)?.view;
+        if (!curView || curView.state.doc.toString() === content) dirtyIds.delete(id);
+      } else {
+        failedSaves.add(id);
+        notifyErr('Could not save cell edit — changes kept in editor.');
+      }
+      syncSaveState(id);
+      return ok;
+    })();
+    pendingSaves.set(id, p);
+    syncSaveState(id);
+    return await p;
+  }
+
   function unmountCell(id) {
+    cancelGhost(id);
+    const ab = sigAborts.get(id);
+    if (ab) { ab.abort(); sigAborts.delete(id); }
     const rec = views.get(id);
     if (!rec) return;
+    const docText = rec.view.state.doc.toString();
     states.set(id, rec.view.state);
+    const el = getCellEl(id);
+    const card = getCardIn(el);
+    const codeEl = card?.querySelector('.msg-body .msg-content pre code');
+    if (codeEl) {
+      if (cmCache && docText.trim()) {
+        const tree = cmCache.lang.ensureSyntaxTree(rec.view.state, docText.length, 200) || cmCache.lang.syntaxTree(rec.view.state);
+        renderStaticHighlight(codeEl, docText, tree, rec.langKey || detectLangKey(docText));
+      } else {
+        codeEl.textContent = docText;
+        staticHlText.delete(codeEl);
+      }
+    }
     rec.view.destroy();
     rec.host.remove();
     views.delete(id);
-    const el = getCellEl(id);
-    getCardIn(el)?.classList.remove('craft-c2-mounted');
+    card?.classList.remove('craft-c2-mounted');
     if (el) delete el.dataset.c2Editing;
     if (activeId === id) activeId = null;
   }
 
   async function onCellBlur(id) {
+    cancelGhost(id);
     const rec = views.get(id);
     if (!rec) return;
     const el = getCellEl(id);
@@ -1723,14 +3022,16 @@
     if (activeId === id) activeId = null;
     const content = rec.view.state.doc.toString();
     states.set(id, rec.view.state);
-    await saveCell(id, content);
+    const saved = await saveCell(id, content);
     const cur = views.get(id);
     if (!cur || cur.view.hasFocus || activeId === id) return;
+    if (!saved || dirtyIds.has(id)) return;
     if (cmCache && hasFolds(cmCache, cur.view.state)) return;
     unmountCell(id);
   }
 
   async function exitCell(id) {
+    cancelGhost(id);
     const rec = views.get(id);
     const el = getCellEl(id);
     if (rec) {
@@ -1742,22 +3043,23 @@
   }
 
   async function saveAndRun(id, cmd) {
+    cancelGhost(id);
     const rec = views.get(id);
     const el = getCellEl(id);
     if (!rec || !el) return;
     const content = rec.view.state.doc.toString();
     const next = cmd === 'shift-run' ? window.adjacentMsg?.(window.$(el), false) : null;
     const after = cmd === 'alt-run' ? (window.sectionTail?.(el) || '') : '';
-    const existing = cmd === 'alt-run' ? new Set([...document.querySelectorAll('#dialog-container .editable[id]')].map(n => n.id)) : null;
     states.set(id, rec.view.state);
+    const saved = await saveCell(id, content);
+    if (!saved) return;
     delete el.dataset.c2Editing;
     if (activeId === id) activeId = null;
     rec.view.contentDOM.blur();
     if (cmd === 'shift-run' && next?.length) window.selectMsg?.(next);
     else window.selectMsg?.(window.$(el), {scroll: false});
-    await saveCell(id, content);
     const cur = views.get(id);
-    if (cur && !cur.view.hasFocus && activeId !== id && !(cmCache && hasFolds(cmCache, cur.view.state))) unmountCell(id);
+    if (cur && !cur.view.hasFocus && activeId !== id && !dirtyIds.has(id) && !(cmCache && hasFolds(cmCache, cur.view.state))) unmountCell(id);
     const kid = document.getElementById('kid')?.value || '';
     const runCmd = cmd === 'continue' ? 'run' : cmd;
     try {
@@ -1773,39 +3075,119 @@
           values: {kid, id_: '_' + id, ids: '_' + id},
         });
       }
-      if (existing) {
-        for (const node of document.querySelectorAll('#dialog-container .editable[id]')) {
-          if (!existing.has(node.id) && getCardIn(node)) {
-            ids.add(node.id.replace(/^_/, ''));
-            saveIds();
-            schedule();
-            break;
-          }
-        }
-      }
+      schedule();
     } catch (err) { console.error('craftC2: run failed', err); }
   }
 
-  function buildExtensions(cm, id) {
+  function buildExtensions(cm, id, comps) {
     const {state, view, lang, python, cmds, ac, search} = cm;
+    const {ghostField, sigHelpField, setSigHelp, aiEditField, indentGuidesExt, rainbowBracketsExt, hoverFoldGutter} = ensureCMExtras(cm);
+    const {langComp, themeComp, readOnlyComp, lineNumComp} = comps;
+
+    const autoSurroundExt = view.EditorView.inputHandler.of((v, _from, _to, text) => {
+      if (v.state.readOnly || text.length !== 1 || !SURROUND_PAIRS[text]) return false;
+      const sel = v.state.selection;
+      if (!sel.ranges.some(r => !r.empty)) return false;
+      const close = SURROUND_PAIRS[text];
+      const tr = v.state.changeByRange(r => {
+        if (r.empty) return {changes: {from: r.from, to: r.to, insert: text}, range: state.EditorSelection.cursor(r.from + 1)};
+        const inner = v.state.doc.sliceString(r.from, r.to);
+        return {
+          changes: {from: r.from, to: r.to, insert: text + inner + close},
+          range: state.EditorSelection.range(r.from + 1, r.to + 1),
+        };
+      });
+      v.dispatch(tr);
+      return true;
+    });
+
+    const sigKeyHandler = view.EditorView.domEventHandlers({
+      keydown(e, v) {
+        const cur = v.state.field(sigHelpField, false);
+        if (!cur) return false;
+        if (['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) return false;
+        if (cur.values.length > 1 && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+          e.preventDefault();
+          const n = cur.values.length;
+          const delta = e.key === 'ArrowDown' ? 1 : -1;
+          v.dispatch({effects: setSigHelp.of({...cur, active: (cur.active + delta + n) % n})});
+          return true;
+        }
+        v.dispatch({effects: setSigHelp.of(null)});
+        return e.key === 'Escape';
+      },
+    });
+
+    const prefs = getServerPrefs();
+    const smartExpandKey = isMac ? 'Ctrl-Shift-ArrowRight' : 'Alt-Shift-ArrowRight';
+    const smartShrinkKey = isMac ? 'Ctrl-Shift-ArrowLeft' : 'Alt-Shift-ArrowLeft';
+    const jumpLastKey = isMac ? 'Ctrl-Shift-ArrowUp' : 'Mod-Shift-ArrowUp';
+    const acceptOrPickFirst = v => {
+      if (ac.completionStatus(v.state) !== 'active') return false;
+      if (ac.selectedCompletionIndex(v.state) == null) {
+        if (!ac.currentCompletions(v.state).length) return false;
+        v.dispatch({effects: ac.setSelectedCompletion(0)});
+      }
+      return ac.acceptCompletion(v);
+    };
+
     const solveitKeys = state.Prec.high(view.keymap.of([
       {key: 'Shift-Enter', run: () => { saveAndRun(id, 'shift-run'); return true; }},
       {key: 'Mod-Enter', run: () => { saveAndRun(id, 'run'); return true; }},
       {key: 'Alt-Enter', run: () => { saveAndRun(id, 'alt-run'); return true; }},
       {key: 'Mod-Shift-Enter', run: () => { saveAndRun(id, 'continue'); return true; }},
+      {key: 'Alt-.', run: v => { requestGhost(id, v, true); return true; }},
+      {key: 'ArrowRight', run: v => !getServerPrefs().enterComp && acceptGhost(id, v)},
+      {key: 'ArrowUp', run: v => stepBoundary(id, v, true)},
+      {key: 'ArrowDown', run: v => stepBoundary(id, v, false)},
+      {key: 'Mod-Shift-.', run: v => triggerSuperComplete(id, v)},
+      {key: 'Mod-Shift->', run: v => triggerSuperComplete(id, v)},
+      {key: 'Ctrl-Shift--', run: v => { splitCell(id, v); return true; }},
+      {key: 'Ctrl-Shift-_', run: v => { splitCell(id, v); return true; }},
+      {key: 'Mod-Shift-j', run: () => true},
+      {key: 'Mod-Shift-k', run: v => { switchCellType(id, v, 'note'); return true; }},
+      {key: 'Mod-Shift-l', run: v => { switchCellType(id, v, 'prompt'); return true; }},
+      {key: 'Mod-Shift-;', run: v => { switchCellType(id, v, 'raw'); return true; }},
+      {key: 'Mod-Shift-d', run: () => { document.getElementById('brain-btn')?.click(); return true; }},
+      {key: smartExpandKey, run: v => smartExpandSelection(v)},
+      {key: smartShrinkKey, run: v => smartShrinkSelection(v)},
+      {key: jumpLastKey, run: () => { jumpToLastCell(id); return true; }},
+      {key: 'Alt-Shift-n', run: () => { newCodeCell(); return true; }},
+      {key: 'Shift-Escape', run: () => { exitCell(id); return true; }},
+      {key: 'Enter', run: v => {
+        if (ac.completionStatus(v.state) !== 'active') return false;
+        if (ac.selectedCompletionIndex(v.state) != null) return ac.acceptCompletion(v);
+        return getServerPrefs().enterComp ? acceptOrPickFirst(v) : false;
+      }},
       {key: 'Escape', run: v => {
+        if (v.state.field(sigHelpField, false)) { v.dispatch({effects: setSigHelp.of(null)}); return true; }
         if (ac.completionStatus(v.state)) return ac.closeCompletion(v);
+        if (v.state.field(ghostField, false)) { cancelGhost(id, v); return true; }
         if (search.searchPanelOpen(v.state)) return search.closeSearchPanel(v);
         if (v.state.selection.ranges.length > 1) return cmds.simplifySelection(v);
         exitCell(id);
         return true;
       }},
-      {key: 'Tab', run: v => ac.completionStatus(v.state) ? ac.acceptCompletion(v) : cmds.indentWithTab.run(v), shift: v => cmds.indentWithTab.shift(v)},
+      {key: 'Tab', run: v => {
+        if (getServerPrefs().enterComp) {
+          if (acceptGhost(id, v)) return true;
+          return cmds.indentWithTab.run(v);
+        }
+        if (acceptOrPickFirst(v)) return true;
+        return cmds.indentWithTab.run(v);
+      }, shift: v => {
+        if (v.state.selection.main.empty && fimEnabled() && !v.state.field(sigHelpField, false)) {
+          triggerSigHelp(id, v);
+          return true;
+        }
+        return cmds.indentWithTab.shift(v);
+      }},
     ]));
+
     const vscodeKeys = view.keymap.of([
       {key: 'Mod-/', run: cmds.toggleLineComment},
       {key: 'Mod-d', run: search.selectNextOccurrence, preventDefault: true},
-      {key: 'Mod-Shift-l', run: search.selectSelectionMatches},
+      {key: 'Mod-Shift-b', run: search.selectSelectionMatches},
       {key: 'Alt-ArrowUp', run: cmds.moveLineUp},
       {key: 'Alt-ArrowDown', run: cmds.moveLineDown},
       {key: 'Shift-Alt-ArrowUp', run: cmds.copyLineUp},
@@ -1824,38 +3206,76 @@
       {key: 'F3', run: search.findNext},
       {key: 'Shift-F3', run: search.findPrevious},
       {key: 'Mod-Space', run: ac.startCompletion},
-      ...ac.completionKeymap,
+      {key: 'Mod-i', run: ac.startCompletion},
+      ...(prefs.autoClose ? ac.closeBracketsKeymap : []),
+      ...ac.completionKeymap.filter(k => k.key !== 'Enter'),
       ...search.searchKeymap,
       ...cmds.historyKeymap,
       ...cmds.defaultKeymap,
       ...lang.foldKeymap,
     ]);
+
     return [
       solveitKeys,
       vscodeKeys,
-      python.python(),
+      langComp.of(python.python()),
+      themeComp.of(themeExtensions(cm)),
+      readOnlyComp.of(state.EditorState.readOnly.of(false)),
+      lineNumComp.of(wantsLineNumbers(id) ? view.lineNumbers() : []),
+      ghostField,
+      sigHelpField,
+      aiEditField,
+      prefs.autoClose ? ac.closeBrackets() : autoSurroundExt,
+      sigKeyHandler,
       cmds.history(),
       state.EditorState.allowMultipleSelections.of(true),
       view.drawSelection(),
       view.dropCursor(),
       view.rectangularSelection(),
       view.crosshairCursor(),
+      view.highlightActiveLine(),
+      view.placeholder(`${(kernelLang() || 'python').replace(/^./, c => c.toUpperCase())}…`),
       view.EditorView.lineWrapping,
       lang.indentUnit.of('    '),
       lang.indentOnInput(),
       lang.bracketMatching(),
-      lang.codeFolding(),
-      lang.syntaxHighlighting(cm.ghDarkStyle),
-      cm.theme,
+      lang.codeFolding({placeholderText: '…'}),
+      hoverFoldGutter,
+      indentGuidesExt,
+      rainbowBracketsExt,
       search.search({top: false}),
       search.highlightSelectionMatches(),
-      ac.autocompletion({override: [kernelComplete], activateOnTyping: true, defaultKeymap: false}),
+      ac.autocompletion({
+        override: [kernelComplete, wordComplete],
+        activateOnTyping: true,
+        defaultKeymap: false,
+        selectOnOpen: false,
+        interactionDelay: 0,
+      }),
+      view.tooltips({parent: getTooltipPortal(), position: 'fixed'}),
       view.EditorView.updateListener.of(u => {
         states.set(id, u.state);
-        if (!u.view.hasFocus && activeId !== id && !pendingSaves.has(id) && !hasFolds(cm, u.state)) {
+        if (u.docChanged) {
+          const el = getCellEl(id);
+          if (el) {
+            if (u.state.doc.toString() !== getCellText(el)) dirtyIds.add(id);
+            else { dirtyIds.delete(id); failedSaves.delete(id); }
+            syncSaveState(id);
+          }
+          if (u.view.hasFocus && u.state.selection.main.empty) scheduleGhost(id, u.view);
+          else cancelGhost(id, u.view);
+          let line1Changed = false;
+          const l1End = u.startState.doc.line(1).to;
+          u.changes.iterChangedRanges(fromA => { if (fromA <= l1End) line1Changed = true; });
+          if (line1Changed) syncCellLanguage(id, u.view);
+        } else if (u.selectionSet) {
+          clearTimeout(ghostTimers.get(id));
+          ghostTimers.delete(id);
+        }
+        if (!u.view.hasFocus && activeId !== id && !pendingSaves.has(id) && !dirtyIds.has(id) && !hasFolds(cm, u.state)) {
           queueMicrotask(() => {
             const cur = views.get(id);
-            if (cur && !cur.view.hasFocus && activeId !== id && !pendingSaves.has(id) && !hasFolds(cm, cur.view.state)) unmountCell(id);
+            if (cur && !cur.view.hasFocus && activeId !== id && !pendingSaves.has(id) && !dirtyIds.has(id) && !hasFolds(cm, cur.view.state)) unmountCell(id);
           });
         }
       }),
@@ -1883,27 +3303,38 @@
     cmCache = cm;
     if (destroyed) return;
     const el = getCellEl(id), card = getCardIn(el);
-    if (!el || !card || card.classList.contains('collapsed')) return;
+    if (!el || !card || hasDiff(el) || card.classList.contains('collapsed')) return;
     const body = card.querySelector('.msg-body'), contentEl = body?.querySelector('.msg-content');
     if (!body || !contentEl) return;
+    if (autoEditGuard && autoEditGuard.id !== id) autoEditGuard = null;
     window.selectMsg?.(window.$(el), {scroll: false});
     const text = getCellText(el);
     let rec = views.get(id);
     if (rec) {
       if (!body.contains(rec.host)) { contentEl.after(rec.host); card.classList.add('craft-c2-mounted'); }
-      if (rec.view.state.doc.toString() !== text && !pendingSaves.has(id)) {
+      if (rec.view.state.doc.toString() !== text && !pendingSaves.has(id) && !dirtyIds.has(id)) {
         rec.view.dispatch({changes: {from: 0, to: rec.view.state.doc.length, insert: text}});
       }
       if (selSpec) applySelection(rec.view, selSpec);
       activeId = id;
       el.dataset.c2Editing = 'true';
+      syncFindBoxToView(rec.view);
       rec.view.contentDOM.focus({preventScroll: true});
+      syncCellLanguage(id, rec.view);
       return;
     }
+    const langComp = new cm.state.Compartment();
+    const themeComp = new cm.state.Compartment();
+    const readOnlyComp = new cm.state.Compartment();
+    const lineNumComp = new cm.state.Compartment();
+    const comps = {langComp, themeComp, readOnlyComp, lineNumComp};
     const prevState = states.get(id);
-    const edState = prevState && prevState.doc.toString() === text
+    const reusePrev = prevState && prevState.doc.toString() === text && prevState._c2Comps && prevState._c2Comps.lineNumComp;
+    const edState = reusePrev
       ? prevState
-      : cm.state.EditorState.create({doc: text, extensions: buildExtensions(cm, id)});
+      : cm.state.EditorState.create({doc: text, extensions: buildExtensions(cm, id, comps)});
+    const activeComps = reusePrev ? prevState._c2Comps : comps;
+    edState._c2Comps = activeComps;
     const host = document.createElement('div');
     host.className = 'craft-c2-host';
     contentEl.after(host);
@@ -1923,12 +3354,16 @@
         onCellBlur(id);
       });
     });
-    rec = {view: v, host};
+    rec = {view: v, host, ...activeComps, langKey: 'python', showLN: null};
     views.set(id, rec);
     activeId = id;
     el.dataset.c2Editing = 'true';
-    applySelection(v, selSpec || (prevState ? null : {toEnd: true}));
+    if (reusePrev) v.dispatch({effects: activeComps.themeComp.reconfigure(themeExtensions(cm))});
+    syncCellLineNumbers(id, rec);
+    applySelection(v, selSpec || (reusePrev ? null : {toEnd: true}));
+    syncFindBoxToView(v);
     v.contentDOM.focus({preventScroll: true});
+    syncCellLanguage(id, v);
   }
 
   const offsetIn = (root, node, offset) => {
@@ -1982,7 +3417,9 @@
   const sync = () => {
     frame = null;
     const code = document.querySelector('#full_editor #tabh-code');
-    if (code && !document.getElementById('tabh-craft-c2')) {
+    if (allMode) {
+      document.getElementById('tabh-craft-c2')?.remove();
+    } else if (code && !document.getElementById('tabh-craft-c2')) {
       const tab = document.createElement('li');
       tab.className = 'tabh'; tab.id = 'tabh-craft-c2';
       const link = document.createElement('a');
@@ -1996,22 +3433,42 @@
       c2.firstElementChild.setAttribute('aria-selected', String(active));
       if (active) code?.classList.remove('uk-active');
     }
+    bindMonacoWatcher();
     reconcileCreates();
+    reconcileAutoEdits();
+    driveAutoEdit();
+    const domIds = new Set();
+    let idsChanged = false;
     for (const card of document.querySelectorAll('#dialog-container .editable .card-in')) {
       const el = card.closest('.editable');
       const id = el.id.replace(/^_/, '');
-      const isC2 = card.dataset.mtype === 'code' && ids.has(id);
+      domIds.add(id);
+      if (card.dataset.mtype !== 'code' && ids.has(id)) {
+        ids.delete(id);
+        removeDlgId(id);
+        idsChanged = true;
+      }
+      const isC2 = isC2El(el);
+      if (ids.has(id) && recordDlgId(id)) idsChanged = true;
       el.classList.toggle('craft-c2', isC2);
+      syncSaveState(id);
+      const outCard = el.querySelector(':scope > .card-out');
+      if (outCard) outCard.classList.toggle('craft-c2-traceback', card.dataset.mtype === 'code' && hasTraceback(el));
+      if (card.dataset.mtype === 'code' && !card.classList.contains('craft-c2-mounted') && !card.closest('[data-streaming]')) {
+        ensureStaticHighlighted(card);
+      }
       const header = card.querySelector('.uk-card-header [data-tokens]');
       const badge = header?.querySelector('.craft-c2-badge');
-      if (!isC2) { badge?.remove(); continue; }
+      if (!isC2 || allMode) { badge?.remove(); continue; }
       if (!header || badge) continue;
       const label = document.createElement('span');
       label.className = 'craft-c2-badge'; label.textContent = ' · C2'; header.append(label);
     }
+    if (domIds.size && pruneCurrentDlgIds(domIds)) idsChanged = true;
+    if (idsChanged) saveIds();
     for (const [id, rec] of [...views]) {
       const el = getCellEl(id), card = getCardIn(el);
-      if (!el || !card) { rec.view.destroy(); views.delete(id); continue; }
+      if (!el || !card || hasDiff(el) || !isC2El(el)) { rec.view.destroy(); views.delete(id); dirtyIds.delete(id); failedSaves.delete(id); syncSaveState(id); continue; }
       const body = card.querySelector('.msg-body'), contentEl = body?.querySelector('.msg-content');
       if (body && contentEl && !body.contains(rec.host)) {
         contentEl.after(rec.host);
@@ -2021,6 +3478,7 @@
           rec.view.contentDOM.focus({preventScroll: true});
         }
       }
+      syncCellLineNumbers(id, rec);
     }
   };
   const schedule = () => { if (frame == null) frame = requestAnimationFrame(sync); };
@@ -2028,13 +3486,22 @@
   const onClick = e => {
     const edit = e.target.closest?.('.card-in [hx-post="/editor_"]');
     const cell = edit?.closest('.editable');
-    if (isC2El(cell) && !getCardIn(cell).classList.contains('collapsed')) {
+    const cellId = cell?.id?.replace(/^_/, '');
+    if (cellId && bypassMonacoId === cellId) { bypassMonacoId = null; return; }
+    const codeCard = getCardIn(cell);
+    if (cellId && codeCard && !hasDiff(cell) && !isNonCodeInsertion(cell.id) && !codeCard.classList.contains('collapsed')) {
+      if (!allMode && !ids.has(cellId)) { ids.add(cellId); recordDlgId(cellId); saveIds(); }
       e.preventDefault(); e.stopImmediatePropagation();
-      openCell(cell.id.replace(/^_/, ''));
+      openCell(cellId);
       return;
     }
     const tab = e.target.closest?.('#full_editor .tabh');
     if (!tab) return;
+    if (tab.id === 'tabh-code' && shouldInterceptCodeTab()) {
+      e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+      newCodeCell();
+      return;
+    }
     if (tab.id === 'tabh-craft-c2') {
       e.preventDefault(); e.stopPropagation();
       if (!model() || typeof window.clickEdTab !== 'function') return;
@@ -2044,17 +3511,53 @@
 
   const before = ({detail:{ctx} = {}}) => {
     const request = ctx?.request, body = request?.body;
-    if (!body?.get || request.method !== 'POST' || new URL(request.action, location.href).pathname !== '/upsert_msg_') return;
+    if (!body?.get || request.method !== 'POST') return;
+    const pathname = new URL(request.action, location.href).pathname;
+    if (pathname === '/set_contents_') {
+      const id = String(body.get('ids') || '').replace(/^_/, '');
+      if (id && saveWaiters.has(id)) requests.set(ctx, {kind: 'save', id});
+      return;
+    }
+    if (pathname === '/rm_msg_') {
+      const raw = String(body.get('ids') || body.get('id_') || '');
+      let changed = false;
+      for (const tok of raw.split(',')) {
+        const rid = tok.trim().replace(/^_/, '');
+        if (!rid) continue;
+        if (ids.delete(rid)) changed = true;
+        if (removeDlgId(rid)) changed = true;
+      }
+      if (changed) saveIds();
+      return;
+    }
+    if (pathname === '/add_above_' || pathname === '/add_below_') {
+      if (nonCodeInsertion) return;
+      if (!pendingAutoEdits.some(r => r.forceCode && r.expires > Date.now())) {
+        const prim = document.querySelector('#dialog-container .editable[data-sm="primary"]');
+        if (allMode || isC2El(prim)) queueAutoEdit({tagC2: !allMode, forceCode: false});
+      }
+      return;
+    }
+    if (pathname === '/add_runq_') {
+      if (body.get('cmd') === 'alt-run') {
+        const rawId = String(body.get('id_') || '').replace(/^_/, '');
+        const el = (rawId && getCellEl(rawId)) || document.querySelector('#dialog-container .editable[data-sm="primary"]');
+        if (allMode || isC2El(el)) queueAutoEdit({tagC2: !allMode, forceCode: false});
+      }
+      return;
+    }
+    if (pathname !== '/upsert_msg_') return;
     const source = ctx.sourceElement, cmd = body.get('cmd');
     const composerButton = source?.matches('#full_editor #submit_btn, #full_editor #cancel_btn');
     const composerShortcut = source?.matches('#kid') && ['upsert-shift-run', 'upsert-alt-run'].includes(cmd);
     if ((!composerButton && !composerShortcut) || body.get('is_input') !== '1') return;
     const id = String(body.get('id_') || '').replace(/^_/, '');
-    const c2 = body.get('msg_type') === 'code' && choice();
+    const c2 = body.get('msg_type') === 'code' && (allMode || choice());
+    if (cmd === 'upsert-alt-run' && (allMode || c2)) queueAutoEdit({tagC2: !allMode, forceCode: false});
     if (!c2 && !ids.has(id)) return;
     const existing = id ? null : new Set([...document.querySelectorAll('#dialog-container .editable[id]')].map(el => el.id));
     const content = String(body.get('content') ?? '').replace(/\r\n/g, '\n');
-    requests.set(ctx, {id, c2, existing, draft, content, type: body.get('msg_type')});
+    requests.set(ctx, {kind: 'upsert', id, c2, existing, draft, content, type: body.get('msg_type')});
   };
 
   const pendingCreates = new Set();
@@ -2078,7 +3581,16 @@
 
   const after = ({detail:{ctx} = {}}) => {
     const save = ctx && requests.get(ctx);
-    if (!save || !ctx.response || ctx.response.status < 200 || ctx.response.status >= 300) return;
+    if (!save) return;
+    const ok = Boolean(ctx.response && ctx.response.status >= 200 && ctx.response.status < 300);
+    if (save.kind === 'save') {
+      const waiters = saveWaiters.get(save.id);
+      const fn = waiters?.shift();
+      if (waiters && !waiters.length) saveWaiters.delete(save.id);
+      fn?.(ok);
+      return;
+    }
+    if (!ok) return;
     const found = new Map();
     const collect = root => {
       for (const card of root.querySelectorAll('.editable[id] .card-in[data-mtype]')) {
@@ -2103,36 +3615,117 @@
     }
   };
 
+  const onThemeChange = () => {
+    if (!cmCache) return;
+    const exts = themeExtensions(cmCache);
+    for (const rec of views.values()) rec.view.dispatch({effects: rec.themeComp.reconfigure(exts)});
+  };
+  const onKernelConnected = () => {
+    for (const [id, rec] of views) syncCellLanguage(id, rec.view);
+  };
+  const onBeforeUnload = e => {
+    if (!dirtyIds.size) return;
+    e.preventDefault();
+    e.returnValue = '';
+  };
+
+  const origFollowRename = window.followRename;
+  if (typeof origFollowRename === 'function') {
+    window.followRename = async function(url) {
+      for (const id of [...dirtyIds]) {
+        const rec = views.get(id);
+        const content = rec ? rec.view.state.doc.toString() : states.get(id)?.doc.toString();
+        if (content != null && !(await saveCell(id, content))) {
+          notifyErr('Could not save C2 edit before reopening renamed dialog.');
+          return;
+        }
+      }
+      return origFollowRename.call(this, url);
+    };
+  }
+
   const observer = new MutationObserver(schedule);
-  observer.observe(document.body, {childList: true, subtree: true, attributes: true, attributeFilter: ['value']});
+  observer.observe(document.body, {childList: true, subtree: true, attributes: true, attributeFilter: ['value', 'data-diff']});
   document.addEventListener('click', onClick, true);
   document.addEventListener('mousedown', onMouseDown);
   document.addEventListener('mouseup', onMouseUp);
   document.addEventListener('keydown', onKeyDown, true);
+  document.addEventListener('uk-theme-switcher:change', onThemeChange);
+  document.body.addEventListener('kernel-connected', onKernelConnected);
+  window.addEventListener('beforeunload', onBeforeUnload);
   const sep = window.htmx?.config.metaCharacter || ':';
-  const configEvent = ['htmx', 'config', 'request'].join(sep), afterEvent = ['htmx', 'after', 'request'].join(sep);
+  const configEvent = ['htmx', 'config', 'request'].join(sep), afterEvent = ['htmx', 'after', 'request'].join(sep), settleEvent = ['htmx', 'after', 'settle'].join(sep);
   document.addEventListener(configEvent, before);
   document.addEventListener(afterEvent, after);
+  document.addEventListener(settleEvent, onFullEditorSettle);
+
+  window.__hotkeyRegister?.({
+    id: 'c2-new-code', combo: 'Alt+Shift+N', label: 'C2: New code cell at bottom', group: 'C2',
+    handler: () => { newCodeCell(); return true; },
+  });
+  window.__hotkeyRegister?.({
+    id: 'c2-toggle-mode', combo: 'Alt+Shift+C', label: 'C2: Toggle inline CodeMirror for all code cells', group: 'C2',
+    handler: () => { setAllMode(!allMode); return true; },
+  });
+  window.__hotkeyRegister?.({
+    id: 'c2-line-numbers', combo: 'Alt+Shift+L', label: 'C2: Toggle line numbers', group: 'C2',
+    handler: () => { setLineNums(!showLineNums); return true; },
+  });
 
   window.craftC2 = {
     ids: () => [...ids],
     has: id => ids.has(String(id).replace(/^_/, '')),
+    manages: id => { const el = getCellEl(String(id).replace(/^_/, '')); return isC2El(el); },
     add: id => { ids.add(String(id).replace(/^_/, '')); saveIds(); schedule(); },
-    remove: id => { const k = String(id).replace(/^_/, ''); ids.delete(k); unmountCell(k); saveIds(); schedule(); },
+    remove: id => { const k = String(id).replace(/^_/, ''); if (autoEditGuard?.id === k) autoEditGuard = null; ids.delete(k); unmountCell(k); saveIds(); schedule(); },
     edit: (id, opts) => openCell(String(id).replace(/^_/, ''), opts),
+    newCodeCell,
+    expectCodeInsertion: () => queueAutoEdit({tagC2: !allMode, forceCode: true}),
+    guardNonCodeInsertion(existing) {
+      nonCodeInsertion = existing;
+      return () => { if (nonCodeInsertion === existing) { nonCodeInsertion = null; schedule(); } };
+    },
+    shouldInterceptCodeTab,
+    openInMonaco,
+    allMode: () => allMode,
+    setAllMode,
+    toggleAllMode: () => setAllMode(!allMode),
+    lineNumbers: () => showLineNums,
+    setLineNumbers: setLineNums,
+    toggleLineNumbers: () => setLineNums(!showLineNums),
+    dirty: () => [...dirtyIds],
+    source: () => cmCache?._source || 'pending',
     disable() {
       destroyed = true;
       observer.disconnect(); cancelAnimationFrame(frame);
+      monacoModelSub?.dispose?.();
+      monacoModelSub = null;
+      monacoBoundEditor = null;
+      autoEditGuard = null;
       document.removeEventListener('click', onClick, true);
       document.removeEventListener('mousedown', onMouseDown);
       document.removeEventListener('mouseup', onMouseUp);
       document.removeEventListener('keydown', onKeyDown, true);
+      document.removeEventListener('uk-theme-switcher:change', onThemeChange);
+      document.body.removeEventListener('kernel-connected', onKernelConnected);
+      window.removeEventListener('beforeunload', onBeforeUnload);
       document.removeEventListener(configEvent, before);
       document.removeEventListener(afterEvent, after);
+      document.removeEventListener(settleEvent, onFullEditorSettle);
+      if (typeof origFollowRename === 'function') window.followRename = origFollowRename;
       pendingCreates.clear();
+      pendingAutoEdits.length = 0;
+      dirtyIds.clear();
+      failedSaves.clear();
+      saveWaiters.clear();
       for (const id of [...views.keys()]) unmountCell(id);
-      document.querySelectorAll('.editable.craft-c2').forEach(el => { el.classList.remove('craft-c2'); delete el.dataset.c2Editing; });
-      document.querySelectorAll('#tabh-craft-c2, .craft-c2-badge').forEach(el => el.remove());
+      document.querySelectorAll('.editable.craft-c2, .editable[data-c2-save]').forEach(el => {
+        el.classList.remove('craft-c2');
+        delete el.dataset.c2Editing;
+        delete el.dataset.c2Save;
+      });
+      document.querySelectorAll('.card-out.craft-c2-traceback').forEach(el => el.classList.remove('craft-c2-traceback'));
+      document.querySelectorAll('#tabh-craft-c2, .craft-c2-badge, #craft-c2-tooltips').forEach(el => el.remove());
     },
   };
   sync();
@@ -2209,6 +3802,42 @@
         queueMicrotask(() => { if (document.activeElement === document.body && trigger.isConnected) trigger.focus({preventScroll: true}); });
       });
       menu.append(item);
+    }
+    if (card.matches('.card-in[data-mtype="code"]') && window.craftC2) {
+      const cellEl = card.closest('.editable');
+      const cid = cellEl?.id?.replace(/^_/, '');
+      if (cid) {
+        const sep = document.createElement('hr');
+        sep.className = 'craft-action-sep';
+        menu.append(sep);
+        const addAction = (text, fn) => {
+          const item = document.createElement('button');
+          item.type = 'button';
+          item.setAttribute('role', 'menuitem');
+          item.textContent = text;
+          item.addEventListener('click', e => { e.stopPropagation(); close(); fn(); });
+          menu.append(item);
+        };
+        if (window.craftC2.manages?.(cid)) addAction('Edit in Monaco', () => window.craftC2.openInMonaco(cid));
+        else addAction('Edit in C2 (inline)', () => { window.craftC2.add(cid); window.craftC2.edit(cid); });
+        addAction(`Line numbers (C2): ${window.craftC2.lineNumbers?.() ? 'On' : 'Off'}`, () => window.craftC2.toggleLineNumbers?.());
+        addAction(`C2 for all code cells: ${window.craftC2.allMode?.() ? 'On' : 'Off'}`, () => window.craftC2.toggleAllMode?.());
+      }
+    } else if (card.matches('.card-in:is([data-mtype="note"],[data-mtype="prompt"],[data-mtype="raw"]), .card-out[data-mtype="prompt"]') && window.craftMd) {
+      const cellEl = card.closest('.editable');
+      const cid = cellEl?.id?.replace(/^_/, '');
+      const part = card.classList.contains('card-out') ? 'out' : 'in';
+      if (cid) {
+        const sep = document.createElement('hr');
+        sep.className = 'craft-action-sep';
+        menu.append(sep);
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.setAttribute('role', 'menuitem');
+        item.textContent = 'Edit in Monaco';
+        item.addEventListener('click', e => { e.stopPropagation(); close(); window.craftMd.openInMonaco(cid, part); });
+        menu.append(item);
+      }
     }
     current = trigger;
     trigger.setAttribute('aria-expanded', 'true');
@@ -2575,4 +4204,253 @@
     }
   };
   sync();
+})();
+
+
+(() => {
+  window.craftInsertPreview?.disable();
+  if (!document.getElementById('dialog-container')) return;
+  const types = {
+    Code: 'M8 6l-6 6 6 6m8-12 6 6-6 6M14 4l-4 16',
+    Note: 'M5 3h10l4 4v14H5z M15 3v5h4M8 12h8m-8 4h8',
+    Raw: 'M3 5h18v14H3z M7 9v6',
+    Prompt: 'M3 4h18v12H9l-6 4z M7 10h.01m5 0h.01m5 0h.01',
+  };
+  const icon = name => `<svg aria-hidden="true" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="${types[name]}"/></svg>`;
+  const key = 'craft-insert-preview:v1:' + (new URLSearchParams(location.search).get('name') || location.pathname);
+  const style = document.createElement('style');
+  style.textContent = `
+    #dialog-container.craft-insert-preview {box-sizing:border-box; margin-right:28px!important; min-width:0}
+    #craft-insert-preview {position:fixed; z-index:20; width:28px; height:26px; display:grid; place-items:center; border:0; background:transparent; color:#9b9cab; padding:0; cursor:pointer}
+    #craft-insert-preview[hidden] {display:none}
+    #craft-insert-preview:hover,#craft-insert-preview:focus-visible {color:#e0e0e8}
+    #craft-insert-preview-menu {position:fixed; inset:auto; margin:0; padding:5px; border:1px solid #414251; border-radius:4px; background:#1f2030; color:#cfc9c2; font:12px system-ui}
+    #craft-insert-preview-menu button {display:flex; align-items:center; gap:8px; width:100%; padding:5px 10px; border:0; background:transparent; color:inherit; cursor:pointer}
+    #craft-insert-preview-menu button:hover,#craft-insert-preview-menu button[aria-pressed=true] {background:#343649}
+    #craft-insert-preview-menu small {display:block; padding:4px 10px; color:#9b9cab}`;
+  const trigger = document.createElement('button'), menu = document.createElement('div');
+  trigger.id = 'craft-insert-preview'; trigger.type = 'button'; trigger.hidden = true;
+  menu.id = 'craft-insert-preview-menu'; menu.setAttribute('popover', 'auto');
+  menu.innerHTML = `<small>New cell type</small>${Object.keys(types).map(name => `<button type="button" data-kind="${name}">${icon(name)}${name}</button>`).join('')}`;
+  trigger.setAttribute('popovertarget', menu.id);
+  let current;
+  const select = name => {
+    current = name;
+    trigger.innerHTML = icon(name);
+    trigger.title = `A/B inserts: ${name}`;
+    trigger.setAttribute('aria-label', trigger.title);
+    for (const option of menu.querySelectorAll('button')) option.setAttribute('aria-pressed', String(option.dataset.kind === name));
+  };
+  let saved;
+  try { saved = localStorage.getItem(key); } catch {}
+  select(Object.hasOwn(types, saved) ? saved : document.getElementById('default_code')?.checked ? 'Code' : 'Prompt');
+  let scroller;
+  const position = () => {
+    if (!scroller) return;
+    const width = document.documentElement.clientWidth;
+    const rect = scroller.getBoundingClientRect(), top = Math.max(0, rect.top) + 24;
+    trigger.hidden = !rect.width || !rect.height;
+    Object.assign(trigger.style, {left:`${rect.right}px`, top:`${top}px`});
+    Object.assign(menu.style, {right:`${Math.max(0, width - rect.right - 28)}px`, top:`${top + 28}px`});
+  };
+  const resize = new ResizeObserver(position);
+  const sync = () => {
+    const next = document.getElementById('dialog-container');
+    if (scroller === next) return;
+    if (scroller) {
+      resize.unobserve(scroller);
+      scroller.classList.remove('craft-insert-preview');
+    }
+    scroller = next;
+    if (!scroller) { trigger.hidden = true; return; }
+    scroller.classList.add('craft-insert-preview');
+    resize.observe(scroller); position();
+  };
+  const choose = name => {
+    select(name);
+    try { localStorage.setItem(key, name); } catch {}
+  };
+  const activeCells = () => [...(scroller?.querySelectorAll('.editable:is([data-sm="primary"],[data-sm="secondary"])') || [])].filter(el => el.getClientRects().length);
+  const cellType = el => el?.querySelector('.card-in[data-mtype]')?.dataset.mtype;
+  const editorCell = () => (document.querySelector('#full_editor #id_')?.value || '').replace(/^_/, '');
+  const notify = error => {
+    console.error('CRAFT insertion:', error);
+    window.UIkit?.notification?.({message: error.message, status: 'danger'});
+  };
+  const waitFor = async check => {
+    for (let i = 0; i < 100; i++) {
+      const result = check();
+      if (result) return result;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    return null;
+  };
+  const setType = async (id, type) => {
+    if (cellType(document.getElementById(id)) !== type) {
+      const kid = document.getElementById('kid')?.value;
+      await window.htmx.ajax('POST', '/set_mtyp_', {source:'#kid', swap:'none', values:{kid, id_:id, ids:id, mtyp:type}});
+      if (!(await waitFor(() => cellType(document.getElementById(id)) === type))) throw new Error(`Could not switch cell to ${type}.`);
+    }
+    if (type === 'code') window.craftC2?.add(id);
+    else if (window.craftC2?.has(id)) window.craftC2.remove(id);
+  };
+  const blocked = () => document.activeElement?.closest('input,textarea,select,[contenteditable],.monaco-editor,.cm-editor,#full_editor,.hk-overlay.open,#solveit-launcher.open,[role="dialog"],.uk-modal.uk-open,#craft-insert-preview-menu');
+  let busy = false;
+  const execute = action => {
+    if (!busy) {
+      busy = true;
+      Promise.resolve().then(action).catch(notify).finally(() => { busy = false; });
+    }
+    return true;
+  };
+  const mode = name => {
+    if (blocked()) return false;
+    const cells = activeCells();
+    if (!cells.length) { if (!busy) choose(name); return true; }
+    if (cells.length !== 1) return true;
+    return execute(async () => { await setType(cells[0].id, name.toLowerCase()); choose(name); });
+  };
+  const insert = where => {
+    if (blocked()) return false;
+    const primary = activeCells().find(el => el.dataset.sm === 'primary');
+    const button = primary?.querySelector(`[hx-post="/add_${where}_"]`);
+    if (!button) return true;
+    const name = current;
+    return execute(async () => {
+      const type = name.toLowerCase(), old = new Set([...scroller.querySelectorAll('.editable[id]')].map(el => el.id));
+      if (!window.craftC2?.guardNonCodeInsertion) throw new Error('Reload this dialog to enable typed insertion.');
+      if (type === 'code') {
+        if (!window.craftC2?.expectCodeInsertion) throw new Error('Reload this dialog to enable C2 insertion.');
+        window.craftC2.expectCodeInsertion();
+      }
+      const release = type !== 'code' ? window.craftC2.guardNonCodeInsertion(old) : null;
+      const unhide = window.craftIdleComposer?.holdForInsertion();
+      let id = null;
+      try {
+        button.dispatchEvent(new MouseEvent('click', {bubbles:false}));
+        id = await waitFor(() => {
+          const editing = editorCell(), id = '_' + editing;
+          if (editing && !old.has(id) && document.getElementById(id)) return id;
+          if (type === 'code') return [...scroller.querySelectorAll('.editable[id]')].find(el => !old.has(el.id) && window.craftC2?.manages(el.id))?.id;
+        });
+        if (!id) throw new Error(`Could not confirm ${name} insertion.`);
+        if (type === 'code') {
+          if (!(await waitFor(() => cellType(document.getElementById(id)) === 'code' && editorCell() !== id.slice(1)))) throw new Error('Could not confirm C2 handoff.');
+          return;
+        }
+        await setType(id, type);
+        const cancel = await waitFor(() => {
+          if (editorCell() !== id.slice(1) || window.edValue?.()) return true;
+          const btn = document.getElementById('cancel_btn');
+          return btn && !btn.disabled ? btn : null;
+        });
+        if (!cancel) throw new Error('Could not close the insertion composer.');
+        if (cancel && cancel !== true) {
+          const field = document.querySelector('#full_editor #msg_type');
+          if (field) field.value = type;
+          cancel.click();
+          if (!(await waitFor(() => editorCell() !== id.slice(1)))) throw new Error('Could not close the insertion composer.');
+          if (cellType(document.getElementById(id)) !== type) throw new Error(`New cell did not retain type ${type}.`);
+        }
+      } finally { release?.(); unhide?.(); }
+      if (id && type !== 'code') window.craftMd?.edit?.(id, {toEnd: true});
+    });
+  };
+  const defs = [
+    ['si-a', 'a', 'Add message above', () => insert('above')],
+    ['si-b', 'b', 'Add message below', () => insert('below')],
+    ...['Code','Note','Prompt','Raw'].map((name,i) => [`si-mode-${name.toLowerCase()}`, `Mod+Shift+${'JKL;'[i]}`, `Switch message to ${name.toLowerCase()}`, () => mode(name)]),
+  ].map(([id,combo,label,handler]) => ({id,combo,label,handler,group:'Solveit · Dialog (selection mode)'}));
+  const registerBindings = () => defs.forEach(spec => window.__hotkeyRegister?.(spec));
+  const builtins = document.querySelector('script[data-solveit-hotkeys="builtins"]');
+  builtins?.addEventListener('load', registerBindings, {once:true});
+  registerBindings();
+  menu.addEventListener('click', e => {
+    const option = e.target.closest('button[data-kind]');
+    if (!option) return;
+    choose(option.dataset.kind);
+    menu.hidePopover(); trigger.focus();
+  });
+  document.head.append(style); document.body.append(trigger, menu);
+  const observer = new MutationObserver(sync);
+  observer.observe(document.body, {childList:true, subtree:true});
+  window.addEventListener('resize', position);
+  window.craftInsertPreview = {disable() {
+    observer.disconnect(); resize.disconnect(); window.removeEventListener('resize', position);
+    builtins?.removeEventListener('load', registerBindings);
+    defs.forEach(spec => window.__hotkeyRegister?.({...spec, builtin:true, handler:() => true}));
+    scroller?.classList.remove('craft-insert-preview');
+    trigger.remove(); menu.remove(); style.remove(); delete window.craftInsertPreview;
+  }};
+  sync();
+})();
+
+
+(() => {
+  window.craftInlineNote?.disable?.();
+  window.craftInlineText?.disable?.();
+  if (!document.getElementById('dialog-container')) return;
+  if (!document.querySelector('script[data-craft-md="1"]')) {
+    const s = document.createElement('script');
+    s.src = '/static/.craft-assets/craft_md.js';
+    s.dataset.craftMd = '1';
+    document.head.append(s);
+  }
+})();
+
+(() => {
+  window.craftImageDrop?.disable();
+  const target = e => {
+    if (e.target.closest?.('.monaco-editor')) return;
+    return e.target.closest?.('#dialog-container > .editable > .card-in:is([data-mtype="code"],[data-mtype="note"],[data-mtype="prompt"])');
+  };
+  const field = id => document.querySelector(`#full_editor #${id}`)?.value;
+  const editorId = () => (field('id_') || '').replace(/^_/, '');
+  const model = () => window.editor?.getModel();
+  const notify = message => window.UIkit?.notification?.({message, status: 'warning'});
+  let busy = false, disabled = false;
+  const dragover = e => {
+    if (!target(e)) return;
+    const items = [...(e.dataTransfer?.items || [])];
+    if (!items.some(i => i.kind === 'file' && (!i.type || i.type.startsWith('image/'))) && (items.length || !e.dataTransfer?.types.includes('Files'))) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  };
+  const drop = async e => {
+    const card = target(e), file = e.dataTransfer?.files[0];
+    if (!card || !file?.type.startsWith('image/') || typeof window.handleBlob !== 'function') return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (busy) return notify('Wait for the current image upload to finish.');
+    const cell = card.parentElement, id = cell.id.slice(1), kind = card.dataset.mtype;
+    const priorModel = model();
+    const ready = () => editorId() === id && field('is_input') === '1' && field('msg_type') === kind && model() && !model().uri.path.endsWith('/temp');
+    busy = true;
+    try {
+      if (!ready()) {
+        if (editorId() || window.edValue?.()) return notify('Finish editing the open cell before dropping an image onto another cell.');
+        if (kind === 'code' && window.craftC2?.manages(id)) await window.craftC2.openInMonaco(id);
+        else if (window.craftMd?.manages(id)) window.craftMd.openInMonaco(id);
+        else card.querySelector('[hx-post="/editor_"]')?.click();
+        for (let i = 0; i < 100 && !disabled && !(ready() && model() !== priorModel); i++) await new Promise(resolve => setTimeout(resolve, 50));
+        if (disabled) return;
+        if (!ready() || model() === priorModel) return notify('Could not open the cell for the image drop.');
+      }
+      window.craftIdleComposer?.reveal();
+      window.editor.focus();
+      const ext = file.name.split('.').pop() || file.type.split('/')[1] || 'png';
+      await window.handleBlob(file, ext, true, file.name);
+    } catch (err) {
+      console.error('CRAFT image drop:', err);
+      notify('Could not attach the dropped image.');
+    } finally { busy = false; }
+  };
+  window.addEventListener('dragover', dragover, true);
+  window.addEventListener('drop', drop, true);
+  window.craftImageDrop = {disable() {
+    disabled = true;
+    window.removeEventListener('dragover', dragover, true);
+    window.removeEventListener('drop', drop, true);
+    delete window.craftImageDrop;
+  }};
 })();

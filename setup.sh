@@ -21,7 +21,7 @@ done
 target=$(realpath -m "$target")
 cd "$repo_dir"
 if [[ "$target" == "$PWD" ]]; then echo "Destination must not be the source checkout." >&2; exit 2; fi
-files=(CRAFT.css CRAFT.js quercus-treeview.css quercus-treeview.js hotkey_manager.js hotkey_builtins.js vscode-icons/*)
+files=(CRAFT.css CRAFT.js quercus-treeview.css quercus-treeview.js hotkey_manager.js hotkey_builtins.js craft_md.js vscode-icons/*)
 for f in "${files[@]}"; do
   if [[ -L "$f" || ! -f "$f" ]]; then echo "$PWD/$f is not a regular file. Stopping." >&2; exit 1; fi
 done

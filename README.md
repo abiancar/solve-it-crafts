@@ -82,6 +82,12 @@ A fully hidden input has a small **⌃** restore button immediately above the re
 
 Normal collapse uses Solveit's existing server-backed behavior. The fully hidden third state is page-local presentation state and resets on reload. It neither deletes content nor changes AI inclusion; U remains an independent whole-cell toggle.
 
+## Dialog editing
+
+- The installer deploys `craft_md.js` for inline note, prompt, and raw editing. Code cells use the C2 editor described below.
+- The insertion picker selects the cell type for the `A` and `B` shortcuts. Closing the file tree restores the dialog width without removing the picker's gutter.
+- Dropping an image onto a code, note, or prompt input opens the native editor for that cell and uses Solveit's attachment handler.
+
 ## C2: in-place CodeMirror cells
 
 C2 is an experimental code-cell variant edited directly on the page with CodeMirror 6, without opening Solveit's composer. On the server, C2 cells are ordinary `code` messages. Their IDs are stored per browser in `localStorage['solveit-craft:c2:v1']` and shown with a `· C2` header badge.
@@ -91,7 +97,7 @@ C2 is an experimental code-cell variant edited directly on the page with CodeMir
 - **Escape** saves through `/set_contents_` and returns to selection mode. **Shift+Enter**, **Mod+Enter**, **Alt+Enter**, and **Mod+Shift+Enter** save and run like ordinary code cells.
 - Editing: Python highlighting in the GitHub Dark palette, VS Code-style keys (comment, multi-cursor, move/copy/delete line, indent, fold, find/replace, undo), and kernel completions from `/complete_`. There is no fold gutter or line numbering.
 - Only the focused cell keeps a live editor; others render as normal highlighted code with matching metrics, so entering and leaving edit mode doesn't shift the layout. A cell with folded ranges stays mounted to keep the folds visible.
-- CodeMirror loads from pinned `esm.sh` URLs, so the browser needs network access to that host.
+- CodeMirror uses local modules in `~/.craft-assets/cm6/` when available, or falls back to `esm.sh`. The installer does not ship the optional local bundles.
 - Not yet ported: signature help, AI ghost text, inline AI edit, and `%%magic` languages. Because tags are browser-local, C2 cells appear as ordinary code cells in another browser or after site data is cleared. `window.craftC2` exposes `ids`, `has`, `add`, `remove`, `edit`, and `disable`.
 
 ## File tree, dashboard access, and launcher
