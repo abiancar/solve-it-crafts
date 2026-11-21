@@ -4416,9 +4416,8 @@
     e.preventDefault();
     e.dataTransfer.dropEffect = 'copy';
   };
-  const drop = async e => {
-    const card = target(e), file = e.dataTransfer?.files[0];
-    if (!card || !file?.type.startsWith('image/') || typeof window.handleBlob !== 'function') return;
+  const attach = async (e, card, file) => {
+    if (typeof window.handleBlob !== 'function') return;
     e.preventDefault();
     e.stopPropagation();
     if (busy) return notify('Wait for the current image upload to finish.');
@@ -4428,22 +4427,26 @@
     busy = true;
     try {
       if (!ready()) {
-        if (editorId() || window.edValue?.()) return notify('Finish editing the open cell before dropping an image onto another cell.');
+        if (editorId() || window.edValue?.()) return notify('Finish editing the open cell before attaching an image to another cell.');
         if (kind === 'code' && window.craftC2?.manages(id)) await window.craftC2.openInMonaco(id);
         else if (window.craftMd?.manages(id)) window.craftMd.openInMonaco(id);
         else card.querySelector('[hx-post="/editor_"]')?.click();
         for (let i = 0; i < 100 && !disabled && !(ready() && model() !== priorModel); i++) await new Promise(resolve => setTimeout(resolve, 50));
         if (disabled) return;
-        if (!ready() || model() === priorModel) return notify('Could not open the cell for the image drop.');
+        if (!ready() || model() === priorModel) return notify('Could not open the cell to attach the image.');
       }
       window.craftIdleComposer?.reveal();
       window.editor.focus();
-      const ext = file.name.split('.').pop() || file.type.split('/')[1] || 'png';
+      const ext = file.name.match(/\.([^.]+)$/)?.[1] || file.type.split('/')[1] || 'png';
       await window.handleBlob(file, ext, true, file.name);
     } catch (err) {
-      console.error('CRAFT image drop:', err);
-      notify('Could not attach the dropped image.');
+      console.error('CRAFT image attachment:', err);
+      notify('Could not attach the image.');
     } finally { busy = false; }
+  };
+  const drop = e => {
+    const card = target(e), file = e.dataTransfer?.files[0];
+    if (card && file?.type.startsWith('image/')) attach(e, card, file);
   };
   window.addEventListener('dragover', dragover, true);
   window.addEventListener('drop', drop, true);

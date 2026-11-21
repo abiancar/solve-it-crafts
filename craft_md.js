@@ -729,8 +729,42 @@
 
     const placeholderText = kind === 'raw' ? 'Raw text…' : (kind === 'output' ? 'Assistant response…' : (kind === 'prompt' ? 'Prompt…' : 'Note…'));
 
+    let imageInsert = null;
+    const imagePaste = view.EditorView.domEventHandlers({paste(e, v) {
+      if (v.state.readOnly || !['note', 'prompt'].includes(kind)) return false;
+      const file = [...(e.clipboardData?.files || [])].find(f => f.type.startsWith('image/'));
+      if (!file) return false;
+      e.preventDefault();
+      if (imageInsert !== null) return true;
+      imageInsert = v.state.selection.main.head;
+      const upload = async () => {
+        try {
+          const imageId = crypto.randomUUID();
+          const ext = file.name.match(/\.([a-z0-9]+)$/i)?.[1] || (file.type === 'image/jpeg' ? 'jpg' : file.type.split('/')[1].split('+')[0]);
+          const form = new FormData();
+          form.append('id_', id);
+          form.append('msg_type', kind);
+          form.append('kid', document.getElementById('kid')?.value || '');
+          form.append('file', file, `pasted_file_${imageId}.${ext}`);
+          const response = await fetch('/upload_attachment_', {method: 'POST', body: form});
+          if (!response.ok) throw new Error(`Attachment upload returned ${response.status}`);
+          const data = await response.json();
+          if (views.get(key)?.view !== v) return;
+          const url = data.saved_file || `attachment:${imageId}`;
+          const text = `\n![Pasted image](${url})\n`;
+          v.dispatch({changes: {from: imageInsert, insert: text}, userEvent: 'input.paste'});
+        } catch (err) {
+          console.error('CRAFT inline image paste:', err);
+          window.UIkit?.notification?.({message: 'Could not attach the pasted image.', status: 'warning'});
+        } finally { imageInsert = null; }
+      };
+      void upload();
+      return true;
+    }});
+
     const updateWatcher = view.EditorView.updateListener.of(u => {
       if (!u.docChanged) return;
+      if (imageInsert !== null) imageInsert = u.changes.mapPos(imageInsert, 1);
       const el = getCellEl(id);
       const savedText = getCellText(el, part);
       if (u.state.doc.toString() !== savedText) dirtyIds.add(key);
@@ -755,6 +789,7 @@
       search.search({top: false}),
       search.highlightSelectionMatches(),
       updateWatcher,
+      imagePaste,
     ];
 
     if (isMd) {
