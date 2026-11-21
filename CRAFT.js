@@ -22,7 +22,9 @@
   const DOTS_KEY = 'solveit-file-tree:hide-dots';
   const CACHE_KEY = 'solveit-file-tree:v4', CLIP_KEY = 'solveit-file-tree:clipboard', CACHE_MAX_AGE = 180000;
   let panel, tree, loaded = false, filterText = '', restoring = false, previousFocus;
-  let refreshTimer, busy = false, menu = null;
+  let refreshTimer, busy = false, menu = null, uploadPop = null, lastTreeDir = null;
+  const UPLOAD_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>';
+  const COLLAPSE_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="7 20 12 15 17 20"/><polyline points="7 4 12 9 17 4"/><line x1="4" y1="12" x2="20" y2="12"/></svg>';
   let workspaceRow = null, dlgNameNode = null, dlgNameOrigParent = null, dlgNameOrigNext = null;
   let draggedNode = null, dropHighlightEl = null, hoverExpandTimer = null, hoverExpandPath = null;
 
@@ -315,6 +317,13 @@
     const label = document.createElement('span');
     label.className = 'treeview-node-text'; label.textContent = node.name;
     content.append(label);
+    if (node.kind === 'directory') {
+      const up = document.createElement('button');
+      up.type = 'button'; up.className = 'solveit-tree-row-upload'; up.tabIndex = -1;
+      up.title = `Upload into ${node.name}`; up.setAttribute('aria-label', `Upload into ${node.name}`);
+      up.innerHTML = UPLOAD_SVG;
+      content.append(up);
+    }
   }
 
   function renderTree() {
@@ -423,6 +432,12 @@
     const li = e.target.closest('li[data-node-data]');
     if (!li) return;
     const node = JSON.parse(li.dataset.nodeData), expander = e.target.closest('.treeview-expander');
+    const upBtn = e.target.closest('.solveit-tree-row-upload');
+    if (upBtn && node.kind === 'directory') {
+      e.preventDefault(); e.stopPropagation();
+      openUploadPop(node.path, upBtn);
+      return;
+    }
     if (node.kind === 'directory' && !expander) {
       e.preventDefault(); e.stopPropagation(); li.querySelector(':scope > .treeview-node-content > .treeview-expander')?.click(); return;
     }
@@ -662,8 +677,227 @@
     });
   }
 
+  /* ── Upload (files & folders, via drag-and-drop or Upload popover) ─── */
+  function snapshotDataTransfer(dt) {
+    const entries = dt?.items
+      ? [...dt.items].filter(it => it.kind === 'file').map(it => it.webkitGetAsEntry?.()).filter(Boolean)
+      : [];
+    const files = dt?.files ? [...dt.files] : [];
+    return {entries, files};
+  }
+
+  function readAllDirEntries(dirEntry) {
+    return new Promise((resolve, reject) => {
+      const reader = dirEntry.createReader(), all = [];
+      const next = () => reader.readEntries(batch => {
+        if (!batch.length) resolve(all);
+        else { all.push(...batch); next(); }
+      }, reject);
+      next();
+    });
+  }
+
+  async function collectFromEntries(entries) {
+    const items = [];
+    for (const entry of entries) {
+      if (!entry) continue;
+      if (entry.isFile) {
+        const file = await new Promise((res, rej) => entry.file(res, rej));
+        items.push({kind: 'file', name: entry.name || file.name, file});
+      } else if (entry.isDirectory) {
+        const dirs = [], files = [];
+        const walk = async (dirEntry, relDir) => {
+          const children = await readAllDirEntries(dirEntry);
+          for (const child of children) {
+            if (child.isDirectory) {
+              const nextRel = relDir ? `${relDir}/${child.name}` : child.name;
+              dirs.push(nextRel);
+              await walk(child, nextRel);
+            } else if (child.isFile) {
+              const file = await new Promise((res, rej) => child.file(res, rej));
+              files.push({relDir, name: child.name || file.name, file});
+            }
+          }
+        };
+        await walk(entry, '');
+        items.push({kind: 'directory', name: entry.name, dirs, files});
+      }
+    }
+    return items;
+  }
+
+  function collectFromFileList(fileList) {
+    const files = [...(fileList || [])];
+    const dirsByTop = new Map(), items = [];
+    for (const file of files) {
+      const rel = (file.webkitRelativePath || '').replace(/^\/+/, '');
+      if (rel && rel.includes('/')) {
+        const parts = rel.split('/'), top = parts[0];
+        if (!dirsByTop.has(top)) {
+          const rec = {kind: 'directory', name: top, dirs: new Set(), files: []};
+          dirsByTop.set(top, rec);
+          items.push(rec);
+        }
+        const rec = dirsByTop.get(top);
+        let acc = '';
+        for (const seg of parts.slice(1, -1)) { acc = acc ? `${acc}/${seg}` : seg; rec.dirs.add(acc); }
+        rec.files.push({relDir: acc, name: parts[parts.length - 1], file});
+      } else {
+        items.push({kind: 'file', name: file.name, file});
+      }
+    }
+    return items.map(it => it.kind === 'directory' ? {...it, dirs: [...it.dirs]} : it);
+  }
+
+  async function handleDroppedTransfer(destDir, snap) {
+    try {
+      const items = snap.entries.length ? await collectFromEntries(snap.entries) : collectFromFileList(snap.files);
+      await uploadItemsTo(destDir, items);
+    } catch (err) {
+      setStatus('Upload failed: ' + (err.message || err));
+    }
+  }
+
+  async function uploadItemsTo(targetDir, items) {
+    const dest = normPath(targetDir);
+    if (!items.length) { setStatus('No files found to upload.'); return; }
+    await withBusy(`Uploading to ${dest === '.' ? '~/' : dest + '/'}…`, async () => {
+      const existing = await getRows(dest);
+      const existingNames = new Set(existing.map(r => r.filename));
+      const createdPaths = [], dirsToRefresh = new Set([dest]);
+      let uploadedFiles = 0, createdDirs = 0;
+
+      for (const item of items) {
+        if (item.kind === 'file') {
+          const targetName = uniqueName(existingNames, item.name, 'file');
+          existingNames.add(targetName);
+          setStatus(`Uploading '${targetName}'…`);
+          await uploadBlob(dest, targetName, item.file, false);
+          uploadedFiles++;
+          createdPaths.push(joinPath(dest, targetName));
+        } else {
+          const targetDirName = uniqueName(existingNames, item.name, 'directory');
+          existingNames.add(targetDirName);
+          const rootCreated = joinPath(dest, targetDirName);
+          setStatus(`Creating folder '${targetDirName}'…`);
+          await uploadBlob(dest, '__mkdir__.zip', makeEmptyDirZip(targetDirName), true);
+          createdDirs++;
+          createdPaths.push(rootCreated);
+
+          const sortedDirs = [...new Set(item.dirs)].sort((a, b) => a.split('/').length - b.split('/').length);
+          for (const relSub of sortedDirs) {
+            const parentSub = parentOf(relSub);
+            const parentFull = parentSub === '.' ? rootCreated : joinPath(rootCreated, parentSub);
+            await uploadBlob(parentFull, '__mkdir__.zip', makeEmptyDirZip(baseOf(relSub)), true);
+            createdDirs++;
+          }
+          for (const f of item.files) {
+            const fileParent = f.relDir ? joinPath(rootCreated, f.relDir) : rootCreated;
+            setStatus(`Uploading '${f.name}'…`);
+            await uploadBlob(fileParent, f.name, f.file, false);
+            uploadedFiles++;
+          }
+          if (rowsByPath.has(rootCreated)) dirsToRefresh.add(rootCreated);
+        }
+      }
+
+      if (dest !== '.') expandedPaths.add(dest);
+      await refreshDirs(...dirsToRefresh);
+      if (createdPaths.length) focusPath(createdPaths[createdPaths.length - 1]);
+      const parts = [];
+      if (uploadedFiles) parts.push(`${uploadedFiles} file${uploadedFiles === 1 ? '' : 's'}`);
+      if (createdDirs) parts.push(`${createdDirs} folder${createdDirs === 1 ? '' : 's'}`);
+      const hiddenCount = hideDots ? createdPaths.filter(p => baseOf(p).startsWith('.')).length : 0;
+      const suffix = hiddenCount ? ' (hidden by .* filter)' : '';
+      setStatus(`Uploaded ${parts.join(', ')} to ${dest === '.' ? '~/' : dest + '/'}${suffix}`);
+    });
+  }
+
+  function closeUploadPop() {
+    if (!uploadPop) return false;
+    uploadPop.remove(); uploadPop = null;
+    return true;
+  }
+
+  function openUploadPop(targetDir, anchorEl = null) {
+    const dest = normPath(targetDir);
+    closeMenu(); closeUploadPop();
+    const pop = uploadPop = document.createElement('div');
+    pop.className = 'solveit-tree-upload-pop';
+    pop.setAttribute('role', 'dialog');
+    pop.setAttribute('aria-label', `Upload to ${dest === '.' ? '~/' : dest}`);
+    const labelPath = dest === '.' ? '~/' : `~/${dest}/`;
+    pop.innerHTML =
+      `<div class="solveit-tree-upload-head"><span class="solveit-tree-upload-dest"></span>` +
+      `<button type="button" class="solveit-tree-upload-x" aria-label="Close">×</button></div>` +
+      `<div class="solveit-tree-upload-drop">Drop files or folders here</div>` +
+      `<div class="solveit-tree-upload-actions">` +
+      `<button type="button" class="solveit-tree-upload-pick-files">Files…</button>` +
+      `<button type="button" class="solveit-tree-upload-pick-dir">Folder…</button>` +
+      `</div>` +
+      `<input type="file" class="solveit-tree-upload-input-files" multiple hidden>` +
+      `<input type="file" class="solveit-tree-upload-input-dir" webkitdirectory multiple hidden>`;
+
+    const destEl = pop.querySelector('.solveit-tree-upload-dest');
+    destEl.textContent = `Upload to ${labelPath}`; destEl.title = labelPath;
+    const filesInput = pop.querySelector('.solveit-tree-upload-input-files');
+    const dirInput = pop.querySelector('.solveit-tree-upload-input-dir');
+    const dropZone = pop.querySelector('.solveit-tree-upload-drop');
+
+    pop.querySelector('.solveit-tree-upload-x').onclick = () => closeUploadPop();
+    pop.querySelector('.solveit-tree-upload-pick-files').onclick = () => { filesInput.value = ''; filesInput.click(); };
+    pop.querySelector('.solveit-tree-upload-pick-dir').onclick = () => { dirInput.value = ''; dirInput.click(); };
+
+    const onPicked = input => () => {
+      const items = collectFromFileList(input.files);
+      closeUploadPop();
+      if (items.length) uploadItemsTo(dest, items);
+    };
+    filesInput.addEventListener('change', onPicked(filesInput));
+    dirInput.addEventListener('change', onPicked(dirInput));
+
+    dropZone.addEventListener('dragover', e => {
+      e.preventDefault(); e.stopPropagation();
+      e.dataTransfer.dropEffect = 'copy';
+      dropZone.classList.add('dragover');
+    });
+    dropZone.addEventListener('dragleave', e => {
+      if (!dropZone.contains(e.relatedTarget)) dropZone.classList.remove('dragover');
+    });
+    dropZone.addEventListener('drop', e => {
+      e.preventDefault(); e.stopPropagation();
+      dropZone.classList.remove('dragover');
+      const snap = snapshotDataTransfer(e.dataTransfer);
+      closeUploadPop();
+      handleDroppedTransfer(dest, snap);
+    });
+
+    panel.append(pop);
+    const b = anchorEl?.getBoundingClientRect?.() || panel.getBoundingClientRect();
+    const r = pop.getBoundingClientRect();
+    pop.style.left = Math.max(4, Math.min(b.left, innerWidth - r.width - 4)) + 'px';
+    pop.style.top = Math.max(4, Math.min(b.bottom + 4, innerHeight - r.height - 4)) + 'px';
+    pop.querySelector('.solveit-tree-upload-pick-files')?.focus();
+  }
+
+  function collapseAllFolders() {
+    closeMenu(); closeUploadPop(); dismissCreate();
+    expandedPaths.clear();
+    saveCache();
+    if (tree) renderTree();
+    setStatus('Collapsed all folders');
+  }
+
   /* ── Context menu ──────────────────────────────────────────────────── */
   function closeMenu() { if (!menu) return false; menu.remove(); menu = null; return true; }
+
+  async function copyNodePath(node) {
+    const path = `/app/data/${node.path}`;
+    try {
+      await navigator.clipboard.writeText(path);
+      setStatus(`Copied path: ${path}`);
+    } catch (err) { setStatus(`Could not copy path: ${err.message}`); }
+  }
 
   function showMenu(e, forcedDir = null) {
     if (e.target.closest('.solveit-tree-create')) return;
@@ -694,8 +928,12 @@
       item('New Dialog…', () => beginCreate(targetDir, 'dialog'));
       item('New File…', () => beginCreate(targetDir, 'file'));
       item('New Folder…', () => beginCreate(targetDir, 'directory'));
+      item('Upload…', () => openUploadPop(targetDir, li || e.currentTarget));
       sep();
-      if (node) item('Copy', () => copyNode(node));
+      if (node) {
+        item('Copy', () => copyNode(node));
+        item('Copy Path', () => copyNodePath(node));
+      }
       item(clip ? `Paste '${clip.filename}'` : 'Paste', () => pasteNodeInto(clip, targetDir), {
         disabled: !clip || !canPaste(clip, targetDir),
         title: !clip ? 'Copy a file, dialog, or folder first' : (!canPaste(clip, targetDir) ? 'Cannot paste a folder into itself' : ''),
@@ -707,8 +945,10 @@
     } else {
       const targetDir = node.parentPath || '.';
       item('Open', () => openNode(node), {disabled: !node.href});
+      item('Upload…', () => openUploadPop(targetDir, li || e.currentTarget));
       sep();
       item('Copy', () => copyNode(node));
+      item('Copy Path', () => copyNodePath(node));
       item(clip ? `Paste '${clip.filename}'` : 'Paste', () => pasteNodeInto(clip, targetDir), {
         disabled: !clip || !canPaste(clip, targetDir),
         title: !clip ? 'Copy a file, dialog, or folder first' : (!canPaste(clip, targetDir) ? 'Cannot paste a folder into itself' : ''),
@@ -777,16 +1017,20 @@
       } catch {}
     });
 
+    const isExternalFileDrag = e => !draggedNode && [...(e.dataTransfer?.types || [])].includes('Files');
+
     const onDragOver = e => {
-      if (!draggedNode) return;
+      const external = isExternalFileDrag(e);
+      if (!draggedNode && !external) return;
+      if (e.target.closest?.('.solveit-tree-upload-pop')) return;
       const target = resolveDropTarget(e.target);
-      if (!target || !canDrop(draggedNode, target.destDir)) {
+      if (!target || (!external && !canDrop(draggedNode, target.destDir))) {
         clearDropState();
         e.dataTransfer.dropEffect = 'none';
         return;
       }
       e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
+      e.dataTransfer.dropEffect = external ? 'copy' : 'move';
       if (dropHighlightEl !== target.highlightEl) {
         if (dropHighlightEl) dropHighlightEl.classList.remove('solveit-tree-drop-target');
         dropHighlightEl = target.highlightEl;
@@ -809,11 +1053,18 @@
     };
 
     const onDrop = e => {
-      if (!draggedNode) return;
+      const external = isExternalFileDrag(e);
+      if (!draggedNode && !external) return;
+      if (e.target.closest?.('.solveit-tree-upload-pop')) return;
       e.preventDefault(); e.stopPropagation();
-      const src = draggedNode;
       const target = resolveDropTarget(e.target);
       clearDropState();
+      if (external) {
+        const snap = snapshotDataTransfer(e.dataTransfer);
+        if (target) handleDroppedTransfer(target.destDir, snap);
+        return;
+      }
+      const src = draggedNode;
       panel?.querySelectorAll('li.solveit-tree-dragging').forEach(el => el.classList.remove('solveit-tree-dragging'));
       draggedNode = null;
       if (target && canDrop(src, target.destDir)) moveNode(src, target.destDir);
@@ -825,11 +1076,14 @@
       draggedNode = null;
     };
 
-    treeEl.addEventListener('dragover', onDragOver);
-    treeEl.addEventListener('drop', onDrop);
+    const onDragLeave = e => {
+      if (!panel.contains(e.relatedTarget)) clearDropState();
+    };
+
+    panel.addEventListener('dragover', onDragOver);
+    panel.addEventListener('drop', onDrop);
+    panel.addEventListener('dragleave', onDragLeave);
     treeEl.addEventListener('dragend', onDragEnd);
-    rootbar.addEventListener('dragover', onDragOver);
-    rootbar.addEventListener('drop', onDrop);
   }
 
   /* ── Panel construction & lifecycle ────────────────────────────────── */
@@ -848,13 +1102,15 @@
       '<div class="solveit-tree-brand"><span class="solveit-tree-appname">solveit</span></div>' +
       '<header><strong>Files</strong>' +
       '<kbd class="solveit-tree-shortcut" data-hotkey="file-tree-toggle">⌘B</kbd>' +
+      '<button class="solveit-tree-upload" type="button" aria-label="Upload files or folders" title="Upload files or folders">' + UPLOAD_SVG + '</button>' +
+      '<button class="solveit-tree-collapse" type="button" aria-label="Collapse all folders" title="Collapse all folders">' + COLLAPSE_SVG + '</button>' +
       '<button class="solveit-tree-dots" type="button" aria-pressed="true">.*</button>' +
       '<button class="solveit-tree-refresh" type="button" aria-label="Refresh files" title="Refresh files">↻</button>' +
       '<button class="solveit-tree-home" type="button" aria-label="Dialogs home" title="Dialogs home">⌂</button>' +
       '</header>' +
       '<input class="solveit-tree-filter" type="search" placeholder="Filter loaded files…" autocomplete="off">' +
       '<div class="solveit-tree-status" role="status"></div>' +
-      '<div class="solveit-tree-rootbar" title="Right-click to create/paste in root; drop here to move to root"><span class="solveit-tree-rootbar-path">~/</span><span class="solveit-tree-rootbar-hint">root · drop / right-click</span></div>' +
+      '<div class="solveit-tree-rootbar" title="Right-click to create/paste/upload in root; drop here to move or upload to root"><span class="solveit-tree-rootbar-path">~/</span><span class="solveit-tree-rootbar-hint">root · drop / right-click</span><button class="solveit-tree-row-upload" type="button" aria-label="Upload into root" title="Upload into root">' + UPLOAD_SVG + '</button></div>' +
       '<div id="solveit-file-tree" role="tree"></div>';
 
     dlgNameNode = document.querySelector('nav.monster-navbar h2#dlg-name');
@@ -864,6 +1120,11 @@
       panel.querySelector('.solveit-tree-brand').append(dlgNameNode);
     }
     panel.addEventListener('click', e => e.stopPropagation());
+    panel.querySelector('.solveit-tree-upload').onclick = e => {
+      const targetDir = lastTreeDir || getCurrentContext().dir;
+      openUploadPop(targetDir, e.currentTarget);
+    };
+    panel.querySelector('.solveit-tree-collapse').onclick = collapseAllFolders;
     panel.querySelector('.solveit-tree-refresh').onclick = refreshTree;
     updateDotsBtn();
     panel.querySelector('.solveit-tree-dots').onclick = () => {
@@ -878,12 +1139,24 @@
 
     const treeEl = panel.querySelector('#solveit-file-tree');
     const rootbar = panel.querySelector('.solveit-tree-rootbar');
+    rootbar.querySelector('.solveit-tree-row-upload').onclick = e => {
+      e.stopPropagation();
+      openUploadPop('.', e.currentTarget);
+    };
+    treeEl.addEventListener('focusin', e => {
+      const li = e.target.closest?.('li[data-node-data]');
+      if (!li) return;
+      const node = JSON.parse(li.dataset.nodeData);
+      if (node.kind === 'loading') return;
+      lastTreeDir = node.kind === 'directory' ? node.path : (node.parentPath || '.');
+    });
     treeEl.addEventListener('contextmenu', e => showMenu(e));
     rootbar.addEventListener('contextmenu', e => showMenu(e, '.'));
     panel.addEventListener('contextmenu', e => {
       if (e.target === panel || e.target.matches('.solveit-tree-status')) showMenu(e, '.');
     });
     panel.addEventListener('dblclick', e => {
+      if (e.target.closest('.solveit-tree-row-upload, .solveit-tree-upload-pop')) return;
       const atRoot = rootbar.contains(e.target);
       const onBlank = e.target === panel || e.target.matches('.solveit-tree-status') || (treeEl.contains(e.target) && !e.target.closest('li[data-node-data], .solveit-tree-create'));
       if (!atRoot && !onBlank) return;
@@ -960,18 +1233,19 @@
 
   function closePanel() {
     if (!panel) return;
-    closeMenu(); dismissCreate(); clearDropState(); panel.classList.remove('open'); panel.inert = true; previousFocus?.focus();
+    closeMenu(); closeUploadPop(); dismissCreate(); clearDropState(); panel.classList.remove('open'); panel.inert = true; previousFocus?.focus();
     saveOpen(false);
   }
 
   const onDocPointerDown = e => {
     if (menu && !menu.contains(e.target)) closeMenu();
+    if (uploadPop && !uploadPop.contains(e.target) && !e.target.closest?.('.solveit-tree-upload, .solveit-tree-row-upload')) closeUploadPop();
     if (createDraft && !createDraft.input.readOnly && !createDraft.form.contains(e.target)) dismissCreate();
   };
   const onWinKeyDown = e => {
     if (document.querySelector('#solveit-launcher.open')) return;
     if (e.target.closest?.('.solveit-tree-create')) return;
-    if (e.key === 'Escape' && closeMenu()) { e.preventDefault(); e.stopImmediatePropagation(); return; }
+    if (e.key === 'Escape' && (closeUploadPop() || closeMenu())) { e.preventDefault(); e.stopImmediatePropagation(); return; }
     const active = panel?.classList.contains('open') && panel.contains(document.activeElement);
     if (active && !menu && !e.target.closest?.('.solveit-tree-filter') && ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Enter', ' ', 'ContextMenu', 'F10'].includes(e.key)) {
       if (e.key === 'F10' && !e.shiftKey) return;
@@ -985,7 +1259,7 @@
 
   function disable() {
     clearInterval(refreshTimer); refreshTimer = null;
-    closeMenu(); dismissCreate(); clearDropState();
+    closeMenu(); closeUploadPop(); dismissCreate(); clearDropState();
     document.removeEventListener('DOMContentLoaded', restoreOpen);
     document.removeEventListener('pointerdown', onDocPointerDown, true);
     window.removeEventListener('keydown', onWinKeyDown, true);
@@ -1241,22 +1515,51 @@
   };
   const schedule = () => { if (!pending) { pending = true; queueMicrotask(sync); } };
   const tabClick = e => { if (e.target.closest('#full_editor .tabh')) reveal(); };
+  let shortcutOpened = false, dismissTimer;
+  const show = () => {
+    if (window.editor !== editor) sync();
+    const root = panel();
+    if (!root || !editor?.getModel()) return false;
+    clearTimeout(dismissTimer);
+    shortcutOpened ||= root.classList.contains('craft-composer-idle');
+    editor.focus();
+    return true;
+  };
+  const dismissShortcut = e => {
+    if (!shortcutOpened || e.key !== 'Escape' || e.isComposing || !panel()?.contains(e.target)) return;
+    clearTimeout(dismissTimer);
+    dismissTimer = setTimeout(() => {
+      shortcutOpened = false;
+      if (!temporary() || hasDraft() || document.querySelector('.editable[data-editing="true"]')) return;
+      requested = false;
+      sync();
+    }, 0);
+  };
+  window.addEventListener('keydown', dismissShortcut, true);
   const observer = new MutationObserver(schedule);
   observer.observe(document.body, {childList: true, subtree: true, attributes: true, attributeFilter: ['data-editing']});
   document.addEventListener('click', tabClick, true);
   document.addEventListener('htmx:afterSettle', schedule);
   window.craftIdleComposer = {
     reveal,
+    show,
     disable() {
       observer.disconnect();
       document.removeEventListener('click', tabClick, true);
       document.removeEventListener('htmx:afterSettle', schedule);
+      window.removeEventListener('keydown', dismissShortcut, true);
+      clearTimeout(dismissTimer);
+      if (window.craftIdleComposer?.show === show) delete window.craftIdleComposer;
       unbind();
       panel()?.classList.remove('craft-composer-idle');
       editor?.layout();
     }
   };
   sync();
+  window.__hotkeyRegister?.({id: 'composer-show', label: 'Show cell editor', group: 'Editor', combo: 'Shift+I', handler: e => {
+    if (e?.isComposing || e?.target?.closest?.('#solveit-file-tree-panel, #solveit-temp-editor, [role="dialog"], .uk-modal.uk-open, .hk-overlay.open, #solveit-launcher.open')) return false;
+    return window.craftIdleComposer?.show() === true;
+  }});
 })();
 
 (() => {

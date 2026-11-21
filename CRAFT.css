@@ -76,7 +76,7 @@ div.editable[data-diff="added"] { background: transparent !important; }
 .msg-body { padding: 2px 6px !important; }
 .card-out .msg-body { padding-left: 14px !important; }  /* subliminal offset */
 /* Type scale in one place; CRAFT.js reads --craft-code for Monaco editors too. */
-:root { --craft-prose: 9px; --craft-prose-lh: 8px; --craft-code: 10px; }
+:root { --craft-prose: 11px; --craft-prose-lh: 11px; --craft-code: 10px; }
 .msg-content, .msg-content .prose { font-size: var(--craft-prose) !important; line-height: var(--craft-prose-lh) !important; }
 .msg-content pre, .msg-content code { font-size: var(--craft-code) !important; line-height: 1 !important; }
 .msg-content .prose p { margin: 0.15em 0 !important; }
@@ -285,7 +285,7 @@ div.editable[data-diff="added"] { background: transparent !important; }
   flex: 0 0 auto;
   width: min(360px, 90vw);
   min-width: 260px;
-  padding: 12px;
+  padding: 10px 10px 10px 6px;
   visibility: visible;
   pointer-events: auto;
   box-shadow: 8px 0 24px #0008;
@@ -294,21 +294,23 @@ div.editable[data-diff="added"] { background: transparent !important; }
 #solveit-file-tree-panel .solveit-tree-brand { display: flex; align-items: baseline; gap: 6px; margin-bottom: 6px; min-width: 0; }
 #solveit-file-tree-panel .solveit-tree-appname { flex: 0 0 auto; font-weight: 700; font-size: 13px; letter-spacing: .02em; color: #cfc9c2; }
 #solveit-file-tree-panel h2#dlg-name { flex: 1 1 0%; min-width: 0; font-size: 12.5px !important; line-height: 1.3 !important; font-weight: 400 !important; padding: 0 !important; color: #cfc9c2cc !important; }
-#solveit-file-tree-panel > header button { border: 0; background: transparent; color: inherit; font-size: 1.4rem; cursor: pointer; }
+#solveit-file-tree-panel > header button { display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: inherit; font-size: 1.25rem; line-height: 1; padding: 2px; cursor: pointer; }
 #solveit-file-tree-panel .solveit-tree-shortcut { margin-left: auto; color: #cfc9c288; font: 11px monospace; }
-#solveit-file-tree-panel .solveit-tree-refresh { margin-left: 8px; }
+#solveit-file-tree-panel .solveit-tree-refresh { margin-left: 6px; }
 #solveit-file-tree-panel .treeview-node-content:focus-visible { outline: none; box-shadow: inset 0 0 0 2px #7aa2f7; background: #30364d; }
-#solveit-file-tree-panel .solveit-tree-close { margin-left: 8px; }
+#solveit-file-tree-panel .solveit-tree-close { margin-left: 6px; }
 #solveit-file-tree-panel .solveit-tree-back { margin-left: auto; }
 #solveit-file-tree-panel .solveit-tree-back:disabled { opacity: .35; cursor: default; }
 #solveit-file-tree-panel .solveit-tree-up { margin-left: 6px; }
 .solveit-file-tree-path { color: #cfc9c299; font: 12px monospace; margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; }
 #solveit-file-tree-panel .custom-treeview-wrapper { max-width: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
-#solveit-file-tree-panel .custom-treeview-wrapper ul { padding-left: 16px; }
+#solveit-file-tree-panel .custom-treeview-wrapper > ul { padding-left: 0; }
+#solveit-file-tree-panel .custom-treeview-wrapper ul ul { padding-left: 14px; }
 #solveit-file-tree-panel .custom-treeview-wrapper li { margin: 2px 0; color: #cfc9c2; }
-#solveit-file-tree-panel .custom-treeview-wrapper .treeview-node-content { padding: 4px 6px; border-radius: 4px; }
+#solveit-file-tree-panel .custom-treeview-wrapper .treeview-node-content { padding: 4px; border-radius: 4px; }
 #solveit-file-tree-panel .custom-treeview-wrapper .treeview-node-content:hover { background: #222434; }
-#solveit-file-tree-panel .treeview-expander { color: transparent; }
+#solveit-file-tree-panel .treeview-expander,
+#solveit-file-tree-panel .treeview-expander-placeholder { width: 0; margin-right: 0; padding: 0; overflow: hidden; color: transparent; }
 #solveit-file-tree-panel img.solveit-tree-icon { width: 16px !important; height: 16px !important; max-width: 16px !important; max-height: 16px !important; flex: 0 0 16px; object-fit: contain; margin-right: 7px; }
 
 #solveit-file-tree-panel .solveit-tree-filter { box-sizing: border-box; width: 100%; margin: 8px 0; padding: 6px 8px; border: 1px solid #ffffff22; border-radius: 4px; background: #16161e; color: #cfc9c2; }
@@ -369,24 +371,43 @@ body:has(#solveit-temp-editor.open) #solveit-file-tree-panel.open {
 .msg-content .prose table, .msg-content .prose figure { margin: 0.3em 0 !important; }
 
 /* ── File tree: header toggles, context menu ───────────────────────── */
-#solveit-file-tree-panel .solveit-tree-dots { margin-left: 8px; font: 600 .95rem monospace; color: #cfc9c288; }
+#solveit-file-tree-panel .solveit-tree-upload,
+#solveit-file-tree-panel .solveit-tree-collapse { margin-left: 6px; color: #cfc9c2aa; }
+#solveit-file-tree-panel .solveit-tree-upload:hover,
+#solveit-file-tree-panel .solveit-tree-collapse:hover { color: #cfc9c2; }
+#solveit-file-tree-panel .solveit-tree-dots { margin-left: 6px; font: 600 .95rem monospace; color: #cfc9c288; }
 #solveit-file-tree-panel .solveit-tree-dots[aria-pressed="true"] { color: #7aa2f7; filter: drop-shadow(0 0 4px #7aa2f7aa); }
-#solveit-file-tree-panel .solveit-tree-home { margin-left: 8px; }
+#solveit-file-tree-panel .solveit-tree-home { margin-left: 6px; }
 .solveit-tree-menu { position: fixed; z-index: 1100; min-width: 170px; padding: 4px; background: #1f2030; border: 1px solid #ffffff1a; border-radius: 6px; box-shadow: 0 8px 24px #000a; }
 .solveit-tree-menu button { display: block; width: 100%; text-align: left; padding: 5px 10px; border: 0; border-radius: 4px; background: transparent; color: #cfc9c2; font-size: 12px; cursor: pointer; }
 .solveit-tree-menu button:hover:not(:disabled), .solveit-tree-menu button:focus-visible { background: #2b2e43; outline: none; }
 .solveit-tree-menu button:disabled { color: #cfc9c255; cursor: default; }
 .solveit-tree-menu button.danger { color: #f7768e; }
 .solveit-tree-menu hr.solveit-tree-menu-sep { margin: 4px 2px; border: 0; border-top: 1px solid #ffffff16; }
-#solveit-file-tree-panel .solveit-tree-rootbar { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 4px 6px; margin-bottom: 4px; border-radius: 4px; font: 11.5px monospace; color: #cfc9c299; background: #16161e88; border: 1px solid transparent; user-select: none; cursor: default; }
+#solveit-file-tree-panel .solveit-tree-rootbar { display: flex; align-items: center; gap: 6px; padding: 4px; margin-bottom: 4px; border-radius: 4px; font: 11.5px monospace; color: #cfc9c299; background: #16161e88; border: 1px solid transparent; user-select: none; cursor: default; }
 #solveit-file-tree-panel .solveit-tree-rootbar:hover { background: #222434; color: #cfc9c2; }
-#solveit-file-tree-panel .solveit-tree-rootbar-hint { font-size: 10px; color: #cfc9c255; }
+#solveit-file-tree-panel .solveit-tree-rootbar-hint { margin-left: auto; font-size: 10px; color: #cfc9c255; }
+#solveit-file-tree-panel .solveit-tree-row-upload { opacity: 0; pointer-events: none; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin-left: 4px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: #cfc9c299; cursor: pointer; }
+#solveit-file-tree-panel .treeview-node-content:is(:hover, :focus-within) .solveit-tree-row-upload,
+#solveit-file-tree-panel .solveit-tree-rootbar:is(:hover, :focus-within) .solveit-tree-row-upload { opacity: 1; pointer-events: auto; }
+#solveit-file-tree-panel .solveit-tree-row-upload:is(:hover, :focus-visible) { background: #30364d; color: #7aa2f7; outline: none; }
+@media (hover: none) { #solveit-file-tree-panel .solveit-tree-row-upload { opacity: 1; pointer-events: auto; } }
+.solveit-tree-upload-pop { position: fixed; z-index: 1100; width: 230px; padding: 8px; background: #1f2030; border: 1px solid #ffffff1a; border-radius: 6px; box-shadow: 0 8px 24px #000a; color: #cfc9c2; font-size: 12px; }
+.solveit-tree-upload-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.solveit-tree-upload-dest { flex: 1 1 0%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px monospace; color: #cfc9c2cc; }
+.solveit-tree-upload-x { flex: 0 0 auto; border: 0; background: transparent; color: #cfc9c299; font-size: 15px; line-height: 1; cursor: pointer; padding: 0 2px; }
+.solveit-tree-upload-x:hover { color: #cfc9c2; }
+.solveit-tree-upload-drop { padding: 12px 8px; margin-bottom: 8px; border: 1px dashed #ffffff2e; border-radius: 4px; background: #16161e; color: #cfc9c288; text-align: center; font-size: 11.5px; }
+.solveit-tree-upload-drop.dragover { border-color: #7aa2f7; background: #7aa2f71c; color: #cfc9c2; }
+.solveit-tree-upload-actions { display: flex; gap: 6px; }
+.solveit-tree-upload-actions button { flex: 1 1 0%; padding: 5px 8px; border: 1px solid #ffffff1f; border-radius: 4px; background: #242638; color: #cfc9c2; font-size: 12px; cursor: pointer; }
+.solveit-tree-upload-actions button:is(:hover, :focus-visible) { background: #30364d; border-color: #7aa2f7; outline: none; }
 #solveit-file-tree { min-height: 200px; padding-bottom: 56px; }
 #solveit-file-tree .treeview-node-content.solveit-tree-current { background: #7aa2f71c; box-shadow: inset 2px 0 0 #7aa2f7; }
 #solveit-file-tree li.solveit-tree-dragging { opacity: .4; }
 #solveit-file-tree-panel .solveit-tree-drop-target { background: #7aa2f728 !important; box-shadow: inset 0 0 0 1.5px #7aa2f7 !important; color: #cfc9c2 !important; }
-#solveit-file-tree .solveit-tree-create { margin: 3px 6px 5px; }
-#solveit-file-tree li > .solveit-tree-create { margin-left: 22px; }
+#solveit-file-tree .solveit-tree-create { margin: 3px 4px 5px; }
+#solveit-file-tree li > .solveit-tree-create { margin-left: 14px; }
 #solveit-file-tree .solveit-tree-create input { box-sizing: border-box; width: 100%; min-width: 0; padding: 4px 6px; border: 1px solid #7aa2f7; border-radius: 4px; background: #16161e; color: #cfc9c2; font: inherit; }
 #solveit-file-tree .solveit-tree-create input:focus-visible { outline: 1px solid #7aa2f7; outline-offset: 1px; }
 #solveit-file-tree .solveit-tree-create input[aria-invalid="true"] { border-color: #f7768e; }
@@ -406,11 +427,13 @@ body:has(#solveit-temp-editor.open) #solveit-file-tree-panel.open {
 #solveit-launcher li.kind-dialog .hint { color: #bb9af7; }
 #solveit-launcher li.empty { color: #cfc9c266; cursor: default; }
 
-/* Unica One: prose; remote Fontsource WOFF2, with a system sans-serif fallback. */
-@font-face { font-family: 'Craft Unica One'; font-style: normal; font-weight: 400; font-display: swap; src: url('https://cdn.jsdelivr.net/npm/@fontsource/unica-one/files/unica-one-latin-ext-400-normal.woff2') format('woff2'); unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF; }
-@font-face { font-family: 'Craft Unica One'; font-style: normal; font-weight: 400; font-display: swap; src: url('https://cdn.jsdelivr.net/npm/@fontsource/unica-one/files/unica-one-latin-400-normal.woff2') format('woff2'); unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
-:root { --craft-prose-family: 'Craft Unica One', -apple-system, sans-serif; }
-.msg-content, .msg-content .prose { font-family: var(--craft-prose-family) !important; }
+/* Encode Sans: all non-code UI and prose; remote Google Fonts variable TTF, with a system sans-serif fallback. */
+@font-face { font-family: 'Craft Encode Sans'; font-style: normal; font-weight: 100 900; font-stretch: 75% 125%; font-display: swap; src: url('https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/encodesans/EncodeSans%5Bwdth%2Cwght%5D.ttf') format('truetype'); }
+:root { --craft-prose-family: 'Craft Encode Sans', -apple-system, sans-serif; }
+html, body { font-family: var(--craft-prose-family) !important; font-weight: 360; font-stretch: 75%; font-feature-settings: "c2sc" 1, "onum" 1; }
+button, input, select, textarea { font-family: inherit; font-stretch: inherit; font-feature-settings: inherit; }
+.msg-content, .msg-content .prose { font-family: var(--craft-prose-family) !important; font-weight: 360 !important; font-stretch: 75% !important; font-feature-settings: "c2sc" 1, "onum" 1 !important; }
+.msg-content .prose :is(strong, b, th, h1, h2, h3, h4, h5, h6) { font-weight: 650 !important; }
 
 /* Iosevka: code only; remote font files, with a system monospace fallback. */
 @font-face { font-family: 'Craft Iosevka'; font-style: normal; font-weight: 400; font-display: swap; src: url('https://iosevka-webfonts.github.io/iosevka/WOFF2/Iosevka-Regular.woff2') format('woff2'); }
@@ -418,7 +441,8 @@ body:has(#solveit-temp-editor.open) #solveit-file-tree-panel.open {
 @font-face { font-family: 'Craft Iosevka'; font-style: normal; font-weight: 700; font-display: swap; src: url('https://iosevka-webfonts.github.io/iosevka/WOFF2/Iosevka-Bold.woff2') format('woff2'); }
 @font-face { font-family: 'Craft Iosevka'; font-style: italic; font-weight: 700; font-display: swap; src: url('https://iosevka-webfonts.github.io/iosevka/WOFF2/Iosevka-BoldItalic.woff2') format('woff2'); }
 :root { --craft-code-family: 'Craft Iosevka', monospace; }
-.msg-content pre, .msg-content code { font-family: var(--craft-code-family) !important; }
+.msg-content pre, .msg-content code { font-family: var(--craft-code-family) !important; font-weight: 400 !important; font-stretch: normal !important; font-feature-settings: normal !important; }
+pre, code, kbd, samp, tt, .font-mono, .monaco-editor, .solveit-tree-shortcut, .solveit-file-tree-path, .solveit-tree-dots, #solveit-launcher li .hint { font-stretch: normal !important; font-feature-settings: normal !important; }
 
 
 /* Compact dialog headers only: preserve action-icon sizes and editor layout. */

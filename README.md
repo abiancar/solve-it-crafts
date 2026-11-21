@@ -89,6 +89,7 @@ Normal collapse uses Solveit's existing server-backed behavior. The fully hidden
 - Right-click a folder or the root bar for **New Dialog**, **New File**, and **New Folder**. Double-click blank explorer space to create in the current folder, or double-click the `~/` bar to create at root. In this quick-create flow, `notes` and `notes.ipynb` create dialogs; `notes.txt` creates a plain file.
 - The inline name field submits on Enter and cancels on Escape or a click outside it. Canceling clears the draft, not the explorer. Errors stay inline; successful creation refreshes the folder without opening the new item.
 - Rows offer Copy and Delete; paste into a destination folder or the root bar. Drag and drop moves items. Folder copy, move, and delete include descendants; moves copy first, then remove the source. Delete asks for confirmation.
+- Upload files or folders from the explorer toolbar or a destination folder. The upload panel supports file and folder pickers as well as drag and drop. Use the toolbar collapse button to close all expanded folders.
 - Plain files open in a temporary editor overlay. Dialogs open through Solveit's normal dialog route.
 - Maintainers: `CRAFT.js` owns the panel, draft, and gestures; Quercus renders the rows. `renderTree()` remounts the draft after row replacement. `CRAFT.css` styles the inline field. Reload after changing the live assets in `~`; the repository copies in `~/.craft` are separate.
 - **Mod+Shift+P** opens the searchable command/file launcher by default. Arrow keys select, Enter runs/opens, and Escape closes. File results cover the root and folders already loaded by the tree, not a recursive disk-wide search.
@@ -103,9 +104,9 @@ Built-in actions normally redispatch their original keys so Solveit handles them
 
 ## Theme and fonts
 
-Tokyo Night Pure colors include `#1f2030` for the reading canvas, `#16161e` for recessed/code surfaces, `#cfc9c2` text, `#7aa2f7` selection, and `#7dcfff` links. Prose is 9px with an 8px line height (`--craft-prose`, `--craft-prose-lh`) and code is 10px with a 10px line height (`--craft-code`); Monaco uses the code-size setting and compact line height.
+Tokyo Night Pure colors include `#1f2030` for the reading canvas, `#16161e` for recessed/code surfaces, `#cfc9c2` text, `#7aa2f7` selection, and `#7dcfff` links. Prose is 11px with an 11px line height (`--craft-prose`, `--craft-prose-lh`) and code is 10px with a 10px line height (`--craft-code`); Monaco uses the code-size setting and compact line height.
 
-Prose uses Unica One webfonts from jsDelivr (`@fontsource/unica-one`), with a system sans-serif fallback (`--craft-prose-family`). Code blocks, inline code, and Monaco use Iosevka webfonts from `iosevka-webfonts.github.io`, with a system monospace fallback (`--craft-code-family`). Browser network access to those hosts is required for the webfonts; no OS font installation is needed.
+All non-code UI and prose use Encode Sans variable webfonts from jsDelivr (`google/fonts`, `75%` width, weight `360`/`650`, `"c2sc" 1, "onum" 1`), with a system sans-serif fallback (`--craft-prose-family`). Code blocks, inline code, and Monaco use Iosevka webfonts from `iosevka-webfonts.github.io`, with a system monospace fallback (`--craft-code-family`), keeping `font-stretch: normal` and `font-feature-settings: normal`. Browser network access to those hosts is required for the webfonts; no OS font installation is needed.
 
 ## Working on it
 
