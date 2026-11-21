@@ -1,6 +1,6 @@
 # solve-it-crafts
 
-Personal [Solveit](https://solve.it.com) CRAFT customizations: a compact Tokyo Night Pure theme, document-style dialogs, a file tree, launcher, rebindable shortcuts, and presentation-only cell minimization.
+Personal [Solveit](https://solve.it.com) customizations: inline CodeMirror editors, a compact Tokyo Night theme, a file tree and command launcher, rebindable shortcuts, and cell presentation controls.
 
 ## Install on a new instance
 
@@ -11,13 +11,7 @@ bash ~/.craft/setup.sh
 
 Reload the browser page. `setup.sh` places `CRAFT.css` and `CRAFT.js` at the data root and all supporting scripts, styles, and icons inside `.craft-assets/` to keep the root directory uncluttered. Solveit loads CRAFT CSS/JS at page load and discovers them by walking up from the dialog's folder. Installing at the data root (`$HOME`, normally `/app/data`) applies the customizations to dialogs below it; folder-specific CRAFTs can layer on top.
 
-Optional terminal setup:
-
-```bash
-bash ~/.craft/zsh-setup.sh
-```
-
-Open a new terminal (Shift+T) afterward; existing terminals keep their current shell.
+For the optional shell installer, see [Optional terminal setup](#optional-terminal-setup).
 
 ## Update an existing installation
 
@@ -36,8 +30,9 @@ Use `--dest DIR` to install into a different data root or a disposable test dire
 
 | File | Purpose |
 |---|---|
-| `CRAFT.css` | Theme, document surfaces, cell chains, compact controls, omission and restore indicators, C2 editor styling |
-| `CRAFT.js` | File tree, launcher, auto-hiding navigation, Monaco sizing, idle composer, cell chains, action menus, Omit, three-state minimization, and C2 in-place CodeMirror cells |
+| `CRAFT.css` | Theme, dialog layout, and styles for both inline editors |
+| `CRAFT.js` | C2 code editor, insertion picker, file tree, launcher, navigation and composer controls, cell presentation, and image drop |
+| `craft_md.js` | Inline note, prompt, prompt-response, and raw editors |
 | `hotkey_manager.js` | Rebindable action registry, shortcut dispatcher, and settings menu; overrides stored per browser |
 | `hotkey_builtins.js` | Snapshot of Solveit's built-in shortcuts; update it when upstream bindings change |
 | `quercus-treeview.js`, `quercus-treeview.css` | File-tree widget |
@@ -53,7 +48,7 @@ Use `--dest DIR` to install into a different data root or a disposable test dire
 - Selection uses a square blue outline. The redundant green editing outline is suppressed.
 - Bare `.` continuation prompts with responses hide their input card unless being edited; their responses remain visible.
 - Input/output action toolbars become compact **…** menus, available on hover/focus and on touch devices. Menus invoke Solveit's existing actions and support keyboard navigation. On hover-capable devices, code input headers float beside the copy button without shifting the layout. Long lines in expanded code cells can wrap.
-- The entire bottom composer hides when empty and idle, including its tabs and buttons. Existing edit/new-cell shortcuts reveal it, and nonempty drafts remain visible. Monaco and its form stay mounted; this is not an in-cell Monaco relocation implementation.
+- The bottom Monaco composer stays mounted but hides when empty and idle. **Shift+I** reveals it; nonempty drafts remain visible.
 
 The idle-composer feature can be disabled for the current page with `window.craftIdleComposer.disable()`. Set `window.CRAFT_IDLE_COMPOSER = false` before its initialization to prevent it from enabling.
 
@@ -82,23 +77,20 @@ A fully hidden input has a small **⌃** restore button immediately above the re
 
 Normal collapse uses Solveit's existing server-backed behavior. The fully hidden third state is page-local presentation state and resets on reload. It neither deletes content nor changes AI inclusion; U remains an independent whole-cell toggle.
 
-## Dialog editing
+## Inline cell editors
 
-- The installer deploys `craft_md.js` for inline note, prompt, and raw editing. Code cells use the C2 editor described below.
-- The insertion picker selects the cell type for the `A` and `B` shortcuts. Closing the file tree restores the dialog width without removing the picker's gutter.
-- Dropping an image onto a code, note, or prompt input opens the native editor for that cell and uses Solveit's attachment handler.
+| Cell | Editor | Features |
+|---|---|---|
+| Code | `craftC2` in `CRAFT.js` | Syntax highlighting for the kernel and supported `%%magic` languages, folding, line numbers, completions, signature help, ghost text, and inline AI edits |
+| Note, prompt, and prompt response | `craftMd` in `craft_md.js` | Markdown Live Preview, formatting shortcuts, and click-to-caret placement |
+| Raw | `craftMd` in `craft_md.js` | Monospace plain-text editing without Markdown Live Preview |
 
-## C2: in-place CodeMirror cells
+- Click a cell's contents or press `Enter` on a selected cell to edit. `Escape` returns to selection mode once editor popups are closed. Use **Edit in Monaco** in the action menu for the native editor.
+- The right-edge picker sets which type `a` and `b` insert. With **Code** selected, either key creates and focuses a C2 cell. **Alt+Shift+N** creates one at the bottom. **Alt+Enter** in C2 runs the cell and opens a new one; in a note or raw editor it saves and inserts below using the picker type without running code.
+- C2 is enabled for all code cells by default. Toggle it with **Alt+Shift+C** or the action menu. **Alt+Shift+L** toggles line numbers; tracebacks also show line numbers automatically. Empty code and raw cells hide their placeholder while focused, keeping the caret visible.
+- Paste an image directly into an inline note or prompt. Dropping an image onto a code, note, or prompt input instead uses Solveit's native Monaco attachment flow.
 
-C2 is an experimental code-cell variant edited directly on the page with CodeMirror 6, without opening Solveit's composer. On the server, C2 cells are ordinary `code` messages. Their IDs are stored per browser in `localStorage['solveit-craft:c2:v1']` and shown with a `· C2` header badge.
-
-- Create one with the composer's **C2** tab. Both Submit and the keyboard submit shortcuts tag the new cell.
-- Click anywhere in a C2 cell's code to edit at that position (drag selections carry over). **Enter** on a selected C2 cell, or clicking its header, also edits in place.
-- **Escape** saves through `/set_contents_` and returns to selection mode. **Shift+Enter**, **Mod+Enter**, **Alt+Enter**, and **Mod+Shift+Enter** save and run like ordinary code cells.
-- Editing: Python highlighting in the GitHub Dark palette, VS Code-style keys (comment, multi-cursor, move/copy/delete line, indent, fold, find/replace, undo), and kernel completions from `/complete_`. There is no fold gutter or line numbering.
-- Only the focused cell keeps a live editor; others render as normal highlighted code with matching metrics, so entering and leaving edit mode doesn't shift the layout. A cell with folded ranges stays mounted to keep the folds visible.
-- CodeMirror uses local modules in `~/.craft-assets/cm6/` when available, or falls back to `esm.sh`. The installer does not ship the optional local bundles.
-- Not yet ported: signature help, AI ghost text, inline AI edit, and `%%magic` languages. Because tags are browser-local, C2 cells appear as ordinary code cells in another browser or after site data is cleared. `window.craftC2` exposes `ids`, `has`, `add`, `remove`, `edit`, and `disable`.
+Both editors share CodeMirror 6. The installer does not ship the optional local bundle in `~/.craft-assets/cm6/`; without it the editors load modules from `esm.sh`, which requires browser network access.
 
 ## File tree, dashboard access, and launcher
 
@@ -116,7 +108,7 @@ C2 is an experimental code-cell variant edited directly on the page with CodeMir
 
 ## Hotkey manager
 
-Open the shortcut settings from Solveit's shortcuts control or the configured **Show this shortcuts menu** binding (default **Mod+/**). Custom features register through `window.solveitHotkeys.register` or the queued `window.__hotkeyRegister` helper. Every action appears in the settings and can be rebound; conflicts are rejected and overrides are stored in localStorage.
+Open shortcut settings from Solveit's shortcuts control or press `?` (the default). Overrides are stored per browser. Custom features register through `window.__hotkeyRegister` so they can register before the manager loads.
 
 Built-in actions normally redispatch their original keys so Solveit handles them. The I/O entries are deliberately replaced with the three-state handlers above. The disable-original control is available for rebound built-ins. Command-launcher actions retain their page/editor/selection requirements.
 
@@ -136,20 +128,22 @@ git -C ~/.craft diff --check
 git -C ~/.craft diff --stat
 ```
 
-Other deployed assets in `~/.craft-assets/` (hotkey files, tree widget, icons) must also be copied back if changed. Review, stage explicit files, commit, then push. Update README when behavior changes and setup.sh when the asset list or installation behavior changes.
+Copy reviewed support assets back from `~/.craft-assets/` to the repo (for example, `craft_md.js` goes to `~/.craft/craft_md.js`). Update `setup.sh` when the shipped asset list or installation behavior changes. The local `CRAFT.ipynb` documents the DOM, editor lifecycle, and focus rules; it is not shipped by the repo.
 
 Suggested checks before publishing:
 
 ```bash
 node --check ~/.craft/CRAFT.js
+node --check ~/.craft/craft_md.js
 bash -n ~/.craft/setup.sh
+bash -n ~/.craft/zsh-setup.sh
 git -C ~/.craft diff --check
 ```
 
 Test the installer with `--dest` pointing at a temporary directory: fresh install, repeat install, a locally modified file preserved under default mode, then `--replace` with the original file retained in backups. Never test replacement against an unbacked-up personal installation.
 
-Browser checks: new/edit/save/Escape, prompt/note/code chains, action menus, omission grouping and keyboard restoration, both I/O cycles, input-only cells, active-edit protection, filtering, heading collapse, HTMX/websocket updates, and C2 click/Enter/Escape/run handoff plus composer tagging. Long-dialog and failed-save recovery tests remain important. There is no comprehensive automated browser suite yet.
+For editor changes, test `a` and `b` with each picker type and `Alt+Enter` from a disposable code cell. Verify that typing works without a click after the WebSocket card refresh, and that focused empty code and raw cells show the caret but not the placeholder. Also check click, `Enter`, save, and `Escape`. For presentation changes, check both input/output cycles, Omit and restore, cell chains, and action menus.
 
 ## Optional terminal setup
 
-`zsh-setup.sh` installs user-space zsh from Debian packages into `~/.craft-assets/zsh`, plus oh-my-zsh, and configures new interactive shells to use the robbyrussell theme and git plugin. It needs no root access; existing terminals and noninteractive code-cell shell commands are unaffected. Files live on the persistent volume, and an installed system zsh is preferred if available.
+`zsh-setup.sh` installs an amd64 Debian build of zsh into `~/.craft-assets/zsh` and clones oh-my-zsh. New interactive terminals prefer system zsh when available. The script rewrites `~/.bashrc`, `~/.bash_profile`, and `~/.zshrc` on each run; it backs up existing files only once (`*.solveit-bak`). Review those files before running `bash ~/.craft/zsh-setup.sh`, then open a new terminal with **Shift+T**.

@@ -1559,7 +1559,8 @@
   const observer = new MutationObserver(schedule);
   observer.observe(document.body, {childList: true, subtree: true, attributes: true, attributeFilter: ['data-editing']});
   document.addEventListener('click', tabClick, true);
-  document.addEventListener('htmx:afterSettle', schedule);
+  const settleEvent = ['htmx', 'after', 'settle'].join(window.htmx?.config?.metaCharacter || ':');
+  document.addEventListener(settleEvent, schedule);
   window.craftIdleComposer = {
     reveal,
     hide,
@@ -1568,7 +1569,7 @@
     disable() {
       observer.disconnect();
       document.removeEventListener('click', tabClick, true);
-      document.removeEventListener('htmx:afterSettle', schedule);
+      document.removeEventListener(settleEvent, schedule);
       window.removeEventListener('keydown', dismissShortcut, true);
       clearTimeout(dismissTimer);
       clearInsertionHolds();
@@ -2338,32 +2339,49 @@
   }
 
   const pendingAutoEdits = [];
-  let autoEditGuard = null, monacoBoundEditor = null, monacoModelSub = null;
+  let autoEditGuard = null, cancelRetryTimer = null, monacoBoundEditor = null, monacoModelSub = null;
+
+  const clearAutoEditGuard = () => {
+    clearTimeout(cancelRetryTimer);
+    cancelRetryTimer = null;
+    autoEditGuard?.holdRelease?.();
+    autoEditGuard = null;
+  };
 
   const monacoHoldsCell = id => {
     if (!id) return false;
     if (editorId() === id) return true;
     const p = model()?.uri?.path || '';
-    if (p.endsWith('/' + id) || p.endsWith('/_' + id)) return true;
+    if (p.endsWith('/' + id) || p.endsWith('/_' + id) || p.endsWith('/' + id + '-1') || p.endsWith('/_' + id + '-1')) return true;
     return getCellEl(id)?.dataset.editing === 'true';
   };
 
-  const queueAutoEdit = ({tagC2 = false, forceCode = false} = {}) => {
-    autoEditGuard = null;
+  const queueAutoEdit = ({tagC2 = false, forceCode = false, ttl = 6000} = {}) => {
+    clearAutoEditGuard();
     const existing = new Set([...document.querySelectorAll('#dialog-container .editable[id]')].map(el => el.id));
-    pendingAutoEdits.push({existing, tagC2, forceCode, expires: Date.now() + 6000});
+    pendingAutoEdits.push({existing, tagC2, forceCode, expires: Date.now() + ttl});
   };
 
   const claimNewCell = (nid, {tagC2 = false, forceCode = false} = {}) => {
-    autoEditGuard = {id: nid, tagC2, forceCode, wantOpen: true, canceling: false, converted: false, expires: Date.now() + 3000};
+    clearAutoEditGuard();
+    autoEditGuard = {
+      id: nid, tagC2, forceCode, wantOpen: true, canceling: false, cancelAt: 0, converted: false,
+      holdRelease: window.craftIdleComposer?.holdForInsertion?.() || null,
+      expires: Date.now() + 4000,
+    };
     if (tagC2) { ids.add(nid); recordDlgId(nid); saveIds(); }
     driveAutoEdit();
   };
 
   const releaseMonacoFor = g => {
-    if (g.canceling) return;
+    if (editorId() !== g.id) return;
+    if (g.canceling && Date.now() - g.cancelAt < 1500) return;
     const cancelBtn = document.getElementById('cancel_btn');
-    if (!cancelBtn || cancelBtn.disabled) return;
+    if (!cancelBtn || cancelBtn.disabled) {
+      clearTimeout(cancelRetryTimer);
+      cancelRetryTimer = setTimeout(driveAutoEdit, 60);
+      return;
+    }
     const rec = views.get(g.id);
     if (rec) {
       const curDoc = rec.view.state.doc.toString();
@@ -2371,13 +2389,14 @@
       if (curDoc && m && m.getValue() !== curDoc) m.setValue(curDoc);
     }
     g.canceling = true;
+    g.cancelAt = Date.now();
     cancelBtn.click();
   };
 
   const driveAutoEdit = () => {
     if (!autoEditGuard) return;
     const g = autoEditGuard;
-    if (Date.now() > g.expires) { autoEditGuard = null; return; }
+    if (Date.now() > g.expires) { clearAutoEditGuard(); return; }
     const el = getCellEl(g.id);
     const card = el?.querySelector('.card-in');
     const isCode = card?.dataset.mtype === 'code';
@@ -2394,7 +2413,7 @@
         }
         return;
       }
-      autoEditGuard = null;
+      clearAutoEditGuard();
       return;
     }
     if (monacoHoldsCell(g.id)) {
@@ -2403,6 +2422,7 @@
     }
     if (el && isCode && !hasDiff(el) && g.wantOpen) {
       g.wantOpen = false;
+      g.holdRelease?.(); g.holdRelease = null;
       window.craftIdleComposer?.hide?.();
       el.scrollIntoView({block: 'nearest'});
       openCell(g.id, {anchor: 0, head: 0});
@@ -2415,8 +2435,9 @@
     if (edId) {
       if (isNonCodeInsertion('_' + edId)) return;
       if (autoEditGuard && autoEditGuard.id === edId && Date.now() < autoEditGuard.expires) {
+        if (!autoEditGuard.holdRelease) autoEditGuard.holdRelease = window.craftIdleComposer?.holdForInsertion?.() || null;
         autoEditGuard.wantOpen = true;
-        autoEditGuard.canceling = false;
+        if (autoEditGuard.canceling && Date.now() - autoEditGuard.cancelAt >= 1500) autoEditGuard.canceling = false;
         driveAutoEdit();
         return;
       }
@@ -2437,6 +2458,7 @@
       }
     } else if (autoEditGuard && autoEditGuard.canceling) {
       autoEditGuard.canceling = false;
+      autoEditGuard.cancelAt = 0;
       autoEditGuard.wantOpen = true;
       window.craftIdleComposer?.hide?.();
       driveAutoEdit();
@@ -2513,11 +2535,13 @@
       }
       schedule();
       const existing = new Set(allCells.map(el => el.id)), deadline = Date.now() + 6000;
+      let addedId = null;
       while (Date.now() < deadline) {
         const added = [...document.querySelectorAll('#dialog-container > .editable[id]')].find(el => !existing.has(el.id) && isC2El(el));
-        if (added && !monacoHoldsCell(added.id.slice(1)) && added.querySelector('.craft-c2-host')) break;
+        if (added && !monacoHoldsCell(added.id.slice(1)) && added.querySelector('.craft-c2-host')) { addedId = added.id.slice(1); break; }
         await new Promise(resolve => setTimeout(resolve, 50));
       }
+      if (addedId && !document.activeElement?.closest?.(`#_${addedId} .craft-c2-host`)) openCell(addedId, {anchor: 0, head: 0});
       return true;
     } catch (err) {
       pendingAutoEdits.pop();
@@ -2854,13 +2878,13 @@
           const txt = completions[0].text;
           v.dispatch({changes: {from, to, insert: txt}, selection: {anchor: from + txt.length}});
         }
-        v.contentDOM.focus({preventScroll: true});
+        v.focus();
       }
     } catch (err) {
       const cur = views.get(id);
       if (cur && cur.view === v) {
         v.dispatch({effects: rec.readOnlyComp.reconfigure(cmCache.state.EditorState.readOnly.of(false))});
-        v.contentDOM.focus({preventScroll: true});
+        v.focus();
       }
       notifyErr(err?.message || 'Completion request failed.');
     } finally {
@@ -2892,7 +2916,7 @@
           lineFrom,
           onCancel() {
             dismiss();
-            v.contentDOM.focus({preventScroll: true});
+            v.focus();
           },
           onSubmit(instr) {
             v.dispatch({effects: setAiEdit.of(null)});
@@ -3306,7 +3330,7 @@
     if (!el || !card || hasDiff(el) || card.classList.contains('collapsed')) return;
     const body = card.querySelector('.msg-body'), contentEl = body?.querySelector('.msg-content');
     if (!body || !contentEl) return;
-    if (autoEditGuard && autoEditGuard.id !== id) autoEditGuard = null;
+    if (autoEditGuard && autoEditGuard.id !== id) clearAutoEditGuard();
     window.selectMsg?.(window.$(el), {scroll: false});
     const text = getCellText(el);
     let rec = views.get(id);
@@ -3319,7 +3343,7 @@
       activeId = id;
       el.dataset.c2Editing = 'true';
       syncFindBoxToView(rec.view);
-      rec.view.contentDOM.focus({preventScroll: true});
+      rec.view.focus();
       syncCellLanguage(id, rec.view);
       return;
     }
@@ -3339,6 +3363,7 @@
     host.className = 'craft-c2-host';
     contentEl.after(host);
     card.classList.add('craft-c2-mounted');
+    el.dataset.c2Editing = 'true';
     const v = new cm.view.EditorView({state: edState, parent: host});
     host.addEventListener('keydown', e => { e.stopPropagation(); });
     host.addEventListener('focusin', () => {
@@ -3347,11 +3372,17 @@
       if (curEl) curEl.dataset.c2Editing = 'true';
     });
     host.addEventListener('focusout', () => {
-      requestAnimationFrame(() => {
+      const check = () => {
         if (destroyed) return;
+        if (!host.isConnected) { sync(); return; }
         const ae = document.activeElement;
         if (host.contains(ae) || ae?.closest?.('.cm-tooltip')) return;
         onCellBlur(id);
+      };
+      queueMicrotask(() => {
+        if (destroyed) return;
+        if (!host.isConnected) { sync(); return; }
+        requestAnimationFrame(check);
       });
     });
     rec = {view: v, host, ...activeComps, langKey: 'python', showLN: null};
@@ -3362,7 +3393,10 @@
     syncCellLineNumbers(id, rec);
     applySelection(v, selSpec || (reusePrev ? null : {toEnd: true}));
     syncFindBoxToView(v);
-    v.contentDOM.focus({preventScroll: true});
+    v.focus();
+    requestAnimationFrame(() => {
+      if (!destroyed && activeId === id && views.get(id)?.view === v && !v.hasFocus && document.activeElement === document.body) v.focus();
+    });
     syncCellLanguage(id, v);
   }
 
@@ -3468,14 +3502,14 @@
     if (idsChanged) saveIds();
     for (const [id, rec] of [...views]) {
       const el = getCellEl(id), card = getCardIn(el);
-      if (!el || !card || hasDiff(el) || !isC2El(el)) { rec.view.destroy(); views.delete(id); dirtyIds.delete(id); failedSaves.delete(id); syncSaveState(id); continue; }
+      if (!el || !card || hasDiff(el) || !isC2El(el)) { rec.view.destroy(); views.delete(id); dirtyIds.delete(id); failedSaves.delete(id); syncSaveState(id); if (activeId === id) activeId = null; continue; }
       const body = card.querySelector('.msg-body'), contentEl = body?.querySelector('.msg-content');
-      if (body && contentEl && !body.contains(rec.host)) {
-        contentEl.after(rec.host);
+      if (body && contentEl) {
+        if (!body.contains(rec.host)) contentEl.after(rec.host);
         card.classList.add('craft-c2-mounted');
         if (activeId === id) {
           el.dataset.c2Editing = 'true';
-          rec.view.contentDOM.focus({preventScroll: true});
+          if (!rec.view.hasFocus || document.activeElement !== rec.view.contentDOM) rec.view.focus();
         }
       }
       syncCellLineNumbers(id, rec);
@@ -3542,7 +3576,7 @@
       if (body.get('cmd') === 'alt-run') {
         const rawId = String(body.get('id_') || '').replace(/^_/, '');
         const el = (rawId && getCellEl(rawId)) || document.querySelector('#dialog-container .editable[data-sm="primary"]');
-        if (allMode || isC2El(el)) queueAutoEdit({tagC2: !allMode, forceCode: false});
+        if (allMode || isC2El(el)) queueAutoEdit({tagC2: !allMode, forceCode: false, ttl: 30000});
       }
       return;
     }
@@ -3553,7 +3587,7 @@
     if ((!composerButton && !composerShortcut) || body.get('is_input') !== '1') return;
     const id = String(body.get('id_') || '').replace(/^_/, '');
     const c2 = body.get('msg_type') === 'code' && (allMode || choice());
-    if (cmd === 'upsert-alt-run' && (allMode || c2)) queueAutoEdit({tagC2: !allMode, forceCode: false});
+    if (cmd === 'upsert-alt-run' && (allMode || c2)) queueAutoEdit({tagC2: !allMode, forceCode: false, ttl: 30000});
     if (!c2 && !ids.has(id)) return;
     const existing = id ? null : new Set([...document.querySelectorAll('#dialog-container .editable[id]')].map(el => el.id));
     const content = String(body.get('content') ?? '').replace(/\r\n/g, '\n');
@@ -3701,7 +3735,7 @@
       monacoModelSub?.dispose?.();
       monacoModelSub = null;
       monacoBoundEditor = null;
-      autoEditGuard = null;
+      clearAutoEditGuard();
       document.removeEventListener('click', onClick, true);
       document.removeEventListener('mousedown', onMouseDown);
       document.removeEventListener('mouseup', onMouseUp);
@@ -4335,25 +4369,32 @@
         });
         if (!id) throw new Error(`Could not confirm ${name} insertion.`);
         if (type === 'code') {
-          if (!(await waitFor(() => cellType(document.getElementById(id)) === 'code' && editorCell() !== id.slice(1)))) throw new Error('Could not confirm C2 handoff.');
-          return;
-        }
-        await setType(id, type);
-        const cancel = await waitFor(() => {
-          if (editorCell() !== id.slice(1) || window.edValue?.()) return true;
-          const btn = document.getElementById('cancel_btn');
-          return btn && !btn.disabled ? btn : null;
-        });
-        if (!cancel) throw new Error('Could not close the insertion composer.');
-        if (cancel && cancel !== true) {
-          const field = document.querySelector('#full_editor #msg_type');
-          if (field) field.value = type;
-          cancel.click();
-          if (!(await waitFor(() => editorCell() !== id.slice(1)))) throw new Error('Could not close the insertion composer.');
-          if (cellType(document.getElementById(id)) !== type) throw new Error(`New cell did not retain type ${type}.`);
+          if (!(await waitFor(() => cellType(document.getElementById(id)) === 'code' && editorCell() !== id.slice(1) && Boolean(document.getElementById(id)?.querySelector('.craft-c2-host'))))) throw new Error('Could not confirm C2 handoff.');
+        } else {
+          await setType(id, type);
+          const cancel = await waitFor(() => {
+            if (editorCell() !== id.slice(1) || window.edValue?.()) return true;
+            const btn = document.getElementById('cancel_btn');
+            return btn && !btn.disabled ? btn : null;
+          });
+          if (!cancel) throw new Error('Could not close the insertion composer.');
+          if (cancel && cancel !== true) {
+            const field = document.querySelector('#full_editor #msg_type');
+            if (field) field.value = type;
+            cancel.click();
+            if (!(await waitFor(() => editorCell() !== id.slice(1)))) throw new Error('Could not close the insertion composer.');
+            if (cellType(document.getElementById(id)) !== type) throw new Error(`New cell did not retain type ${type}.`);
+          }
         }
       } finally { release?.(); unhide?.(); }
-      if (id && type !== 'code') window.craftMd?.edit?.(id, {toEnd: true});
+      if (id) {
+        document.getElementById(id)?.scrollIntoView({block: 'nearest'});
+        if (type === 'code') {
+          if (!document.activeElement?.closest?.(`#${id} .craft-c2-host`)) window.craftC2?.edit?.(id, {anchor: 0, head: 0});
+        } else if (!document.activeElement?.closest?.(`#${id} .craft-md-host`)) {
+          window.craftMd?.edit?.(id, {toEnd: true});
+        }
+      }
     });
   };
   const defs = [

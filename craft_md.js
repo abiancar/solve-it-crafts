@@ -1264,7 +1264,7 @@
       card.dataset.mdEditing = 'true';
       if (part === 'in') el.dataset.mdEditing = 'true';
       syncFindBoxToView(rec.view);
-      rec.view.contentDOM.focus({preventScroll: true});
+      rec.view.focus();
       return true;
     }
     if (rec) unmountCell(key);
@@ -1295,11 +1295,17 @@
       if (part === 'in' && curEl) curEl.dataset.mdEditing = 'true';
     });
     host.addEventListener('focusout', () => {
-      requestAnimationFrame(() => {
+      const check = () => {
         if (destroyed) return;
+        if (!host.isConnected) { sync(); return; }
         const ae = document.activeElement;
         if (host.contains(ae) || ae?.closest?.('.cm-tooltip')) return;
         onCellBlur(key);
+      };
+      queueMicrotask(() => {
+        if (destroyed) return;
+        if (!host.isConnected) { sync(); return; }
+        requestAnimationFrame(check);
       });
     });
 
@@ -1309,7 +1315,10 @@
     if (reusePrev) v.dispatch({effects: activeComps.themeComp.reconfigure(themeExtensions(bundle, kind))});
     applySelection(v, selSpec || (reusePrev ? null : {toEnd: true}));
     syncFindBoxToView(v);
-    v.contentDOM.focus({preventScroll: true});
+    v.focus();
+    requestAnimationFrame(() => {
+      if (!destroyed && activeKey === key && views.get(key)?.view === v && !v.hasFocus && document.activeElement === document.body) v.focus();
+    });
     return true;
   }
 
@@ -1391,13 +1400,13 @@
         continue;
       }
       const body = card.querySelector('.msg-body'), contentEl = body?.querySelector('.msg-content');
-      if (body && contentEl && !body.contains(rec.host)) {
-        contentEl.after(rec.host);
+      if (body && contentEl) {
+        if (!body.contains(rec.host)) contentEl.after(rec.host);
         card.classList.add('craft-md-mounted');
         if (activeKey === key) {
           card.dataset.mdEditing = 'true';
           if (rec.part === 'in') el.dataset.mdEditing = 'true';
-          rec.view.contentDOM.focus({preventScroll: true});
+          if (!rec.view.hasFocus || document.activeElement !== rec.view.contentDOM) rec.view.focus();
         }
       }
       syncSaveState(key);

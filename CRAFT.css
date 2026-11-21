@@ -677,6 +677,7 @@ html:not(.dark) .craft-c2-ai-input { background: #ffffff; color: #24292e; border
 @keyframes craft-c2-pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
 .card-out.craft-c2-traceback { box-shadow: inset 2px 0 0 #f7768e88 !important; }
 .craft-c2-host .cm-placeholder { color: #cfc9c244; font-style: italic; pointer-events: none; }
+.craft-c2-host .cm-editor.cm-focused .cm-placeholder { opacity: 0 !important; }
 .craft-c2-ig { box-shadow: inset 1px 0 0 #cfc9c216; }
 .craft-c2-br-0 { color: #e0af68 !important; }
 .craft-c2-br-1 { color: #bb9af7 !important; }
@@ -704,6 +705,7 @@ html:not(.dark) .craft-c2-br-err { color: #cf222e !important; }
 .editable > .card-in:is([data-mtype="note"], [data-mtype="prompt"], [data-mtype="raw"]) .msg-content :is(a, button, summary, input, label) { cursor: pointer; }
 .editable > .msg-card.craft-md-mounted .msg-content { display: none !important; }
 .editable.dot-prompt-response[data-md-editing="true"] > .card-in { display: block !important; }
+.editable:is([data-c2-editing="true"], [data-md-editing="true"]) { content-visibility: visible !important; }
 
 .craft-md-host { position: relative; min-height: 18px; }
 .craft-md-host .cm-editor { background: transparent !important; outline: none !important; }
@@ -715,6 +717,7 @@ html:not(.dark) .craft-c2-br-err { color: #cf222e !important; }
 .craft-md-host ::selection { background: #7aa2f740 !important; }
 .craft-md-host .cm-selectionMatch { background: #7aa2f722 !important; }
 .craft-md-host .cm-placeholder { color: #cfc9c244; font-style: italic; pointer-events: none; }
+.craft-md-host.craft-md-raw .cm-editor.cm-focused .cm-placeholder { opacity: 0 !important; }
 .craft-md-host .cm-panels { background: #16161e !important; color: #cfc9c2; border: 0; border-top: 1px solid #ffffff14; }
 .craft-md-host .cm-search { padding: 4px 6px; font-family: var(--craft-prose-family); font-size: 11px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .craft-md-host .cm-search input, .craft-md-host .cm-search button { background: #1f2030; color: #cfc9c2; border: 1px solid #ffffff22; border-radius: 4px; padding: 2px 6px; font-size: 11px; }
