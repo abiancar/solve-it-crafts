@@ -506,14 +506,31 @@ pre, code, kbd, samp, tt, .font-mono, .monaco-editor, .solveit-tree-shortcut, .s
 .craft-action-menu button[data-danger] { color: #f7768e; }
 @media (hover: none) { .msg-card .craft-action-trigger { opacity: 1; pointer-events: auto; } }
 
+/* Code-cell header floats as a hover chip over the top-right corner, beside the copy button, so hovering never changes layout. */
 @media (hover: hover) {
-  .editable:not(:hover):not(:focus-within):not([data-editing="true"]):not(:has(.craft-action-trigger[aria-expanded="true"])) > .card-in[data-mtype="code"] > .uk-card-header {
-    height: 0 !important;
-    min-height: 0 !important;
-    padding-block: 0 !important;
-    overflow: hidden !important;
+  .editable > .card-in[data-mtype="code"] > .uk-card-header {
+    position: absolute !important;
+    top: 0;
+    right: 30px;
+    z-index: 5;
+    width: auto !important;
+    max-width: calc(100% - 40px);
+    padding: 0 2px 0 4px !important;
+    background: #1f2030 !important;
+    border: 0 !important;
+    border-radius: 0 0 4px 4px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .12s ease;
   }
+  .editable:is(:hover, :focus-within, [data-editing="true"]) > .card-in[data-mtype="code"] > .uk-card-header,
+  .editable > .card-in[data-mtype="code"] > .uk-card-header:has(.craft-action-trigger[aria-expanded="true"]) { opacity: 1; pointer-events: auto; }
+  .editable > .card-in[data-mtype="code"] > .uk-card-header nav { width: auto !important; flex-wrap: nowrap !important; }
+  .editable > .card-in[data-mtype="code"] > .uk-card-header nav > div.grow { flex: none; }
 }
+.editable > .msg-card[data-mtype="code"]:not(.collapsed) > .msg-body { overflow: visible !important; }
+.editable > .msg-card[data-mtype="code"]:not(.collapsed) > .msg-body .msg-content pre { overflow-wrap: anywhere; }
+.editable > .card-in[data-mtype="code"]:not(.collapsed) .copy-wrap > button { top: 0; max-height: 100%; }
 
 
 .editable.craft-omitted { display: none !important; }
@@ -529,16 +546,8 @@ pre, code, kbd, samp, tt, .font-mono, .monaco-editor, .solveit-tree-shortcut, .s
 
 
 /* ── C2 inline CodeMirror 6 cells ──────────────────────────────────── */
-@media (hover: hover) {
-  .editable.craft-c2:not(:hover):not([data-editing="true"]):not(:has(.craft-action-trigger[aria-expanded="true"])) > .card-in[data-mtype="code"] > .uk-card-header {
-    height: 0 !important;
-    min-height: 0 !important;
-    padding-block: 0 !important;
-    overflow: hidden !important;
-  }
-}
 .editable.craft-c2 .card-in[data-mtype="code"] .msg-content pre {
-  padding: 4px 15px 4px 18px !important;
+  padding: 4px 15px 4px 4px !important;
   min-height: 18px;
   cursor: text;
 }
@@ -562,32 +571,6 @@ pre, code, kbd, samp, tt, .font-mono, .monaco-editor, .solveit-tree-shortcut, .s
   line-height: 1 !important;
   overflow: visible !important;
 }
-.craft-c2-host .cm-gutters {
-  background: transparent !important;
-  border: 0 !important;
-  color: #cfc9c266;
-  min-width: 14px;
-  width: 14px;
-  min-height: 0 !important;
-  align-self: stretch;
-}
-.craft-c2-host .cm-foldGutter { width: 14px; }
-.craft-c2-host .cm-foldGutter .cm-gutterElement {
-  padding: 0 !important;
-  width: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 1 !important;
-  user-select: none;
-  cursor: pointer;
-}
-.craft-c2-fold { font-size: 9px; line-height: 1; transition: opacity .12s ease, color .12s ease; }
-.craft-c2-fold.is-open { opacity: 0; color: #cfc9c288; }
-.editable.craft-c2:hover .craft-c2-fold.is-open,
-.craft-c2-host .cm-gutters:hover .craft-c2-fold.is-open { opacity: .65; }
-.craft-c2-fold.is-open:hover { opacity: 1 !important; color: #cfc9c2; }
-.craft-c2-fold.is-closed { opacity: 1; color: #7aa2f7; }
 .craft-c2-host .cm-content {
   padding: 4px 15px 4px 0 !important;
   caret-color: #cfc9c2;

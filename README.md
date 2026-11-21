@@ -52,7 +52,7 @@ Use `--dest DIR` to install into a different data root or a disposable test dire
 - Prompt authorship is labeled **You** and **Assistant**. Token counts and timestamps appear on hover/focus, or remain available on touch devices. User prose is slightly brighter.
 - Selection uses a square blue outline. The redundant green editing outline is suppressed.
 - Bare `.` continuation prompts with responses hide their input card unless being edited; their responses remain visible.
-- Input/output action toolbars become compact **…** menus, available on hover/focus and on touch devices. Menus invoke Solveit's existing actions and support keyboard navigation. Code input headers disappear when idle on pointer devices.
+- Input/output action toolbars become compact **…** menus, available on hover/focus and on touch devices. Menus invoke Solveit's existing actions and support keyboard navigation. On hover-capable devices, code input headers float beside the copy button without shifting the layout. Long lines in expanded code cells can wrap.
 - The entire bottom composer hides when empty and idle, including its tabs and buttons. Existing edit/new-cell shortcuts reveal it, and nonempty drafts remain visible. Monaco and its form stay mounted; this is not an in-cell Monaco relocation implementation.
 
 The idle-composer feature can be disabled for the current page with `window.craftIdleComposer.disable()`. Set `window.CRAFT_IDLE_COMPOSER = false` before its initialization to prevent it from enabling.
@@ -89,7 +89,7 @@ C2 is an experimental code-cell variant edited directly on the page with CodeMir
 - Create one with the composer's **C2** tab. Both Submit and the keyboard submit shortcuts tag the new cell.
 - Click anywhere in a C2 cell's code to edit at that position (drag selections carry over). **Enter** on a selected C2 cell, or clicking its header, also edits in place.
 - **Escape** saves through `/set_contents_` and returns to selection mode. **Shift+Enter**, **Mod+Enter**, **Alt+Enter**, and **Mod+Shift+Enter** save and run like ordinary code cells.
-- Editing: Python highlighting in the GitHub Dark palette, a fold gutter with no line numbers, VS Code-style keys (comment, multi-cursor, move/copy/delete line, indent, fold, find/replace, undo), and kernel completions from `/complete_`.
+- Editing: Python highlighting in the GitHub Dark palette, VS Code-style keys (comment, multi-cursor, move/copy/delete line, indent, fold, find/replace, undo), and kernel completions from `/complete_`. There is no fold gutter or line numbering.
 - Only the focused cell keeps a live editor; others render as normal highlighted code with matching metrics, so entering and leaving edit mode doesn't shift the layout. A cell with folded ranges stays mounted to keep the folds visible.
 - CodeMirror loads from pinned `esm.sh` URLs, so the browser needs network access to that host.
 - Not yet ported: signature help, AI ghost text, inline AI edit, and `%%magic` languages. Because tags are browser-local, C2 cells appear as ordinary code cells in another browser or after site data is cleared. `window.craftC2` exposes `ids`, `has`, `add`, `remove`, `edit`, and `disable`.

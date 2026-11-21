@@ -1845,14 +1845,6 @@
       lang.indentOnInput(),
       lang.bracketMatching(),
       lang.codeFolding(),
-      lang.foldGutter({
-        markerDOM(open) {
-          const span = document.createElement('span');
-          span.className = 'craft-c2-fold ' + (open ? 'is-open' : 'is-closed');
-          span.textContent = open ? '▾' : '▸';
-          return span;
-        },
-      }),
       lang.syntaxHighlighting(cm.ghDarkStyle),
       cm.theme,
       search.search({top: false}),
