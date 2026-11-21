@@ -36,8 +36,8 @@ Use `--dest DIR` to install into a different data root or a disposable test dire
 
 | File | Purpose |
 |---|---|
-| `CRAFT.css` | Theme, document surfaces, cell chains, compact controls, omission and restore indicators |
-| `CRAFT.js` | File tree, launcher, auto-hiding navigation, Monaco sizing, idle composer, cell chains, action menus, Omit, and three-state minimization |
+| `CRAFT.css` | Theme, document surfaces, cell chains, compact controls, omission and restore indicators, C2 editor styling |
+| `CRAFT.js` | File tree, launcher, auto-hiding navigation, Monaco sizing, idle composer, cell chains, action menus, Omit, three-state minimization, and C2 in-place CodeMirror cells |
 | `hotkey_manager.js` | Rebindable action registry, shortcut dispatcher, and settings menu; overrides stored per browser |
 | `hotkey_builtins.js` | Snapshot of Solveit's built-in shortcuts; update it when upstream bindings change |
 | `quercus-treeview.js`, `quercus-treeview.css` | File-tree widget |
@@ -81,6 +81,18 @@ The existing collapse buttons use the same cycle. The hotkey-manager entries ret
 A fully hidden input has a small **⌃** restore button immediately above the remaining output. A fully hidden output has a **⌄** restore button below the remaining input. If no other portion exists, or both portions are fully hidden, the whole cell uses the Omit indicator. Restoring that indicator restores the portion that made the cell disappear; the other hidden portion retains its own restore control. A normal collapsed portion still counts as visible.
 
 Normal collapse uses Solveit's existing server-backed behavior. The fully hidden third state is page-local presentation state and resets on reload. It neither deletes content nor changes AI inclusion; U remains an independent whole-cell toggle.
+
+## C2: in-place CodeMirror cells
+
+C2 is an experimental code-cell variant edited directly on the page with CodeMirror 6, without opening Solveit's composer. On the server, C2 cells are ordinary `code` messages. Their IDs are stored per browser in `localStorage['solveit-craft:c2:v1']` and shown with a `· C2` header badge.
+
+- Create one with the composer's **C2** tab. Both Submit and the keyboard submit shortcuts tag the new cell.
+- Click anywhere in a C2 cell's code to edit at that position (drag selections carry over). **Enter** on a selected C2 cell, or clicking its header, also edits in place.
+- **Escape** saves through `/set_contents_` and returns to selection mode. **Shift+Enter**, **Mod+Enter**, **Alt+Enter**, and **Mod+Shift+Enter** save and run like ordinary code cells.
+- Editing: Python highlighting in the GitHub Dark palette, a fold gutter with no line numbers, VS Code-style keys (comment, multi-cursor, move/copy/delete line, indent, fold, find/replace, undo), and kernel completions from `/complete_`.
+- Only the focused cell keeps a live editor; others render as normal highlighted code with matching metrics, so entering and leaving edit mode doesn't shift the layout. A cell with folded ranges stays mounted to keep the folds visible.
+- CodeMirror loads from pinned `esm.sh` URLs, so the browser needs network access to that host.
+- Not yet ported: signature help, AI ghost text, inline AI edit, and `%%magic` languages. Because tags are browser-local, C2 cells appear as ordinary code cells in another browser or after site data is cleared. `window.craftC2` exposes `ids`, `has`, `add`, `remove`, `edit`, and `disable`.
 
 ## File tree, dashboard access, and launcher
 
@@ -130,7 +142,7 @@ git -C ~/.craft diff --check
 
 Test the installer with `--dest` pointing at a temporary directory: fresh install, repeat install, a locally modified file preserved under default mode, then `--replace` with the original file retained in backups. Never test replacement against an unbacked-up personal installation.
 
-Browser checks: new/edit/save/Escape, prompt/note/code chains, action menus, omission grouping and keyboard restoration, both I/O cycles, input-only cells, active-edit protection, filtering, heading collapse, and HTMX/websocket updates. Long-dialog and failed-save recovery tests remain important. There is no comprehensive automated browser suite yet.
+Browser checks: new/edit/save/Escape, prompt/note/code chains, action menus, omission grouping and keyboard restoration, both I/O cycles, input-only cells, active-edit protection, filtering, heading collapse, HTMX/websocket updates, and C2 click/Enter/Escape/run handoff plus composer tagging. Long-dialog and failed-save recovery tests remain important. There is no comprehensive automated browser suite yet.
 
 ## Optional terminal setup
 

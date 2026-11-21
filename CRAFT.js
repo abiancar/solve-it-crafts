@@ -1563,6 +1563,590 @@
 })();
 
 (() => {
+  window.craftC2?.disable();
+  const key = 'solveit-craft:c2:v1', requests = new WeakMap();
+  const ids = new Set(), states = new Map(), views = new Map(), pendingSaves = new Map();
+  try { for (const id of JSON.parse(localStorage.getItem(key) || '[]')) ids.add(id); } catch {}
+  const saveIds = () => { try { localStorage.setItem(key, JSON.stringify([...ids])); } catch {} };
+
+  const CM_DEPS = 'deps=@codemirror/state@6.5.2,@codemirror/view@6.36.5,@codemirror/language@6.11.0';
+  const CM_URLS = {
+    state: 'https://esm.sh/@codemirror/state@6.5.2',
+    view: 'https://esm.sh/@codemirror/view@6.36.5?deps=@codemirror/state@6.5.2',
+    lang: 'https://esm.sh/@codemirror/language@6.11.0?deps=@codemirror/state@6.5.2,@codemirror/view@6.36.5',
+    python: `https://esm.sh/@codemirror/lang-python@6.1.7?${CM_DEPS}`,
+    cmds: `https://esm.sh/@codemirror/commands@6.8.1?${CM_DEPS}`,
+    ac: `https://esm.sh/@codemirror/autocomplete@6.18.6?${CM_DEPS}`,
+    search: 'https://esm.sh/@codemirror/search@6.5.10?deps=@codemirror/state@6.5.2,@codemirror/view@6.36.5',
+    hl: 'https://esm.sh/@lezer/highlight@1.2.1',
+  };
+
+  let cmCache = null, draft = null, frame = null, activeId = null, pendingPointer = null, destroyed = false;
+
+  const loadCM = () => window.__craftCM6Promise ??= Promise.all(
+    Object.entries(CM_URLS).map(async ([k, u]) => [k, await import(u)])
+  ).then(entries => {
+    const cm = Object.fromEntries(entries);
+    const t = cm.hl.tags;
+    cm.ghDarkStyle = cm.lang.HighlightStyle.define([
+      {tag: [t.comment, t.lineComment, t.blockComment, t.docComment], color: '#6a737d'},
+      {tag: [t.keyword, t.controlKeyword, t.operatorKeyword, t.definitionKeyword, t.moduleKeyword, t.self, t.operator, t.compareOperator, t.logicOperator, t.arithmeticOperator, t.bitwiseOperator, t.updateOperator], color: '#f97583'},
+      {tag: [t.string, t.special(t.string), t.docString], color: '#9ecbff'},
+      {tag: [t.regexp], color: '#dbedff'},
+      {tag: [t.escape, t.number, t.integer, t.float, t.bool, t.null, t.atom, t.constant(t.variableName), t.propertyName, t.attributeName, t.standard(t.variableName), t.special(t.variableName)], color: '#79b8ff'},
+      {tag: [t.function(t.variableName), t.function(t.propertyName), t.definition(t.function(t.variableName)), t.className, t.definition(t.className), t.typeName, t.meta, t.annotation], color: '#b392f0'},
+      {tag: [t.variableName, t.definition(t.variableName), t.punctuation, t.bracket, t.paren, t.squareBracket, t.brace], color: '#e1e4e8'},
+      {tag: [t.invalid], color: '#fdaeb7', fontStyle: 'italic'},
+    ]);
+    cm.theme = cm.view.EditorView.theme({'&': {lineHeight: '1'}, '.cm-scroller': {lineHeight: '1'}}, {dark: true});
+    return cm;
+  }).catch(err => {
+    window.__craftCM6Promise = null;
+    console.error('craftC2: failed to load CodeMirror 6', err);
+    throw err;
+  });
+  loadCM().then(cm => { cmCache = cm; }).catch(() => {});
+
+  const editorId = () => String(document.querySelector('#full_editor #id_')?.value || '').replace(/^_/, '');
+  const model = () => window.editor?.getModel();
+  const choice = () => draft && draft.id === editorId() && draft.model === model() ? draft.c2 : ids.has(editorId());
+  const select = c2 => { draft = {id: editorId(), model: model(), c2}; };
+  const getCellEl = id => document.getElementById('_' + id);
+  const getCardIn = el => el?.querySelector('.card-in[data-mtype="code"]');
+  const getCellText = el => el?.querySelector('form [name="content"]')?.value ?? '';
+  const isC2El = el => !!el && ids.has(el.id.replace(/^_/, '')) && !!getCardIn(el);
+  const typingBlocked = () => !!document.activeElement?.closest('input,textarea,select,[contenteditable],.monaco-editor,#full_editor,.hk-overlay.open,#solveit-launcher.open,[role="dialog"],.uk-modal.uk-open');
+
+  const hasFolds = (cm, state) => {
+    let any = false;
+    cm.lang.foldedRanges(state).between(0, state.doc.length, () => { any = true; return false; });
+    return any;
+  };
+
+  const kindMap = {
+    Function: 'function', Method: 'method', Class: 'class', Module: 'namespace',
+    Variable: 'variable', Property: 'property', Keyword: 'keyword', Constant: 'constant',
+    Field: 'property', Interface: 'interface', Enum: 'enum', File: 'text', Folder: 'text',
+  };
+
+  async function kernelComplete(context) {
+    if (window.svCopts?.scon === false) return null;
+    const kid = document.getElementById('kid')?.value;
+    if (!kid) return null;
+    const word = context.matchBefore(/[\w./]+/);
+    if (!context.explicit && !word) return null;
+    const doc = context.state.doc;
+    const code = doc.toString();
+    if (!code) return null;
+    const ctrl = new AbortController();
+    let timer = null;
+    context.addEventListener('abort', () => { clearTimeout(timer); ctrl.abort(); });
+    await new Promise(resolve => { timer = setTimeout(resolve, 250); });
+    if (context.aborted) return null;
+    const line = doc.lineAt(context.pos);
+    try {
+      const r = await fetch('/complete_', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({code, line_no: line.number, col_no: context.pos - line.from + 1, kid}),
+        signal: ctrl.signal,
+      });
+      if (!r.ok || context.aborted) return null;
+      const {completions} = await r.json();
+      if (!Array.isArray(completions) || !completions.length || context.aborted) return null;
+      const clamp = n => Math.max(0, Math.min(doc.length, n));
+      const toPos = (ln, col) => clamp(doc.line(Math.max(1, Math.min(doc.lines, ln))).from + Math.max(0, col - 1));
+      let from = word ? word.from : context.pos, to = context.pos;
+      const firstRange = completions[0]?.range;
+      if (firstRange) {
+        from = toPos(firstRange.startLineNumber, firstRange.startColumn);
+        to = toPos(firstRange.endLineNumber, firstRange.endColumn);
+      }
+      const options = completions.map(c => ({
+        label: c.text,
+        apply: c.text,
+        detail: c.detail || undefined,
+        type: kindMap[c.kind] || 'variable',
+        boost: -(Number(c.rank) || 0),
+      }));
+      return {from, to, options, validFor: /^\w*$/};
+    } catch { return null; }
+  }
+
+  async function saveCell(id, content) {
+    const el = getCellEl(id);
+    if (!el) return false;
+    const prev = getCellText(el);
+    if (content === prev) return pendingSaves.get(id) || false;
+    const inp = el.querySelector('form [name="content"]');
+    if (inp) inp.value = content;
+    const kid = document.getElementById('kid')?.value || '';
+    const p = (async () => {
+      try {
+        await Promise.race([
+          window.htmx.ajax('POST', '/set_contents_', {
+            source: '#kid',
+            swap: 'none',
+            values: {kid, id_: '_' + id, ids: id, contents: JSON.stringify({[id]: content})},
+          }),
+          new Promise(r => setTimeout(r, 3000)),
+        ]);
+      } catch (err) {
+        console.error('craftC2: save failed', err);
+      } finally {
+        if (pendingSaves.get(id) === p) pendingSaves.delete(id);
+      }
+    })();
+    pendingSaves.set(id, p);
+    await p;
+    return true;
+  }
+
+  function unmountCell(id) {
+    const rec = views.get(id);
+    if (!rec) return;
+    states.set(id, rec.view.state);
+    rec.view.destroy();
+    rec.host.remove();
+    views.delete(id);
+    const el = getCellEl(id);
+    getCardIn(el)?.classList.remove('craft-c2-mounted');
+    if (el) delete el.dataset.c2Editing;
+    if (activeId === id) activeId = null;
+  }
+
+  async function onCellBlur(id) {
+    const rec = views.get(id);
+    if (!rec) return;
+    const el = getCellEl(id);
+    if (el) delete el.dataset.c2Editing;
+    if (activeId === id) activeId = null;
+    const content = rec.view.state.doc.toString();
+    states.set(id, rec.view.state);
+    await saveCell(id, content);
+    const cur = views.get(id);
+    if (!cur || cur.view.hasFocus || activeId === id) return;
+    if (cmCache && hasFolds(cmCache, cur.view.state)) return;
+    unmountCell(id);
+  }
+
+  async function exitCell(id) {
+    const rec = views.get(id);
+    const el = getCellEl(id);
+    if (rec) {
+      rec.view.contentDOM.blur();
+      if (el) window.selectMsg?.(window.$(el), {scroll: false});
+      await onCellBlur(id);
+    }
+    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+  }
+
+  async function saveAndRun(id, cmd) {
+    const rec = views.get(id);
+    const el = getCellEl(id);
+    if (!rec || !el) return;
+    const content = rec.view.state.doc.toString();
+    const next = cmd === 'shift-run' ? window.adjacentMsg?.(window.$(el), false) : null;
+    const after = cmd === 'alt-run' ? (window.sectionTail?.(el) || '') : '';
+    const existing = cmd === 'alt-run' ? new Set([...document.querySelectorAll('#dialog-container .editable[id]')].map(n => n.id)) : null;
+    states.set(id, rec.view.state);
+    delete el.dataset.c2Editing;
+    if (activeId === id) activeId = null;
+    rec.view.contentDOM.blur();
+    if (cmd === 'shift-run' && next?.length) window.selectMsg?.(next);
+    else window.selectMsg?.(window.$(el), {scroll: false});
+    await saveCell(id, content);
+    const cur = views.get(id);
+    if (cur && !cur.view.hasFocus && activeId !== id && !(cmCache && hasFolds(cmCache, cur.view.state))) unmountCell(id);
+    const kid = document.getElementById('kid')?.value || '';
+    const runCmd = cmd === 'continue' ? 'run' : cmd;
+    try {
+      await window.htmx.ajax('POST', '/add_runq_', {
+        source: '#kid',
+        swap: 'none',
+        values: {kid, id_: '_' + id, ids: '_' + id, cmd: runCmd, after},
+      });
+      if (cmd === 'continue') {
+        await window.htmx.ajax('POST', '/continue_prompt_', {
+          source: '#kid',
+          swap: 'none',
+          values: {kid, id_: '_' + id, ids: '_' + id},
+        });
+      }
+      if (existing) {
+        for (const node of document.querySelectorAll('#dialog-container .editable[id]')) {
+          if (!existing.has(node.id) && getCardIn(node)) {
+            ids.add(node.id.replace(/^_/, ''));
+            saveIds();
+            schedule();
+            break;
+          }
+        }
+      }
+    } catch (err) { console.error('craftC2: run failed', err); }
+  }
+
+  function buildExtensions(cm, id) {
+    const {state, view, lang, python, cmds, ac, search} = cm;
+    const solveitKeys = state.Prec.high(view.keymap.of([
+      {key: 'Shift-Enter', run: () => { saveAndRun(id, 'shift-run'); return true; }},
+      {key: 'Mod-Enter', run: () => { saveAndRun(id, 'run'); return true; }},
+      {key: 'Alt-Enter', run: () => { saveAndRun(id, 'alt-run'); return true; }},
+      {key: 'Mod-Shift-Enter', run: () => { saveAndRun(id, 'continue'); return true; }},
+      {key: 'Escape', run: v => {
+        if (ac.completionStatus(v.state)) return ac.closeCompletion(v);
+        if (search.searchPanelOpen(v.state)) return search.closeSearchPanel(v);
+        if (v.state.selection.ranges.length > 1) return cmds.simplifySelection(v);
+        exitCell(id);
+        return true;
+      }},
+      {key: 'Tab', run: v => ac.completionStatus(v.state) ? ac.acceptCompletion(v) : cmds.indentWithTab.run(v), shift: v => cmds.indentWithTab.shift(v)},
+    ]));
+    const vscodeKeys = view.keymap.of([
+      {key: 'Mod-/', run: cmds.toggleLineComment},
+      {key: 'Mod-d', run: search.selectNextOccurrence, preventDefault: true},
+      {key: 'Mod-Shift-l', run: search.selectSelectionMatches},
+      {key: 'Alt-ArrowUp', run: cmds.moveLineUp},
+      {key: 'Alt-ArrowDown', run: cmds.moveLineDown},
+      {key: 'Shift-Alt-ArrowUp', run: cmds.copyLineUp},
+      {key: 'Shift-Alt-ArrowDown', run: cmds.copyLineDown},
+      {key: 'Mod-Shift-k', run: cmds.deleteLine},
+      {key: 'Mod-]', run: cmds.indentMore},
+      {key: 'Mod-[', run: cmds.indentLess},
+      {key: 'Mod-Shift-[', run: lang.foldCode},
+      {key: 'Mod-Shift-]', run: lang.unfoldCode},
+      {key: 'Mod-Alt-[', run: lang.foldCode},
+      {key: 'Mod-Alt-]', run: lang.unfoldCode},
+      {key: 'Mod-f', run: search.openSearchPanel},
+      {key: 'Mod-h', run: search.openSearchPanel},
+      {key: 'Mod-g', run: search.findNext},
+      {key: 'Mod-Shift-g', run: search.findPrevious},
+      {key: 'F3', run: search.findNext},
+      {key: 'Shift-F3', run: search.findPrevious},
+      {key: 'Mod-Space', run: ac.startCompletion},
+      ...ac.completionKeymap,
+      ...search.searchKeymap,
+      ...cmds.historyKeymap,
+      ...cmds.defaultKeymap,
+      ...lang.foldKeymap,
+    ]);
+    return [
+      solveitKeys,
+      vscodeKeys,
+      python.python(),
+      cmds.history(),
+      state.EditorState.allowMultipleSelections.of(true),
+      view.drawSelection(),
+      view.dropCursor(),
+      view.rectangularSelection(),
+      view.crosshairCursor(),
+      view.EditorView.lineWrapping,
+      lang.indentUnit.of('    '),
+      lang.indentOnInput(),
+      lang.bracketMatching(),
+      lang.codeFolding(),
+      lang.foldGutter({
+        markerDOM(open) {
+          const span = document.createElement('span');
+          span.className = 'craft-c2-fold ' + (open ? 'is-open' : 'is-closed');
+          span.textContent = open ? '▾' : '▸';
+          return span;
+        },
+      }),
+      lang.syntaxHighlighting(cm.ghDarkStyle),
+      cm.theme,
+      search.search({top: false}),
+      search.highlightSelectionMatches(),
+      ac.autocompletion({override: [kernelComplete], activateOnTyping: true, defaultKeymap: false}),
+      view.EditorView.updateListener.of(u => {
+        states.set(id, u.state);
+        if (!u.view.hasFocus && activeId !== id && !pendingSaves.has(id) && !hasFolds(cm, u.state)) {
+          queueMicrotask(() => {
+            const cur = views.get(id);
+            if (cur && !cur.view.hasFocus && activeId !== id && !pendingSaves.has(id) && !hasFolds(cm, cur.view.state)) unmountCell(id);
+          });
+        }
+      }),
+    ];
+  }
+
+  function applySelection(v, selSpec) {
+    const len = v.state.doc.length;
+    const clamp = n => Math.max(0, Math.min(len, n));
+    if (selSpec?.anchor != null) {
+      const anchor = clamp(selSpec.anchor);
+      const head = clamp(selSpec.head ?? anchor);
+      v.dispatch({selection: {anchor, head}});
+    } else if (selSpec?.coords) {
+      const pos = v.posAtCoords(selSpec.coords);
+      v.dispatch({selection: {anchor: pos != null ? clamp(pos) : len}});
+    } else if (selSpec?.toEnd) {
+      v.dispatch({selection: {anchor: len}});
+    }
+  }
+
+  async function openCell(id, selSpec = null) {
+    if (destroyed) return;
+    const cm = cmCache || await loadCM();
+    cmCache = cm;
+    if (destroyed) return;
+    const el = getCellEl(id), card = getCardIn(el);
+    if (!el || !card || card.classList.contains('collapsed')) return;
+    const body = card.querySelector('.msg-body'), contentEl = body?.querySelector('.msg-content');
+    if (!body || !contentEl) return;
+    window.selectMsg?.(window.$(el), {scroll: false});
+    const text = getCellText(el);
+    let rec = views.get(id);
+    if (rec) {
+      if (!body.contains(rec.host)) { contentEl.after(rec.host); card.classList.add('craft-c2-mounted'); }
+      if (rec.view.state.doc.toString() !== text && !pendingSaves.has(id)) {
+        rec.view.dispatch({changes: {from: 0, to: rec.view.state.doc.length, insert: text}});
+      }
+      if (selSpec) applySelection(rec.view, selSpec);
+      activeId = id;
+      el.dataset.c2Editing = 'true';
+      rec.view.contentDOM.focus({preventScroll: true});
+      return;
+    }
+    const prevState = states.get(id);
+    const edState = prevState && prevState.doc.toString() === text
+      ? prevState
+      : cm.state.EditorState.create({doc: text, extensions: buildExtensions(cm, id)});
+    const host = document.createElement('div');
+    host.className = 'craft-c2-host';
+    contentEl.after(host);
+    card.classList.add('craft-c2-mounted');
+    const v = new cm.view.EditorView({state: edState, parent: host});
+    host.addEventListener('keydown', e => { e.stopPropagation(); });
+    host.addEventListener('focusin', () => {
+      activeId = id;
+      const curEl = getCellEl(id);
+      if (curEl) curEl.dataset.c2Editing = 'true';
+    });
+    host.addEventListener('focusout', () => {
+      requestAnimationFrame(() => {
+        if (destroyed) return;
+        const ae = document.activeElement;
+        if (host.contains(ae) || ae?.closest?.('.cm-tooltip')) return;
+        onCellBlur(id);
+      });
+    });
+    rec = {view: v, host};
+    views.set(id, rec);
+    activeId = id;
+    el.dataset.c2Editing = 'true';
+    applySelection(v, selSpec || (prevState ? null : {toEnd: true}));
+    v.contentDOM.focus({preventScroll: true});
+  }
+
+  const offsetIn = (root, node, offset) => {
+    if (!root || !node || !root.contains(node)) return null;
+    try {
+      const r = document.createRange();
+      r.selectNodeContents(root);
+      r.setEnd(node, offset);
+      return r.toString().length;
+    } catch { return null; }
+  };
+
+  const onMouseDown = e => {
+    if (e.button !== 0 || e.target.closest?.('button, a, .craft-c2-host')) return;
+    const content = e.target.closest?.('.editable.craft-c2 .card-in[data-mtype="code"] .msg-content');
+    if (!content) return;
+    const el = content.closest('.editable');
+    if (!isC2El(el)) return;
+    pendingPointer = {
+      id: el.id.replace(/^_/, ''),
+      codeEl: content.querySelector('pre code'),
+      x: e.clientX,
+      y: e.clientY,
+    };
+  };
+
+  const onMouseUp = e => {
+    if (!pendingPointer) return;
+    const p = pendingPointer;
+    pendingPointer = null;
+    const sel = window.getSelection();
+    const anchor = offsetIn(p.codeEl, sel?.anchorNode, sel?.anchorOffset);
+    const head = offsetIn(p.codeEl, sel?.focusNode, sel?.focusOffset);
+    if (anchor != null) sel?.removeAllRanges();
+    openCell(p.id, anchor != null ? {anchor, head: head ?? anchor} : {coords: {x: e.clientX, y: e.clientY}});
+  };
+
+  const onKeyDown = e => {
+    if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
+    if (typingBlocked()) return;
+    const el = document.querySelector('#dialog-container .editable[data-sm="primary"]');
+    if (!isC2El(el)) return;
+    const card = getCardIn(el);
+    if (!card || card.classList.contains('collapsed')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    openCell(el.id.replace(/^_/, ''));
+  };
+
+  const sync = () => {
+    frame = null;
+    const code = document.querySelector('#full_editor #tabh-code');
+    if (code && !document.getElementById('tabh-craft-c2')) {
+      const tab = document.createElement('li');
+      tab.className = 'tabh'; tab.id = 'tabh-craft-c2';
+      const link = document.createElement('a');
+      link.href = '#'; link.role = 'tab'; link.textContent = 'C2';
+      tab.append(link); code.after(tab);
+    }
+    const c2 = document.getElementById('tabh-craft-c2');
+    if (c2) {
+      const active = document.querySelector('#full_editor #msg_type')?.value === 'code' && choice();
+      c2.classList.toggle('uk-active', active);
+      c2.firstElementChild.setAttribute('aria-selected', String(active));
+      if (active) code?.classList.remove('uk-active');
+    }
+    reconcileCreates();
+    for (const card of document.querySelectorAll('#dialog-container .editable .card-in')) {
+      const el = card.closest('.editable');
+      const id = el.id.replace(/^_/, '');
+      const isC2 = card.dataset.mtype === 'code' && ids.has(id);
+      el.classList.toggle('craft-c2', isC2);
+      const header = card.querySelector('.uk-card-header [data-tokens]');
+      const badge = header?.querySelector('.craft-c2-badge');
+      if (!isC2) { badge?.remove(); continue; }
+      if (!header || badge) continue;
+      const label = document.createElement('span');
+      label.className = 'craft-c2-badge'; label.textContent = ' · C2'; header.append(label);
+    }
+    for (const [id, rec] of [...views]) {
+      const el = getCellEl(id), card = getCardIn(el);
+      if (!el || !card) { rec.view.destroy(); views.delete(id); continue; }
+      const body = card.querySelector('.msg-body'), contentEl = body?.querySelector('.msg-content');
+      if (body && contentEl && !body.contains(rec.host)) {
+        contentEl.after(rec.host);
+        card.classList.add('craft-c2-mounted');
+        if (activeId === id) {
+          el.dataset.c2Editing = 'true';
+          rec.view.contentDOM.focus({preventScroll: true});
+        }
+      }
+    }
+  };
+  const schedule = () => { if (frame == null) frame = requestAnimationFrame(sync); };
+
+  const onClick = e => {
+    const edit = e.target.closest?.('.card-in [hx-post="/editor_"]');
+    const cell = edit?.closest('.editable');
+    if (isC2El(cell) && !getCardIn(cell).classList.contains('collapsed')) {
+      e.preventDefault(); e.stopImmediatePropagation();
+      openCell(cell.id.replace(/^_/, ''));
+      return;
+    }
+    const tab = e.target.closest?.('#full_editor .tabh');
+    if (!tab) return;
+    if (tab.id === 'tabh-craft-c2') {
+      e.preventDefault(); e.stopPropagation();
+      if (!model() || typeof window.clickEdTab !== 'function') return;
+      select(true); window.clickEdTab(tab.id, 'code'); schedule();
+    } else { select(false); schedule(); }
+  };
+
+  const before = ({detail:{ctx} = {}}) => {
+    const request = ctx?.request, body = request?.body;
+    if (!body?.get || request.method !== 'POST' || new URL(request.action, location.href).pathname !== '/upsert_msg_') return;
+    const source = ctx.sourceElement, cmd = body.get('cmd');
+    const composerButton = source?.matches('#full_editor #submit_btn, #full_editor #cancel_btn');
+    const composerShortcut = source?.matches('#kid') && ['upsert-shift-run', 'upsert-alt-run'].includes(cmd);
+    if ((!composerButton && !composerShortcut) || body.get('is_input') !== '1') return;
+    const id = String(body.get('id_') || '').replace(/^_/, '');
+    const c2 = body.get('msg_type') === 'code' && choice();
+    if (!c2 && !ids.has(id)) return;
+    const existing = id ? null : new Set([...document.querySelectorAll('#dialog-container .editable[id]')].map(el => el.id));
+    const content = String(body.get('content') ?? '').replace(/\r\n/g, '\n');
+    requests.set(ctx, {id, c2, existing, draft, content, type: body.get('msg_type')});
+  };
+
+  const pendingCreates = new Set();
+  const normalizeSource = text => text.replace(/\r\n/g, '\n').replace(/\n+$/, '');
+  const finishTag = (save, id, kind) => {
+    if (save.c2 && kind === 'code') ids.add(id); else ids.delete(id);
+    if (draft === save.draft) draft = null;
+    saveIds();
+    schedule();
+  };
+  const reconcileCreates = () => {
+    if (!pendingCreates.size) return;
+    const cells = [...document.querySelectorAll('#dialog-container .editable[id]')];
+    for (const save of pendingCreates) {
+      const candidates = cells.filter(el => !save.existing.has(el.id) && getCardIn(el) && normalizeSource(getCellText(el)) === normalizeSource(save.content));
+      if (candidates.length !== 1) continue;
+      pendingCreates.delete(save);
+      finishTag(save, candidates[0].id.replace(/^_/, ''), 'code');
+    }
+  };
+
+  const after = ({detail:{ctx} = {}}) => {
+    const save = ctx && requests.get(ctx);
+    if (!save || !ctx.response || ctx.response.status < 200 || ctx.response.status >= 300) return;
+    const found = new Map();
+    const collect = root => {
+      for (const card of root.querySelectorAll('.editable[id] .card-in[data-mtype]')) {
+        const el = card.closest('.editable');
+        if (save.id ? el.id.replace(/^_/, '') !== save.id : save.existing.has(el.id) || card.dataset.mtype !== 'code') continue;
+        found.set(el.id.replace(/^_/, ''), {kind: card.dataset.mtype, content: el.querySelector('form [name="content"]')?.value});
+      }
+      for (const tpl of root.querySelectorAll('template')) collect(tpl.content);
+    };
+    if (ctx.text) collect(new DOMParser().parseFromString(ctx.text, 'text/html'));
+    if (save.id) {
+      const [[, {kind} = {}] = []] = [...found];
+      finishTag(save, save.id, kind || save.type);
+    } else if (!save.id) {
+      const matches = [...found].filter(([, cell]) => cell.content != null && normalizeSource(cell.content) === normalizeSource(save.content));
+      if (matches.length === 1) finishTag(save, matches[0][0], 'code');
+      else {
+        pendingCreates.add(save);
+        setTimeout(() => pendingCreates.delete(save), 10000);
+        schedule();
+      }
+    }
+  };
+
+  const observer = new MutationObserver(schedule);
+  observer.observe(document.body, {childList: true, subtree: true, attributes: true, attributeFilter: ['value']});
+  document.addEventListener('click', onClick, true);
+  document.addEventListener('mousedown', onMouseDown);
+  document.addEventListener('mouseup', onMouseUp);
+  document.addEventListener('keydown', onKeyDown, true);
+  const sep = window.htmx?.config.metaCharacter || ':';
+  const configEvent = ['htmx', 'config', 'request'].join(sep), afterEvent = ['htmx', 'after', 'request'].join(sep);
+  document.addEventListener(configEvent, before);
+  document.addEventListener(afterEvent, after);
+
+  window.craftC2 = {
+    ids: () => [...ids],
+    has: id => ids.has(String(id).replace(/^_/, '')),
+    add: id => { ids.add(String(id).replace(/^_/, '')); saveIds(); schedule(); },
+    remove: id => { const k = String(id).replace(/^_/, ''); ids.delete(k); unmountCell(k); saveIds(); schedule(); },
+    edit: (id, opts) => openCell(String(id).replace(/^_/, ''), opts),
+    disable() {
+      destroyed = true;
+      observer.disconnect(); cancelAnimationFrame(frame);
+      document.removeEventListener('click', onClick, true);
+      document.removeEventListener('mousedown', onMouseDown);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.removeEventListener('keydown', onKeyDown, true);
+      document.removeEventListener(configEvent, before);
+      document.removeEventListener(afterEvent, after);
+      pendingCreates.clear();
+      for (const id of [...views.keys()]) unmountCell(id);
+      document.querySelectorAll('.editable.craft-c2').forEach(el => { el.classList.remove('craft-c2'); delete el.dataset.c2Editing; });
+      document.querySelectorAll('#tabh-craft-c2, .craft-c2-badge').forEach(el => el.remove());
+    },
+  };
+  sync();
+})();
+
+(() => {
   window.craftCellChains?.disable();
   let frame;
   const sync = () => {

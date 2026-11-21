@@ -526,3 +526,118 @@ pre, code, kbd, samp, tt, .font-mono, .monaco-editor, .solveit-tree-shortcut, .s
 .craft-part-restore { justify-self: start; margin: 0; padding: 0 6px; border: 0; border-radius: 3px; background: transparent; color: #9a9eb5; font: inherit; line-height: 18px; cursor: pointer; }
 .craft-part-restore:hover { color: #cfc9c2; }
 .craft-part-restore:focus-visible { outline: 1px solid #7aa2f7; }
+
+
+/* ── C2 inline CodeMirror 6 cells ──────────────────────────────────── */
+@media (hover: hover) {
+  .editable.craft-c2:not(:hover):not([data-editing="true"]):not(:has(.craft-action-trigger[aria-expanded="true"])) > .card-in[data-mtype="code"] > .uk-card-header {
+    height: 0 !important;
+    min-height: 0 !important;
+    padding-block: 0 !important;
+    overflow: hidden !important;
+  }
+}
+.editable.craft-c2 .card-in[data-mtype="code"] .msg-content pre {
+  padding: 4px 15px 4px 18px !important;
+  min-height: 18px;
+  cursor: text;
+}
+.editable.craft-c2 .card-in[data-mtype="code"].craft-c2-mounted .msg-content { display: none !important; }
+.craft-c2-host { position: relative; min-height: 18px; }
+.craft-c2-host .cm-editor {
+  background: transparent !important;
+  color: #cfc9c2;
+  font-family: var(--craft-code-family) !important;
+  font-size: var(--craft-code) !important;
+  line-height: 1 !important;
+  font-weight: 400 !important;
+  font-stretch: normal !important;
+  font-feature-settings: normal !important;
+  outline: none !important;
+}
+.craft-c2-host .cm-editor.cm-focused { outline: none !important; }
+.craft-c2-host .cm-scroller {
+  font-family: inherit !important;
+  font-size: inherit !important;
+  line-height: 1 !important;
+  overflow: visible !important;
+}
+.craft-c2-host .cm-gutters {
+  background: transparent !important;
+  border: 0 !important;
+  color: #cfc9c266;
+  min-width: 14px;
+  width: 14px;
+  min-height: 0 !important;
+  align-self: stretch;
+}
+.craft-c2-host .cm-foldGutter { width: 14px; }
+.craft-c2-host .cm-foldGutter .cm-gutterElement {
+  padding: 0 !important;
+  width: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1 !important;
+  user-select: none;
+  cursor: pointer;
+}
+.craft-c2-fold { font-size: 9px; line-height: 1; transition: opacity .12s ease, color .12s ease; }
+.craft-c2-fold.is-open { opacity: 0; color: #cfc9c288; }
+.editable.craft-c2:hover .craft-c2-fold.is-open,
+.craft-c2-host .cm-gutters:hover .craft-c2-fold.is-open { opacity: .65; }
+.craft-c2-fold.is-open:hover { opacity: 1 !important; color: #cfc9c2; }
+.craft-c2-fold.is-closed { opacity: 1; color: #7aa2f7; }
+.craft-c2-host .cm-content {
+  padding: 4px 15px 4px 0 !important;
+  caret-color: #cfc9c2;
+  tab-size: 4;
+  min-height: 18px;
+}
+.craft-c2-host .cm-line { padding: 0 0 0 4px !important; line-height: 1 !important; }
+.craft-c2-host .cm-activeLine, .craft-c2-host .cm-activeLineGutter { background: transparent !important; }
+.craft-c2-host .cm-cursor, .craft-c2-host .cm-dropCursor { border-left: 1.5px solid #cfc9c2 !important; }
+.craft-c2-host .cm-selectionBackground,
+.craft-c2-host .cm-editor.cm-focused .cm-selectionBackground,
+.craft-c2-host ::selection { background: #7aa2f740 !important; }
+.craft-c2-host .cm-matchingBracket { background: #7aa2f728 !important; outline: 1px solid #7aa2f766; color: inherit !important; }
+.craft-c2-host .cm-selectionMatch { background: #7aa2f722 !important; }
+.craft-c2-host .cm-foldPlaceholder {
+  background: #25273a !important;
+  border: 1px solid #ffffff1a !important;
+  border-radius: 3px;
+  color: #7aa2f7 !important;
+  padding: 0 4px;
+  margin: 0 2px;
+  font-size: 9px;
+}
+.craft-c2-host .cm-tooltip {
+  background: #1a1b26 !important;
+  border: 1px solid #2f3044 !important;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px #000a;
+  color: #cfc9c2;
+  font-family: var(--craft-code-family);
+  font-size: 11px;
+  line-height: 1.35;
+  z-index: 60;
+}
+.craft-c2-host .cm-tooltip-autocomplete > ul { max-height: 220px; }
+.craft-c2-host .cm-tooltip-autocomplete > ul > li { padding: 2px 8px; }
+.craft-c2-host .cm-tooltip-autocomplete > ul > li[aria-selected] { background: #292e42 !important; color: #e1e4e8 !important; }
+.craft-c2-host .cm-completionDetail { color: #cfc9c288; margin-left: 8px; font-style: normal; }
+.craft-c2-host .cm-completionMatchedText { color: #7aa2f7; text-decoration: none; font-weight: 600; }
+.craft-c2-host .cm-panels { background: #16161e !important; color: #cfc9c2; border: 0; border-top: 1px solid #ffffff14; }
+.craft-c2-host .cm-search { padding: 4px 6px; font-family: var(--craft-prose-family); font-size: 11px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.craft-c2-host .cm-search input, .craft-c2-host .cm-search button {
+  background: #1f2030;
+  color: #cfc9c2;
+  border: 1px solid #ffffff22;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 11px;
+}
+.craft-c2-host .cm-search button:hover { background: #292e42; }
+.craft-c2-host .cm-search button[name="close"] { margin-left: auto; border: 0; background: transparent; cursor: pointer; }
+.craft-c2-host .cm-searchMatch { background: #e0af6833; outline: 1px solid #e0af6866; }
+.craft-c2-host .cm-searchMatch-selected { background: #7aa2f744; outline: 1px solid #7aa2f7; }
