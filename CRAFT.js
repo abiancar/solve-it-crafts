@@ -470,9 +470,19 @@
       overlay.querySelector('button').onclick = () => { overlay.classList.remove('open'); overlay.querySelector('iframe').src = 'about:blank'; };
       document.body.append(overlay);
       const frame = overlay.querySelector('iframe');
-      frame.addEventListener('load', () => frame.contentWindow.addEventListener('keydown', e => {
-        if (window.solveitHotkeys?.dispatch(e)) { e.preventDefault(); e.stopImmediatePropagation(); }
-      }, true));
+      frame.addEventListener('load', () => {
+        frame.contentWindow.addEventListener('keydown', e => {
+          if (window.solveitHotkeys?.dispatch(e)) { e.preventDefault(); e.stopImmediatePropagation(); }
+        }, true);
+        // Phone: the overlay bar already names the file and closes it, so give Monaco the page's own header room too.
+        const fd = frame.contentDocument;
+        if (window.craftMobile?.active() && fd?.head && !fd.getElementById('craft-mobile-file-editor')) {
+          const st = fd.createElement('style'); st.id = 'craft-mobile-file-editor';
+          st.textContent = 'body > div.h-screen > header { display: none !important; } body > div.h-screen { padding: 0 !important; gap: 0 !important; } #file_editor { border: 0 !important; }';
+          fd.head.append(st);
+          frame.contentWindow.dispatchEvent(new Event('resize'));
+        }
+      });
     }
     overlay.querySelector('strong').textContent = url.searchParams.get('fp') || 'File editor';
     overlay.classList.add('open'); overlay.querySelector('iframe').src = url.href;
@@ -4691,6 +4701,30 @@
     } finally { adding = false; }
   }
 
+  /* After Run/Send the output lands below the fold: keep the cell in view while it grows,
+     until it has been still for ~10s or the user scrolls on their own. */
+  let stopFollow = null;
+  function followCell(id) {
+    stopFollow?.();
+    const elId = '_' + String(id).replace(/^_/, '');
+    let lastH = -1, quiet = 0;
+    const stop = () => {
+      clearInterval(timer); clearTimeout(cap);
+      for (const t of ['touchstart', 'wheel']) window.removeEventListener(t, stop, true);
+      if (stopFollow === stop) stopFollow = null;
+    };
+    const tick = () => {
+      const el = document.getElementById(elId);
+      if (!el) return stop();
+      const h = Math.round(el.getBoundingClientRect().height);
+      if (h !== lastH) { lastH = h; quiet = 0; el.scrollIntoView({block: 'nearest'}); }
+      else if (++quiet > 40) stop();
+    };
+    const timer = setInterval(tick, 250), cap = setTimeout(stop, 120000);
+    for (const t of ['touchstart', 'wheel']) window.addEventListener(t, stop, {capture: true, passive: true});
+    stopFollow = stop;
+  }
+
   /* Run the editor's own Tab binding (accepts completions, indents); plain indent if nothing handled it. */
   function pressTab({view, kind}) {
     const ev = new KeyboardEvent('keydown', {key: 'Tab', code: 'Tab', keyCode: 9, bubbles: true, cancelable: true});
@@ -4723,6 +4757,8 @@
       if (!ed) return;
       if (ed.kind === 'code') window.craftC2.run(ed.id, 'run');
       else if (ed.kind === 'prompt' && ed.part !== 'out') window.craftMd.run(ed.id, 'run');
+      else return;
+      followCell(ed.id);
     },
     done: () => {
       const ed = editing();

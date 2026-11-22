@@ -951,6 +951,7 @@ html.craft-mobile #craft-mbar {
 html.craft-mobile #craft-mbar .craft-mbar-row { display: none; height: var(--craft-mbar-h); align-items: stretch; gap: 2px; }
 html.craft-mobile #craft-mbar[data-mode="idle"] .craft-mbar-row[data-row="idle"],
 html.craft-mobile #craft-mbar[data-mode="edit"] .craft-mbar-row[data-row="edit"] { display: flex; }
+html.craft-mobile #craft-mbar .craft-mbar-row[data-row="idle"] { justify-content: center; }
 html.craft-mobile #craft-mbar .craft-mbar-spacer { flex: 1 1 auto; }
 html.craft-mobile #craft-mbar button {
   flex: 1 1 0; min-width: 0; max-width: 96px;
@@ -985,7 +986,12 @@ html.craft-mobile .uk-container > nav.monster-navbar {
 html.craft-mobile.craft-nav-open .uk-container > nav.monster-navbar,
 html.craft-mobile .uk-container > nav.monster-navbar:focus-within { opacity: 1; pointer-events: auto; transform: none; }
 html.craft-mobile.craft-nav-open .uk-container > nav.monster-navbar > * { pointer-events: auto; }
-html.craft-mobile .uk-container > nav.monster-navbar > div.ml-auto { display: flex !important; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-left: auto; }
+/* The title block is already hidden and Solveit's own ☰ duplicates ours: drop both so the controls start on row one. */
+html.craft-mobile .uk-container > nav.monster-navbar > div.min-w-0,
+html.craft-mobile .uk-container > nav.monster-navbar > button { display: none !important; }
+html.craft-mobile .uk-container > nav.monster-navbar > div.ml-auto { display: flex !important; flex-wrap: wrap; align-items: center; gap: 6px 12px; width: 100%; margin: 0 !important; padding: 0 !important; }
+html.craft-mobile .uk-container > nav.monster-navbar > div.ml-auto > div { flex: 1 1 100%; min-width: 0; justify-content: flex-start !important; gap: 6px 8px !important; }
+html.craft-mobile .uk-container > nav.monster-navbar .uk-btn-group { flex-wrap: wrap !important; max-width: 100%; }
 html.craft-mobile .uk-container > nav.monster-navbar :is(.uk-btn, label, button, select) { min-height: 36px; min-width: 36px; font-size: 14px !important; }
 html.craft-mobile .uk-container > nav.monster-navbar svg,
 html.craft-mobile .uk-container > nav.monster-navbar select,
