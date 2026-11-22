@@ -106,6 +106,18 @@ Both editors share CodeMirror 6. The installer does not ship the optional local 
 
 `Mod` means Command on macOS and Control elsewhere. Your browser-local rebindings may differ from these defaults; browser-reserved combinations can take precedence. These are enhancements around Solveit's existing dashboard, not a replacement dashboard application.
 
+## Mobile
+
+On phones and narrow windows (≤820px wide, or any touch-only device) `CRAFT.js` sets `html.craft-mobile`. Every mobile rule and behavior is scoped to that class, so the desktop layout is unchanged.
+
+- **Bottom toolbar.** **Menu** reveals the top nav (tap outside to hide it). **Files** opens the explorer. **Code / Note / Prompt / Raw** insert a cell of that type: below the cell being edited, else below the selected cell, else at the end. An empty dialog gets its first cell. **Chat** shows the bottom composer.
+- **While typing in a cell**, the toolbar switches to **Tab**, **Run** (code) / **Send** (prompt), and **Done** (save and leave the editor). These replace Tab, Ctrl+Enter, and Escape, which Android keyboards lack. The toolbar stays above the soft keyboard.
+- **File explorer** becomes a slide-in drawer with a backdrop. Rows are finger-sized, and each row and the `~/` bar has a **⋯** button with the right-click menu (new dialog/file/folder, upload, copy, paste, delete). Long-press works too. Drag-to-move is off on touch; use Copy and Paste instead. Opening an item closes the drawer, and the drawer does not reopen by itself after navigation.
+- **Readability.** Prose is 14px and code is 12.5px with roomier line heights. Long code lines wrap, wide tables scroll inside their cell, and the page never scrolls sideways. The right-edge type picker is hidden because the toolbar replaces it.
+- A `width=device-width, interactive-widget=resizes-content` viewport is ensured so Android renders at device width and shrinks the page, not just the visual viewport, when the keyboard opens.
+
+To test on a desktop browser, open DevTools device emulation (for example, Pixel 7) and reload. `window.craftMobileBar.disable()` removes the toolbar for the current page.
+
 ## Hotkey manager
 
 Open shortcut settings from Solveit's shortcuts control or press `?` (the default). Overrides are stored per browser. Custom features register through `window.__hotkeyRegister` so they can register before the manager loads.

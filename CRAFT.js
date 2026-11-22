@@ -14,6 +14,46 @@
     }
 })();
 
+/* ── Mobile mode detection ─────────────────────────────────────────────
+   Phones and narrow windows get `html.craft-mobile`. Every mobile-only rule
+   in CRAFT.css and every mobile branch below keys off this one class, so the
+   desktop layout is untouched. The class follows the media query live
+   (rotation, window resize). The viewport meta is ensured so Android renders
+   at device width instead of a zoomed-out 980px desktop page. */
+(() => {
+  window.craftMobile?.disable?.();
+  const mq = matchMedia('(max-width: 820px), (hover: none) and (pointer: coarse)');
+  const root = document.documentElement, listeners = new Set();
+  let meta = document.querySelector('meta[name="viewport"]'), addedMeta = false, prevMeta = meta?.content;
+  const VIEWPORT = 'width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content';
+  if (!meta) { meta = document.createElement('meta'); meta.name = 'viewport'; document.head.append(meta); addedMeta = true; }
+  if (!/width\s*=\s*device-width/.test(meta.content || '')) meta.content = VIEWPORT;
+  else {
+    if (!/viewport-fit/.test(meta.content)) meta.content += ', viewport-fit=cover';
+    // Android: the soft keyboard shrinks the layout, so the caret and the toolbar stay above it.
+    if (!/interactive-widget/.test(meta.content)) meta.content += ', interactive-widget=resizes-content';
+  }
+  const apply = () => {
+    const on = mq.matches;
+    if (root.classList.contains('craft-mobile') === on) return;
+    root.classList.toggle('craft-mobile', on);
+    listeners.forEach(fn => { try { fn(on); } catch (err) { console.error('craftMobile listener', err); } });
+  };
+  mq.addEventListener('change', apply);
+  apply();
+  window.craftMobile = {
+    active: () => root.classList.contains('craft-mobile'),
+    onChange: fn => { listeners.add(fn); return () => listeners.delete(fn); },
+    disable() {
+      mq.removeEventListener('change', apply);
+      root.classList.remove('craft-mobile');
+      if (addedMeta) meta.remove(); else if (prevMeta != null) meta.content = prevMeta;
+      listeners.clear();
+      delete window.craftMobile;
+    },
+  };
+})();
+
 
 /* ── Lightweight file tree ─────────────────────────────────────────── */
 (() => {
@@ -298,7 +338,9 @@
     content.classList.add('solveit-tree-' + node.kind);
     content.tabIndex = 0;
     content.setAttribute('role', 'treeitem');
-    if (node.kind !== 'loading') content.draggable = true;
+    // Touch: no drag (long-press would start a drag instead of the context menu); rows get a ⋯ menu button below.
+    const touch = window.craftMobile?.active();
+    if (node.kind !== 'loading' && !touch) content.draggable = true;
     if (node.kind === 'directory') content.setAttribute('aria-expanded', String(expandedPaths.has(node.path)));
     if ((dlgPath && node.path === dlgPath) || (!dlgPath && dir !== '.' && node.path === dir)) {
       content.classList.add('solveit-tree-current');
@@ -323,6 +365,13 @@
       up.title = `Upload into ${node.name}`; up.setAttribute('aria-label', `Upload into ${node.name}`);
       up.innerHTML = UPLOAD_SVG;
       content.append(up);
+    }
+    if (touch && node.kind !== 'loading') {
+      const more = document.createElement('button');
+      more.type = 'button'; more.className = 'solveit-tree-row-more'; more.tabIndex = -1;
+      more.title = `Actions for ${node.name}`; more.setAttribute('aria-label', more.title);
+      more.textContent = '⋯';
+      content.append(more);
     }
   }
 
@@ -410,6 +459,8 @@
 
   function openNode(node) {
     if (!node.href) return;
+    // On a phone the drawer covers the content: get it out of the way (and don't restore it after navigation).
+    if (window.craftMobile?.active() && panel?.classList.contains('open')) closePanel();
     if (node.kind === 'dialog') { location.href = node.href; return; }
     const url = new URL(node.href, location.href); url.pathname = '/file_editor_';
     let overlay = document.querySelector('#solveit-temp-editor');
@@ -432,6 +483,13 @@
     const li = e.target.closest('li[data-node-data]');
     if (!li) return;
     const node = JSON.parse(li.dataset.nodeData), expander = e.target.closest('.treeview-expander');
+    const moreBtn = e.target.closest('.solveit-tree-row-more');
+    if (moreBtn) {
+      e.preventDefault(); e.stopPropagation();
+      const content = moreBtn.closest('.treeview-node-content');
+      showMenu({target: content, currentTarget: moreBtn, clientX: 0, clientY: 0, preventDefault() {}, stopPropagation() {}});
+      return;
+    }
     const upBtn = e.target.closest('.solveit-tree-row-upload');
     if (upBtn && node.kind === 'directory') {
       e.preventDefault(); e.stopPropagation();
@@ -1110,7 +1168,7 @@
       '</header>' +
       '<input class="solveit-tree-filter" type="search" placeholder="Filter loaded files…" autocomplete="off">' +
       '<div class="solveit-tree-status" role="status"></div>' +
-      '<div class="solveit-tree-rootbar" title="Right-click to create/paste/upload in root; drop here to move or upload to root"><span class="solveit-tree-rootbar-path">~/</span><span class="solveit-tree-rootbar-hint">root · drop / right-click</span><button class="solveit-tree-row-upload" type="button" aria-label="Upload into root" title="Upload into root">' + UPLOAD_SVG + '</button></div>' +
+      '<div class="solveit-tree-rootbar" title="Right-click to create/paste/upload in root; drop here to move or upload to root"><span class="solveit-tree-rootbar-path">~/</span><span class="solveit-tree-rootbar-hint">root · drop / right-click</span><button class="solveit-tree-row-upload" type="button" aria-label="Upload into root" title="Upload into root">' + UPLOAD_SVG + '</button><button class="solveit-tree-row-more" type="button" aria-label="Actions for root" title="New dialog, file, folder…">⋯</button></div>' +
       '<div id="solveit-file-tree" role="tree"></div>';
 
     dlgNameNode = document.querySelector('nav.monster-navbar h2#dlg-name');
@@ -1142,6 +1200,11 @@
     rootbar.querySelector('.solveit-tree-row-upload').onclick = e => {
       e.stopPropagation();
       openUploadPop('.', e.currentTarget);
+    };
+    rootbar.querySelector('.solveit-tree-row-more').onclick = e => {
+      e.stopPropagation();
+      const b = e.currentTarget;
+      showMenu({target: b, currentTarget: b, clientX: 0, clientY: 0, preventDefault() {}, stopPropagation() {}}, '.');
     };
     treeEl.addEventListener('focusin', e => {
       const li = e.target.closest?.('li[data-node-data]');
@@ -1277,8 +1340,11 @@
     panel = null; tree = null;
   }
 
+  const offMobile = window.craftMobile?.onChange(() => { if (tree) renderTree(); });
   window.solveitFileTree = {
-    toggle, open: openNode, disable,
+    toggle, open: openNode, close: closePanel,
+    isOpen: () => !!panel?.classList.contains('open'),
+    disable() { offMobile?.(); disable(); },
     async entries() {  // every loaded dialog/file, for the launcher
       if (!rowsByPath.has('.')) { rowsByPath.set('.', await getRows('.')); fetchedAtByPath.set('.', Date.now()); saveCache(); }
       return [...rowsByPath.entries()]
@@ -1288,6 +1354,7 @@
     },
   };
   function restoreOpen() {
+    if (window.craftMobile?.active()) return;  // a drawer popping open over the page on load is just in the way on a phone
     try { if (sessionStorage.getItem(OPEN_KEY) === '1' && !panel?.classList.contains('open')) toggle(false); } catch {}
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', restoreOpen, {once: true});
@@ -1362,6 +1429,8 @@
   }
 
   document.addEventListener('mousemove', e => {
+    // Phones: taps emit compat mousemoves, which would flash the bar at random. The mobile toolbar's ☰ drives it instead.
+    if (window.craftMobile?.active()) return;
     last = { y: e.clientY, target: e.target };
     sync();
   }, { passive: true });
@@ -3713,6 +3782,10 @@
     add: id => { ids.add(String(id).replace(/^_/, '')); saveIds(); schedule(); },
     remove: id => { const k = String(id).replace(/^_/, ''); if (autoEditGuard?.id === k) autoEditGuard = null; ids.delete(k); unmountCell(k); saveIds(); schedule(); },
     edit: (id, opts) => openCell(String(id).replace(/^_/, ''), opts),
+    active: () => activeId,
+    view: id => views.get(String(id ?? activeId).replace(/^_/, ''))?.view || null,
+    exit: id => exitCell(String(id ?? activeId).replace(/^_/, '')),
+    run: (id, cmd = 'run') => saveAndRun(String(id ?? activeId).replace(/^_/, ''), cmd),
     newCodeCell,
     expectCodeInsertion: () => queueAutoEdit({tagC2: !allMode, forceCode: true}),
     guardNonCodeInsertion(existing) {
@@ -4344,12 +4417,14 @@
     if (cells.length !== 1) return true;
     return execute(async () => { await setType(cells[0].id, name.toLowerCase()); choose(name); });
   };
-  const insert = where => {
-    if (blocked()) return false;
-    const primary = activeCells().find(el => el.dataset.sm === 'primary');
+  // opts.type ('Code'|'Note'|'Prompt'|'Raw') overrides the picker; opts.cell targets a cell other than the
+  // selection; opts.force skips the focus guard (the mobile toolbar has already closed any editor).
+  const insert = (where, opts = {}) => {
+    if (!opts.force && blocked()) return false;
+    const primary = opts.cell || activeCells().find(el => el.dataset.sm === 'primary');
     const button = primary?.querySelector(`[hx-post="/add_${where}_"]`);
     if (!button) return true;
-    const name = current;
+    const name = Object.hasOwn(types, opts.type || '') ? opts.type : current;
     return execute(async () => {
       const type = name.toLowerCase(), old = new Set([...scroller.querySelectorAll('.editable[id]')].map(el => el.id));
       if (!window.craftC2?.guardNonCodeInsertion) throw new Error('Reload this dialog to enable typed insertion.');
@@ -4416,7 +4491,11 @@
   const observer = new MutationObserver(sync);
   observer.observe(document.body, {childList:true, subtree:true});
   window.addEventListener('resize', position);
-  window.craftInsertPreview = {disable() {
+  window.craftInsertPreview = {
+    insert: (where, opts) => insert(where, opts),
+    type: () => current,
+    isBusy: () => busy,
+    disable() {
     observer.disconnect(); resize.disconnect(); window.removeEventListener('resize', position);
     builtins?.removeEventListener('load', registerBindings);
     defs.forEach(spec => window.__hotkeyRegister?.({...spec, builtin:true, handler:() => true}));
@@ -4497,4 +4576,239 @@
     window.removeEventListener('drop', drop, true);
     delete window.craftImageDrop;
   }};
+})();
+
+/* ── Mobile toolbar ────────────────────────────────────────────────────
+   Only rendered under `html.craft-mobile` (see "Mobile mode detection").
+   Phones have no hover, no Escape, no Shift+Enter and no Tab, so this bar
+   stands in for them:
+     idle:    ☰ top nav · Files · +Code · +Note · +Prompt · +Raw · composer
+     editing: Tab · Run (code) / Send (prompt) · Done
+   New cells go below the cell being edited, else below the selected cell,
+   else at the bottom; an empty dialog gets its first cell. Buttons keep the
+   editor focused (mousedown is cancelled), so Run/Done/Tab act on the cell
+   the user is typing in instead of on a blurred, already-saved one. The bar
+   follows the Android soft keyboard via visualViewport. */
+(() => {
+  window.craftMobileBar?.disable();
+  const root = document.documentElement;
+  const P = {
+    menu: 'M4 6h16M4 12h16M4 18h16',
+    files: 'M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z',
+    Code: 'M8 6l-6 6 6 6m8-12 6 6-6 6M14 4l-4 16',
+    Note: 'M5 3h10l4 4v14H5z M15 3v5h4M8 12h8m-8 4h8',
+    Prompt: 'M3 4h18v12H9l-6 4z M7 10h.01m5 0h.01m5 0h.01',
+    Raw: 'M3 5h18v14H3z M7 9v6',
+    composer: 'M3 7h18v10H3z M6 10h.01M9 10h.01M12 10h.01M15 10h.01M18 10h.01M7 14h10',
+    tab: 'M3 12h13m-4-4 4 4-4 4M20 6v12',
+    run: 'M7 5v14l11-7z',
+    done: 'M5 12.5l4.5 4.5L19 7.5',
+  };
+  const svg = d => `<svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="${d}"/></svg>`;
+  const btn = (act, icon, label, extra = '') => `<button type="button" data-act="${act}" ${extra} aria-label="${label}">${svg(icon)}<span>${label}</span></button>`;
+  const bar = document.createElement('nav');
+  bar.id = 'craft-mbar'; bar.setAttribute('aria-label', 'Mobile toolbar'); bar.dataset.mode = 'idle';
+  bar.innerHTML =
+    '<div class="craft-mbar-row" data-row="idle">' +
+      btn('nav', P.menu, 'Menu') + btn('files', P.files, 'Files') +
+      ['Code', 'Note', 'Prompt', 'Raw'].map(t => btn('add', P[t], t, `data-type="${t}" data-needs-dialog`)).join('') +
+      btn('composer', P.composer, 'Chat', 'data-needs-dialog') +
+    '</div>' +
+    '<div class="craft-mbar-row" data-row="edit">' +
+      btn('tab', P.tab, 'Tab') + '<span class="craft-mbar-spacer"></span>' +
+      btn('run', P.run, 'Run') + btn('done', P.done, 'Done') +
+    '</div>';
+  const backdrop = document.createElement('div');
+  backdrop.id = 'craft-mobile-backdrop';
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const notify = message => window.UIkit?.notification?.({message, status: 'warning'});
+  const dialog = () => document.getElementById('dialog-container');
+  const navEl = () => document.querySelector('.uk-container > nav.monster-navbar');
+
+  /* Which inline editor (if any) owns the keyboard right now. */
+  const editing = () => {
+    const c2 = window.craftC2?.active?.();
+    if (c2 && window.craftC2.view(c2)?.hasFocus) return {kind: 'code', id: c2, view: window.craftC2.view(c2)};
+    const key = window.craftMd?.active?.(), v = key && window.craftMd.view(key);
+    if (v?.hasFocus) {
+      const [id, part] = key.split(':');
+      return {kind: window.craftMd.kind(key), id, part, key, view: v};
+    }
+    return null;
+  };
+  const syncMode = () => {
+    const ed = editing();
+    bar.dataset.mode = ed ? 'edit' : 'idle';
+    const run = bar.querySelector('[data-act="run"]');
+    const runnable = ed && (ed.kind === 'code' || (ed.kind === 'prompt' && ed.part !== 'out'));
+    run.hidden = !runnable;
+    if (runnable) {
+      const label = ed.kind === 'prompt' ? 'Send' : 'Run';
+      run.querySelector('span').textContent = label; run.setAttribute('aria-label', label);
+    }
+    const hasDialog = !!dialog();
+    bar.querySelectorAll('[data-needs-dialog]').forEach(b => { b.hidden = !hasDialog; });
+  };
+  let modeTimer = null;
+  const scheduleMode = () => { clearTimeout(modeTimer); modeTimer = setTimeout(syncMode, 60); };
+
+  async function closeEditors() {
+    if (window.craftC2?.active?.()) await window.craftC2.exit();
+    if (window.craftMd?.active?.()) await window.craftMd.exit();
+  }
+
+  async function createFirst(type) {
+    if (type === 'Code') return window.craftC2?.newCodeCell?.();
+    const kid = document.getElementById('kid')?.value;
+    if (!kid || !window.htmx) return notify('Reload the dialog and try again.');
+    const before = new Set([...dialog().querySelectorAll('.editable[id]')].map(el => el.id));
+    await window.htmx.ajax('POST', '/upsert_msg_', {source: '#kid', swap: 'none', values: {kid, id_: '', msg_type: type.toLowerCase(), is_input: '1', content: ''}});
+    for (let i = 0; i < 100; i++) {
+      const el = [...dialog().querySelectorAll('.editable[id]')].find(x => !before.has(x.id));
+      if (el) { el.scrollIntoView({block: 'nearest'}); window.craftMd?.edit?.(el.id.slice(1), {toEnd: true}); return; }
+      await sleep(50);
+    }
+  }
+
+  let adding = false;
+  async function addCell(type) {
+    const container = dialog();
+    if (!container || adding || window.craftInsertPreview?.isBusy?.()) return;
+    adding = true;
+    try {
+      const editingCell = document.activeElement?.closest?.('#dialog-container > .editable');
+      await closeEditors();
+      document.activeElement?.blur?.();
+      const cells = [...container.querySelectorAll(':scope > .editable[id]')].filter(el => el.getClientRects().length);
+      const target = (editingCell?.isConnected && editingCell) || cells.find(el => el.dataset.sm === 'primary') || cells[cells.length - 1];
+      if (!target) { await createFirst(type); return; }
+      if (!window.craftInsertPreview?.insert) return notify('Reload this dialog to enable inserting cells.');
+      await sleep(0);
+      window.craftInsertPreview.insert('below', {type, cell: target, force: true});
+    } catch (err) {
+      console.error('craftMobileBar: add cell failed', err);
+      notify('Could not add the cell.');
+    } finally { adding = false; }
+  }
+
+  /* Run the editor's own Tab binding (accepts completions, indents); plain indent if nothing handled it. */
+  function pressTab({view, kind}) {
+    const ev = new KeyboardEvent('keydown', {key: 'Tab', code: 'Tab', keyCode: 9, bubbles: true, cancelable: true});
+    view.contentDOM.dispatchEvent(ev);
+    if (!ev.defaultPrevented) view.dispatch(view.state.replaceSelection(kind === 'code' ? '    ' : '  '));
+    view.focus();
+  }
+
+  const toggleNav = force => {
+    const open = root.classList.toggle('craft-nav-open', force);
+    bar.querySelector('[data-act="nav"]').setAttribute('aria-pressed', String(open));
+  };
+
+  const actions = {
+    nav: () => toggleNav(),
+    files: () => { toggleNav(false); window.solveitFileTree?.toggle(false); },
+    add: b => { toggleNav(false); window.solveitFileTree?.isOpen?.() && window.solveitFileTree.close(); addCell(b.dataset.type); },
+    composer: async () => {
+      toggleNav(false);
+      await closeEditors();
+      if (!window.craftIdleComposer?.show?.()) {
+        const fe = document.getElementById('full_editor');
+        fe?.scrollIntoView({block: 'end'});
+        fe?.querySelector('textarea, [contenteditable="true"]')?.focus();
+      }
+    },
+    tab: () => { const ed = editing(); if (ed) pressTab(ed); },
+    run: () => {
+      const ed = editing();
+      if (!ed) return;
+      if (ed.kind === 'code') window.craftC2.run(ed.id, 'run');
+      else if (ed.kind === 'prompt' && ed.part !== 'out') window.craftMd.run(ed.id, 'run');
+    },
+    done: () => {
+      const ed = editing();
+      if (!ed) return;
+      if (ed.kind === 'code') window.craftC2.exit(ed.id); else window.craftMd.exit(ed.key);
+    },
+  };
+  const onBarMouseDown = e => { if (e.target.closest('button')) e.preventDefault(); };  // keep the editor (and soft keyboard) focused
+  const onBarClick = e => {
+    const b = e.target.closest('button[data-act]');
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation();
+    Promise.resolve(actions[b.dataset.act]?.(b)).catch(err => console.error('craftMobileBar', err)).finally(scheduleMode);
+  };
+  bar.addEventListener('mousedown', onBarMouseDown);
+  bar.addEventListener('click', onBarClick);
+  backdrop.addEventListener('click', () => window.solveitFileTree?.close?.());
+
+  /* Tapping outside the revealed top nav (and outside its dropdowns) hides it again. */
+  const onDocPointerDown = e => {
+    if (!root.classList.contains('craft-nav-open')) return;
+    const t = e.target;
+    if (bar.contains(t) || navEl()?.contains(t) || t.closest?.('.uk-drop, .uk-dropdown, .uk-modal, [role="dialog"]')) return;
+    toggleNav(false);
+  };
+  document.addEventListener('pointerdown', onDocPointerDown, true);
+
+  /* Opening a plain file from the drawer: the editor overlay takes over the screen. */
+  const onTempEditor = new MutationObserver(() => {
+    if (window.craftMobile?.active() && document.querySelector('#solveit-temp-editor.open') && window.solveitFileTree?.isOpen?.()) window.solveitFileTree.close();
+  });
+
+  /* Soft keyboard: lift the bar above it when the browser only shrinks the visual viewport. */
+  /* Only while something editable has focus (the keyboard can't be up otherwise), so a zoomed or oddly sized
+     layout viewport never strands the bar mid-screen. With interactive-widget=resizes-content this stays 0. */
+  const vv = window.visualViewport;
+  const place = () => {
+    if (!vv) return;
+    const a = document.activeElement;
+    const typing = a && a !== document.body && (a.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName));
+    const kb = typing ? Math.max(0, Math.round(innerHeight - vv.height - vv.offsetTop)) : 0;
+    root.style.setProperty('--craft-kb', (kb > 120 ? kb : 0) + 'px');
+  };
+  vv?.addEventListener('resize', place);
+  vv?.addEventListener('scroll', place);
+  window.addEventListener('resize', place);
+  document.addEventListener('focusin', place, true);
+  document.addEventListener('focusout', place, true);
+
+  document.addEventListener('focusin', scheduleMode, true);
+  document.addEventListener('focusout', scheduleMode, true);
+  const settleEvent = ['htmx', 'after', 'settle'].join(window.htmx?.config?.metaCharacter || ':');
+  document.addEventListener(settleEvent, scheduleMode);
+
+  let mounted = false;
+  const mount = on => {
+    if (on && !mounted) {
+      document.body.append(backdrop, bar);
+      onTempEditor.observe(document.body, {childList: true, subtree: true, attributes: true, attributeFilter: ['class']});
+      mounted = true; syncMode(); place();
+    } else if (!on && mounted) {
+      bar.remove(); backdrop.remove(); onTempEditor.disconnect(); toggleNav(false);
+      mounted = false;
+    }
+  };
+  const start = () => mount(!!window.craftMobile?.active());
+  const offChange = window.craftMobile?.onChange(mount);
+  if (document.body) start(); else document.addEventListener('DOMContentLoaded', start, {once: true});
+
+  window.craftMobileBar = {
+    addCell,
+    disable() {
+      offChange?.(); mount(false); clearTimeout(modeTimer);
+      bar.removeEventListener('mousedown', onBarMouseDown);
+      bar.removeEventListener('click', onBarClick);
+      document.removeEventListener('pointerdown', onDocPointerDown, true);
+      document.removeEventListener('focusin', scheduleMode, true);
+      document.removeEventListener('focusout', scheduleMode, true);
+      document.removeEventListener(settleEvent, scheduleMode);
+      vv?.removeEventListener('resize', place);
+      vv?.removeEventListener('scroll', place);
+      window.removeEventListener('resize', place);
+      document.removeEventListener('focusin', place, true);
+      document.removeEventListener('focusout', place, true);
+      root.style.removeProperty('--craft-kb');
+      delete window.craftMobileBar;
+    },
+  };
 })();

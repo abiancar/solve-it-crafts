@@ -1483,6 +1483,9 @@
     exit: (id, part) => exitCell(id ? (String(id).includes(':') ? String(id) : makeKey(id, part || 'in')) : activeKey),
     openInMonaco,
     active: () => activeKey,
+    view: key => views.get(key ?? activeKey)?.view || null,
+    kind: key => views.get(key ?? activeKey)?.kind || null,
+    run: (id, cmd = 'run') => saveAndRun(String(id).replace(/^_/, ''), cmd),
     dirty: () => [...dirtyIds],
     source: () => cmCache?._source || 'pending',
     disable() {

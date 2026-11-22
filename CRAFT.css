@@ -869,3 +869,192 @@ html:not(.dark) .craft-md-codeblock-line { background: #f6f8fa !important; }
 html:not(.dark) .craft-md-quote-line { border-left-color: #0969da66 !important; color: #57606a; }
 html:not(.dark) .craft-md-hr { background: #d0d7de; }
 html:not(.dark) .editable > .msg-card[data-md-save="error"] { box-shadow: inset 2px 0 0 #9a6700 !important; }
+
+/* ══ Mobile ══════════════════════════════════════════════════════════════
+   Everything below is scoped to `html.craft-mobile`, which CRAFT.js sets for
+   viewports ≤820px and touch-only devices. Desktop never matches these rules.
+   Pieces: readable type scale, a bottom toolbar (#craft-mbar) replacing the
+   keyboard-only actions, the file tree as a slide-in drawer, a tap-to-open
+   top nav, and touch-sized targets in menus, launcher and overlays.
+   ──────────────────────────────────────────────────────────────────────── */
+#craft-mbar, #craft-mobile-backdrop, .solveit-tree-row-more { display: none; }
+
+html.craft-mobile {
+  --craft-prose: 14px;
+  --craft-prose-lh: 1.45;
+  --craft-code: 12.5px;
+  --craft-mbar-h: 54px;
+  --craft-mbar-space: calc(var(--craft-mbar-h) + env(safe-area-inset-bottom, 0px));
+  -webkit-text-size-adjust: 100%;
+}
+/* Nothing may widen the layout viewport (Android would zoom the whole page out to fit it). */
+html.craft-mobile, html.craft-mobile body { overflow-x: clip; max-width: 100%; }
+html.craft-mobile .h-screen { height: 100dvh !important; }
+/* The app column ends above the toolbar, so the composer and last cell are never covered. */
+html.craft-mobile .uk-container { padding-bottom: var(--craft-mbar-space) !important; box-sizing: border-box; }
+
+/* ── Type & spacing ── */
+html.craft-mobile .msg-content pre, html.craft-mobile .msg-content code { line-height: 1.4 !important; }
+html.craft-mobile .msg-body { padding: 4px 8px !important; }
+html.craft-mobile .card-out .msg-body { padding-left: 12px !important; }
+html.craft-mobile #dialog-container { padding-top: 12px !important; }
+html.craft-mobile .editable:not(.craft-chain-next) { margin-bottom: 18px !important; }
+html.craft-mobile .msg-card[data-mtype="prompt"] > .uk-card-header nav > div.grow > p::before,
+html.craft-mobile .msg-card[data-mtype="prompt"] > .uk-card-header [data-tokens]::after { font-size: 12px; }
+/* Wide content scrolls inside its cell instead of widening the page. */
+html.craft-mobile #dialog-container .editable > .msg-card:not(.collapsed) .msg-content table { display: block; max-width: 100%; overflow-x: auto !important; }
+html.craft-mobile #dialog-container .msg-content :is(img, video, canvas, svg:not([width])) { max-width: 100%; height: auto; }
+html.craft-mobile #dialog-container .msg-content :is(iframe, .jp-OutputArea, .output_html) { max-width: 100%; }
+html.craft-mobile #dialog-container .editable { min-width: 0; max-width: 100%; }
+
+/* Insert picker on the right edge: replaced by the toolbar, so give the width back. */
+html.craft-mobile #craft-insert-preview { display: none !important; }
+html.craft-mobile #dialog-container.craft-insert-preview { margin-right: 0 !important; }
+
+/* ── Cell controls: finger-sized ── */
+html.craft-mobile .msg-card .craft-action-trigger { opacity: 1; pointer-events: auto; width: 40px; height: 30px; flex-basis: 40px; font-size: 22px; }
+html.craft-mobile .craft-action-menu { width: min(300px, calc(100vw - 16px)); max-height: min(70dvh, 560px); }
+html.craft-mobile .craft-action-menu button { padding: 11px 12px; font-size: 14px; }
+html.craft-mobile .msg-card > .uk-card-header nav > div.grow > p,
+html.craft-mobile .msg-card[data-mtype="prompt"] > .uk-card-header nav > div.grow > p > span { opacity: 1; }
+html.craft-mobile .craft-omit-marker, html.craft-mobile .craft-part-restore { padding: 6px 10px; font-size: 13px; }
+html.craft-mobile .msg-card .uk-card-header :is(button, .uk-btn, a) { min-height: 28px; }
+
+/* ── Inline editors (C2 code, notes, prompts, raw) ── */
+html.craft-mobile .craft-c2-host .cm-editor,
+html.craft-mobile .craft-c2-host .cm-scroller,
+html.craft-mobile .craft-c2-host .cm-line,
+html.craft-mobile .craft-c2-host .cm-lineNumbers .cm-gutterElement,
+html.craft-mobile .craft-md-host.craft-md-mono .cm-editor,
+html.craft-mobile .craft-md-host.craft-md-mono .cm-line { line-height: 1.4 !important; }
+/* Soft-wrap long lines (CM6 reads white-space from the DOM, so this is a real wrap, not a clip). */
+html.craft-mobile :is(.craft-c2-host, .craft-md-host) .cm-content { white-space: pre-wrap !important; overflow-wrap: anywhere; word-break: normal; flex-shrink: 1 !important; min-width: 0; }
+html.craft-mobile .craft-c2-host .cm-content, html.craft-mobile .craft-md-host.craft-md-mono .cm-content { padding-block: 6px !important; }
+html.craft-mobile :is(.craft-c2-host, .craft-c2-tooltips) .cm-tooltip { font-size: 13px; }
+html.craft-mobile :is(.craft-c2-host, .craft-c2-tooltips) .cm-tooltip-autocomplete > ul > li { padding: 6px 10px; }
+html.craft-mobile :is(.craft-c2-host, .craft-c2-tooltips) .cm-completionDetail { max-width: 40vw; }
+html.craft-mobile :is(.craft-c2-host, .craft-md-host) .cm-search :is(input, button) { font-size: 14px; padding: 6px 8px; }
+html.craft-mobile .craft-c2-ai-input { font-size: 16px; padding: 8px; }
+
+/* ── Bottom toolbar ── */
+html.craft-mobile #craft-mbar {
+  display: block;
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 990;
+  height: var(--craft-mbar-space);
+  padding: 0 4px env(safe-area-inset-bottom, 0px);
+  box-sizing: border-box;
+  background: #16161e; border-top: 1px solid #ffffff14;
+  transform: translateY(calc(-1 * var(--craft-kb, 0px)));
+  user-select: none; -webkit-user-select: none;
+  touch-action: manipulation;
+}
+html.craft-mobile #craft-mbar .craft-mbar-row { display: none; height: var(--craft-mbar-h); align-items: stretch; gap: 2px; }
+html.craft-mobile #craft-mbar[data-mode="idle"] .craft-mbar-row[data-row="idle"],
+html.craft-mobile #craft-mbar[data-mode="edit"] .craft-mbar-row[data-row="edit"] { display: flex; }
+html.craft-mobile #craft-mbar .craft-mbar-spacer { flex: 1 1 auto; }
+html.craft-mobile #craft-mbar button {
+  flex: 1 1 0; min-width: 0; max-width: 96px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  margin: 4px 0; padding: 0; border: 0; border-radius: 8px;
+  background: transparent; color: #a9b1d6;
+  font: 500 10.5px/1 var(--craft-prose-family); font-stretch: 100%; letter-spacing: .01em;
+  -webkit-tap-highlight-color: transparent; cursor: pointer;
+}
+html.craft-mobile #craft-mbar button[hidden] { display: none; }
+html.craft-mobile #craft-mbar button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+html.craft-mobile #craft-mbar button:active { background: #2b2e43; color: #ffffff; }
+html.craft-mobile #craft-mbar button[data-act="add"] { color: #cfc9c2; }
+html.craft-mobile #craft-mbar button[data-act="add"] svg { color: #7aa2f7; }
+html.craft-mobile #craft-mbar button[aria-pressed="true"],
+html.craft-mobile body:has(#solveit-file-tree-panel.open) #craft-mbar button[data-act="files"] { color: #7aa2f7; background: #7aa2f71c; }
+html.craft-mobile #craft-mbar .craft-mbar-row[data-row="edit"] button { flex: 0 0 76px; }
+html.craft-mobile #craft-mbar button[data-act="run"] { background: #7aa2f726; color: #7aa2f7; }
+html.craft-mobile #craft-mbar button[data-act="done"] { color: #9ece6a; }
+
+/* ── Top nav: hidden until ☰, then a solid, wrapping bar ── */
+html.craft-mobile .uk-container > nav.monster-navbar {
+  position: fixed !important; top: 0; left: 0; right: 0; z-index: 960;
+  height: auto !important; min-height: 48px !important;
+  display: flex !important; flex-wrap: wrap !important; align-items: center; gap: 6px 14px;
+  padding: calc(6px + env(safe-area-inset-top, 0px)) 12px 6px !important;
+  background: #16161e !important; border-bottom: 1px solid #ffffff14 !important;
+  box-shadow: 0 8px 24px #0009;
+  opacity: 0; pointer-events: none; transform: translateY(-100%);
+  transition: opacity .16s ease, transform .16s ease;
+}
+html.craft-mobile.craft-nav-open .uk-container > nav.monster-navbar,
+html.craft-mobile .uk-container > nav.monster-navbar:focus-within { opacity: 1; pointer-events: auto; transform: none; }
+html.craft-mobile.craft-nav-open .uk-container > nav.monster-navbar > * { pointer-events: auto; }
+html.craft-mobile .uk-container > nav.monster-navbar > div.ml-auto { display: flex !important; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-left: auto; }
+html.craft-mobile .uk-container > nav.monster-navbar :is(.uk-btn, label, button, select) { min-height: 36px; min-width: 36px; font-size: 14px !important; }
+html.craft-mobile .uk-container > nav.monster-navbar svg,
+html.craft-mobile .uk-container > nav.monster-navbar select,
+html.craft-mobile .uk-container > nav.monster-navbar h2 { filter: none; }
+
+/* ── File tree as a drawer ── */
+html.craft-mobile #solveit-file-tree-panel {
+  position: fixed !important; top: 0; left: 0; bottom: var(--craft-mbar-space);
+  z-index: 980;
+  flex: none !important; height: auto !important;
+  width: min(86vw, 380px) !important; min-width: 0 !important; max-width: none !important;
+  padding: calc(12px + env(safe-area-inset-top, 0px)) 10px 12px 10px !important;
+  resize: none; overflow-y: auto; overscroll-behavior: contain;
+  transform: translateX(-105%); transition: transform .2s ease, visibility .2s;
+  box-shadow: none;
+}
+html.craft-mobile #solveit-file-tree-panel.open { transform: none; box-shadow: 8px 0 32px #000a; }
+html.craft-mobile body:has(#solveit-file-tree-panel.open) #craft-mobile-backdrop {
+  display: block; position: fixed; inset: 0 0 var(--craft-mbar-space) 0; z-index: 970; background: #0009;
+}
+html.craft-mobile #solveit-file-tree-panel > header { flex-wrap: wrap; gap: 2px; }
+html.craft-mobile #solveit-file-tree-panel > header strong { font-size: 15px; margin-right: auto; }
+html.craft-mobile #solveit-file-tree-panel > header button { min-width: 40px; min-height: 40px; margin-left: 0; font-size: 1.35rem; border-radius: 6px; }
+html.craft-mobile #solveit-file-tree-panel > header button:active { background: #2b2e43; }
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-shortcut,
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-rootbar-hint { display: none; }
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-appname { font-size: 15px; }
+html.craft-mobile #solveit-file-tree-panel h2#dlg-name { font-size: 14px !important; }
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-filter { font-size: 16px; padding: 10px 12px; }
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-status { font-size: 13px; }
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-rootbar { min-height: 40px; padding: 4px 4px 4px 10px; font-size: 14px; }
+html.craft-mobile #solveit-file-tree-panel .custom-treeview-wrapper li { margin: 0; font-size: 15px; }
+html.craft-mobile #solveit-file-tree-panel .custom-treeview-wrapper ul ul { padding-left: 16px; }
+html.craft-mobile #solveit-file-tree-panel .custom-treeview-wrapper .treeview-node-content {
+  min-height: 42px; padding: 2px 2px 2px 6px; box-sizing: border-box;
+  -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent;
+}
+html.craft-mobile #solveit-file-tree-panel .custom-treeview-wrapper .treeview-node-content:hover { background: transparent; }
+html.craft-mobile #solveit-file-tree-panel .custom-treeview-wrapper .treeview-node-content:active { background: #222434; }
+html.craft-mobile #solveit-file-tree-panel img.solveit-tree-icon { width: 20px !important; height: 20px !important; max-width: 20px !important; max-height: 20px !important; flex-basis: 20px; margin-right: 10px; }
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-row-upload { width: 36px; height: 36px; opacity: 1; pointer-events: auto; }
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-row-more {
+  display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center;
+  width: 40px; height: 36px; margin-left: 2px; padding: 0; border: 0; border-radius: 6px;
+  background: transparent; color: #cfc9c2aa; font-size: 20px; line-height: 1; cursor: pointer;
+}
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-rootbar .solveit-tree-row-upload { margin-left: auto; }
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-row-more:active,
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-row-upload:active { background: #30364d; color: #7aa2f7; }
+html.craft-mobile #solveit-file-tree { padding-bottom: 24px; }
+html.craft-mobile #solveit-file-tree .solveit-tree-create input { font-size: 16px; padding: 8px 10px; }
+html.craft-mobile #solveit-tree-create-error:not(:empty) { font-size: 13px; }
+html.craft-mobile .solveit-tree-menu { min-width: 210px; max-width: calc(100vw - 16px); padding: 6px; }
+html.craft-mobile .solveit-tree-menu button { padding: 11px 14px; font-size: 14px; }
+html.craft-mobile .solveit-tree-upload-pop { width: min(320px, calc(100vw - 24px)); padding: 12px; font-size: 14px; }
+html.craft-mobile .solveit-tree-upload-dest { font-size: 13px; }
+html.craft-mobile .solveit-tree-upload-x { font-size: 22px; padding: 4px 8px; }
+html.craft-mobile .solveit-tree-upload-drop { padding: 16px 10px; font-size: 13px; }
+html.craft-mobile .solveit-tree-upload-actions button { padding: 11px 8px; font-size: 14px; }
+
+/* ── Overlays: file editor, launcher, shortcuts ── */
+html.craft-mobile #solveit-temp-editor { padding-top: env(safe-area-inset-top, 0px); }
+html.craft-mobile #solveit-temp-editor .solveit-temp-editor-bar { flex-basis: 48px; }
+html.craft-mobile #solveit-temp-editor .solveit-temp-editor-bar strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+html.craft-mobile #solveit-temp-editor .solveit-temp-editor-bar button { min-width: 44px; min-height: 44px; font-size: 1.8rem; }
+html.craft-mobile #solveit-launcher { padding-top: calc(10px + env(safe-area-inset-top, 0px)); }
+html.craft-mobile #solveit-launcher .solveit-launcher-card { width: calc(100vw - 16px); }
+html.craft-mobile #solveit-launcher input { font-size: 16px; padding: 14px; }
+html.craft-mobile #solveit-launcher ul { max-height: 60dvh; }
+html.craft-mobile #solveit-launcher li { padding: 11px 12px; font-size: 14px; }
+html.craft-mobile #solveit-launcher li .hint { display: none; }
+html.craft-mobile .hk-overlay { padding: 8px; }
