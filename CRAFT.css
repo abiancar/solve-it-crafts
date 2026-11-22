@@ -1022,7 +1022,7 @@ html.craft-mobile #solveit-file-tree-panel .solveit-tree-appname { font-size: 15
 html.craft-mobile #solveit-file-tree-panel h2#dlg-name { font-size: 14px !important; }
 html.craft-mobile #solveit-file-tree-panel .solveit-tree-filter { font-size: 16px; padding: 10px 12px; }
 html.craft-mobile #solveit-file-tree-panel .solveit-tree-status { font-size: 13px; }
-html.craft-mobile #solveit-file-tree-panel .solveit-tree-rootbar { min-height: 40px; padding: 4px 4px 4px 10px; font-size: 14px; }
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-rootbar { min-height: 40px; padding: 4px 4px 4px 10px; font-size: 14px; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
 html.craft-mobile #solveit-file-tree-panel .custom-treeview-wrapper li { margin: 0; font-size: 15px; }
 html.craft-mobile #solveit-file-tree-panel .custom-treeview-wrapper ul ul { padding-left: 16px; }
 html.craft-mobile #solveit-file-tree-panel .custom-treeview-wrapper .treeview-node-content {

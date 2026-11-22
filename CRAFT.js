@@ -33,6 +33,10 @@
     // Android: the soft keyboard shrinks the layout, so the caret and the toolbar stay above it.
     if (!/interactive-widget/.test(meta.content)) meta.content += ', interactive-widget=resizes-content';
   }
+  // iOS zooms the page whenever a field under 16px gets focus (every editor here). maximum-scale=1 stops that
+  // auto-zoom while iOS still allows pinch-zoom; Android would lose pinch-zoom, so it is iOS-only.
+  const iOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (iOS && !/maximum-scale/.test(meta.content)) meta.content += ', maximum-scale=1';
   const apply = () => {
     const on = mq.matches;
     if (root.classList.contains('craft-mobile') === on) return;
@@ -1228,6 +1232,33 @@
     panel.addEventListener('contextmenu', e => {
       if (e.target === panel || e.target.matches('.solveit-tree-status')) showMenu(e, '.');
     });
+    /* iOS Safari never fires contextmenu for a touch hold, so hold-to-open is done by hand.
+       Android fires both: whichever comes first wins and the other is swallowed. */
+    let lpTimer = null, lpStart = null, lpFiredAt = 0;
+    const lpCancel = () => { clearTimeout(lpTimer); lpTimer = null; };
+    panel.addEventListener('touchstart', e => {
+      lpCancel();
+      if (e.touches.length !== 1) return;
+      const t = e.target, onRoot = rootbar.contains(t);
+      if (t.closest('button, input, .solveit-tree-create') || !(onRoot || t.closest('li[data-node-data]'))) return;
+      const {clientX, clientY} = e.touches[0];
+      lpStart = {x: clientX, y: clientY};
+      lpTimer = setTimeout(() => {
+        lpTimer = null; lpFiredAt = Date.now();
+        navigator.vibrate?.(10);
+        showMenu({target: t, currentTarget: t, clientX, clientY, preventDefault() {}, stopPropagation() {}}, onRoot ? '.' : null);
+      }, 500);
+    }, {passive: true});
+    panel.addEventListener('touchmove', e => {
+      const p = e.touches[0];
+      if (lpTimer && Math.hypot(p.clientX - lpStart.x, p.clientY - lpStart.y) > 10) lpCancel();
+    }, {passive: true});
+    panel.addEventListener('touchend', e => { lpCancel(); if (Date.now() - lpFiredAt < 800) e.preventDefault(); });  // the hold must not also open the row
+    panel.addEventListener('touchcancel', lpCancel, {passive: true});
+    panel.addEventListener('contextmenu', e => {
+      lpCancel();
+      if (Date.now() - lpFiredAt < 1000) { e.preventDefault(); e.stopImmediatePropagation(); }
+    }, true);
     panel.addEventListener('dblclick', e => {
       if (e.target.closest('.solveit-tree-row-upload, .solveit-tree-upload-pop')) return;
       const atRoot = rootbar.contains(e.target);
