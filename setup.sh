@@ -18,7 +18,7 @@ while (($#)); do
     *) echo "Unknown option: $1 (use --help)" >&2; exit 2 ;;
   esac
 done
-target=$(realpath -m "$target")
+target=$(realpath -m "$target" 2>/dev/null || { mkdir -p "$target" && cd "$target" && pwd -P; })
 cd "$repo_dir"
 if [[ "$target" == "$PWD" ]]; then echo "Destination must not be the source checkout." >&2; exit 2; fi
 files=(CRAFT.css CRAFT.js quercus-treeview.css quercus-treeview.js hotkey_manager.js hotkey_builtins.js craft_md.js vscode-icons/*)

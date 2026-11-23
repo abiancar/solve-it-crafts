@@ -1,3 +1,780 @@
+/* %% nbs/craft/01_cm_core.ipynb #1cf3dd3a */
+window.__craftCfg = Object.assign(window.__craftCfg || {}, {"cm_dark_pal": {"kw": "#f97583", "str": "#9ecbff", "re": "#dbedff", "num": "#79b8ff", "fn": "#b392f0", "tag": "#85e89d", "fg": "#e1e4e8", "inv": "#fdaeb7"}, "cm_light_pal": {"kw": "#d73a49", "str": "#032f62", "re": "#032f62", "num": "#005cc5", "fn": "#6f42c1", "tag": "#22863a", "fg": "#24292e", "inv": "#cb2431"}});
+
+/* %% nbs/craft/01_cm_core.ipynb #78a3ef9c */
+(() => {
+  const LOCAL_CM_BASE = '/static/.craft-assets/cm6';
+  const CM_DEPS = 'deps=@codemirror/state@6.5.2,@codemirror/view@6.36.5,@codemirror/language@6.11.0,@lezer/highlight@1.2.5';
+  const CM_URLS = {
+    state: 'https://esm.sh/@codemirror/state@6.5.2',
+    view: 'https://esm.sh/@codemirror/view@6.36.5?deps=@codemirror/state@6.5.2',
+    lang: 'https://esm.sh/@codemirror/language@6.11.0?deps=@codemirror/state@6.5.2,@codemirror/view@6.36.5,@lezer/highlight@1.2.5',
+    python: `https://esm.sh/@codemirror/lang-python@6.1.7?${CM_DEPS}`,
+    cmds: `https://esm.sh/@codemirror/commands@6.8.1?${CM_DEPS}`,
+    ac: `https://esm.sh/@codemirror/autocomplete@6.18.6?${CM_DEPS}`,
+    search: 'https://esm.sh/@codemirror/search@6.5.10?deps=@codemirror/state@6.5.2,@codemirror/view@6.36.5',
+    hl: 'https://esm.sh/@lezer/highlight@1.2.5',
+  };
+
+  const LANG_SPECS = {
+    javascript: ['JavaScript', ['js', 'jsx'], 'lang-javascript.js', `https://esm.sh/@codemirror/lang-javascript@6?${CM_DEPS}`, m => m.javascript({jsx: true})],
+    typescript: ['TypeScript', ['ts', 'tsx'], 'lang-javascript.js', `https://esm.sh/@codemirror/lang-javascript@6?${CM_DEPS}`, m => m.javascript({typescript: true, jsx: true})],
+    html: ['HTML', ['htm'], 'lang-html.js', `https://esm.sh/@codemirror/lang-html@6?${CM_DEPS}`, m => m.html()],
+    css: ['CSS', ['scss'], 'lang-css.js', `https://esm.sh/@codemirror/lang-css@6?${CM_DEPS}`, m => m.css()],
+    json: ['JSON', ['jsonc'], 'lang-json.js', `https://esm.sh/@codemirror/lang-json@6?${CM_DEPS}`, m => m.json()],
+    sql: ['SQL', ['sqlite', 'postgres', 'postgresql', 'duckdb'], 'lang-sql.js', `https://esm.sh/@codemirror/lang-sql@6?${CM_DEPS}`, m => m.sql()],
+    markdown: ['Markdown', ['md'], 'lang-markdown.js', `https://esm.sh/@codemirror/lang-markdown@6.3.2?${CM_DEPS}`, m => m.markdown()],
+    xml: ['XML', ['svg'], 'lang-xml.js', `https://esm.sh/@codemirror/lang-xml@6?${CM_DEPS}`, m => m.xml()],
+    yaml: ['YAML', ['yml'], 'lang-yaml.js', `https://esm.sh/@codemirror/lang-yaml@6?${CM_DEPS}`, m => m.yaml()],
+    rust: ['Rust', ['rs'], 'lang-rust.js', `https://esm.sh/@codemirror/lang-rust@6?${CM_DEPS}`, m => m.rust()],
+    cpp: ['C++', ['c', 'cpp', 'c++', 'cxx', 'h'], 'lang-cpp.js', `https://esm.sh/@codemirror/lang-cpp@6?${CM_DEPS}`, m => m.cpp()],
+    shell: ['Shell', ['bash', 'sh', 'zsh', 'shell'], 'mode-shell.js', `https://esm.sh/@codemirror/legacy-modes@6.5.1/mode/shell?${CM_DEPS}`, (m, cm) => new cm.lang.LanguageSupport(cm.lang.StreamLanguage.define(m.shell))],
+  };
+  const LANG_ALIASES = {
+    py: 'python', py3: 'python', python3: 'python',
+    js: 'javascript', jsx: 'javascript', ts: 'typescript', tsx: 'typescript',
+    md: 'markdown', svg: 'xml', yml: 'yaml', rs: 'rust', c: 'cpp', 'c++': 'cpp', cxx: 'cpp',
+    bash: 'shell', sh: 'shell', zsh: 'shell', shell: 'shell', script: 'shell',
+  };
+
+  const isMac = navigator.userAgentData?.platform === 'macOS' || /Mac/.test(navigator.userAgent);
+  const isDark = () => document.documentElement.classList.contains('dark');
+  const normId = id => String(id || '').replace(/^_/, '');
+  const getCellEl = id => document.getElementById('_' + normId(id));
+  const normalizeText = s => String(s ?? '').replace(/\r\n?/g, '\n');
+
+  const notifyErr = (msg, tag = 'craft') => {
+    const d = el('div', {}, String(msg || 'Request failed.'));
+    if (window.UIkit?.notification) window.UIkit.notification(d.innerHTML, {status: 'destructive', pos: 'bottom-right'});
+    else console.error(`${tag}:`, msg);
+  };
+
+  const defineGhStyle = (cm, p, codeOnly = false) => {
+    const t = cm.hl.tags;
+    const rules = [
+      {tag: [t.comment, t.lineComment, t.blockComment, t.docComment], color: '#6a737d'},
+      {tag: [t.keyword, t.controlKeyword, t.operatorKeyword, t.definitionKeyword, t.moduleKeyword, t.operator, t.compareOperator, t.logicOperator, t.arithmeticOperator, t.bitwiseOperator, t.updateOperator], color: p.kw},
+      {tag: [t.string, t.special(t.string), t.docString], color: p.str},
+      {tag: [t.regexp], color: p.re},
+      {tag: [t.self, t.escape, t.number, t.integer, t.float, t.bool, t.null, t.atom, t.constant(t.variableName), t.propertyName, t.attributeName, t.standard(t.variableName), t.special(t.variableName), ...(codeOnly ? [] : [t.link, t.url])], color: p.num},
+      {tag: [t.function(t.variableName), t.function(t.propertyName), t.definition(t.function(t.variableName)), t.className, t.definition(t.className), t.typeName, t.meta, t.annotation], color: p.fn},
+      {tag: [t.tagName], color: p.tag},
+      {tag: [t.invalid], color: p.inv, fontStyle: 'italic'},
+    ];
+    if (!codeOnly) {
+      rules.push(
+        {tag: [t.heading], color: p.num, fontWeight: 'bold'},
+        {tag: [t.strong], fontWeight: 'bold', color: p.fg},
+        {tag: [t.emphasis], fontStyle: 'italic', color: p.fg},
+        {tag: [t.variableName, t.definition(t.variableName), t.punctuation, t.bracket, t.paren, t.squareBracket, t.brace], color: p.fg},
+      );
+    }
+    return cm.lang.HighlightStyle.define(rules);
+  };
+
+  const DARK_PAL = window.__craftCfg?.cm_dark_pal || {kw: '#f97583', str: '#9ecbff', re: '#dbedff', num: '#79b8ff', fn: '#b392f0', tag: '#85e89d', fg: '#e1e4e8', inv: '#fdaeb7'};
+  const LIGHT_PAL = window.__craftCfg?.cm_light_pal || {kw: '#d73a49', str: '#032f62', re: '#032f62', num: '#005cc5', fn: '#6f42c1', tag: '#22863a', fg: '#24292e', inv: '#cb2431'};
+
+  const buildStyles = cm => {
+    if (cm.ghDarkStyle && cm.ghLightStyle && cm.mdCodeDarkStyle && cm.mdCodeLightStyle) return cm;
+    cm.ghDarkStyle = defineGhStyle(cm, DARK_PAL, false);
+    cm.ghLightStyle = defineGhStyle(cm, LIGHT_PAL, false);
+    cm.mdCodeDarkStyle = defineGhStyle(cm, DARK_PAL, true);
+    cm.mdCodeLightStyle = defineGhStyle(cm, LIGHT_PAL, true);
+    cm.darkTheme = cm.view.EditorView.theme({'&': {lineHeight: 'var(--craft-code-lh, 1.2)'}, '.cm-scroller': {lineHeight: 'var(--craft-code-lh, 1.2)'}}, {dark: true});
+    cm.lightTheme = cm.view.EditorView.theme({'&': {lineHeight: 'var(--craft-code-lh, 1.2)'}, '.cm-scroller': {lineHeight: 'var(--craft-code-lh, 1.2)'}}, {dark: false});
+    cm.theme = cm.darkTheme;
+    return cm;
+  };
+
+  const loadCoreCM = () => window.__craftCM6LocalPromise ??= (async () => {
+    try {
+      const mod = await import(`${LOCAL_CM_BASE}/index.js`);
+      return buildStyles({...mod, _source: 'local'});
+    } catch (localErr) {
+      console.warn('craftC2: local CM6 bundle unavailable, falling back to esm.sh', localErr);
+      const entries = await Promise.all(Object.entries(CM_URLS).map(async ([k, u]) => [k, await import(u)]));
+      return buildStyles({...Object.fromEntries(entries), _source: 'cdn'});
+    }
+  })().catch(err => {
+    window.__craftCM6LocalPromise = null;
+    console.error('craftC2: failed to load CodeMirror 6', err);
+    throw err;
+  });
+
+  const langCache = window.__craftCM6Langs ??= new Map();
+  async function loadLang(cm, langKey) {
+    if (langKey === 'python') return cm.python.python();
+    const spec = LANG_SPECS[langKey];
+    if (!spec) return [];
+    const ck = `${cm._source || 'cdn'}:${langKey}`;
+    if (langCache.has(ck)) return langCache.get(ck);
+    const local = cm._source === 'local';
+    const mod = await import(local ? `${LOCAL_CM_BASE}/${spec[2]}` : spec[3]);
+    const ext = spec[4](mod, cm);
+    langCache.set(ck, ext);
+    return ext;
+  }
+
+  function codeLanguages(cm) {
+    const LD = cm.lang.LanguageDescription;
+    return [
+      LD.of({name: 'Python', alias: ['py', 'py3', 'python3'], load: async () => cm.python.python()}),
+      ...Object.entries(LANG_SPECS)
+        .filter(([k]) => k !== 'markdown')
+        .map(([k, [name, alias]]) => LD.of({name, alias, load: () => loadLang(cm, k)})),
+    ];
+  }
+
+  function syncFindBoxToView(v, cm) {
+    if (!cm) return;
+    const box = document.getElementById('find-box');
+    if (!box || box.classList.contains('hidden')) return;
+    const q = document.getElementById('search')?.value || '';
+    if (!q) return;
+    const isRegex = Boolean(document.getElementById('use_regex')?.checked);
+    const useCase = Boolean(document.getElementById('use_case')?.checked);
+    const caseSensitive = typeof window.smartCased === 'function' ? window.smartCased(q, useCase) : (useCase || /\p{Uppercase}/u.test(q));
+    const replRow = document.getElementById('replace-row');
+    const replace = replRow && !replRow.classList.contains('hidden') ? (document.getElementById('replace')?.value || '') : '';
+    try {
+      const sq = new cm.search.SearchQuery({search: q, regexp: isRegex, caseSensitive, replace});
+      v.dispatch({effects: cm.search.setSearchQuery.of(sq)});
+      cm.search.openSearchPanel(v);
+    } catch {}
+  }
+
+  function applySelection(v, selSpec, resolveHint = null) {
+    const len = v.state.doc.length;
+    const clamp = n => Math.max(0, Math.min(len, n));
+    if (selSpec?.anchor != null) {
+      const anchor = clamp(selSpec.anchor);
+      v.dispatch({selection: {anchor, head: clamp(selSpec.head ?? anchor)}});
+    } else if (selSpec?.caretHint && resolveHint) {
+      const matched = resolveHint(v.state.doc.toString(), selSpec.caretHint);
+      if (matched != null) v.dispatch({selection: {anchor: clamp(matched)}});
+      else if (selSpec.coords) {
+        const pos = v.posAtCoords(selSpec.coords);
+        v.dispatch({selection: {anchor: pos != null ? clamp(pos) : len}});
+      }
+    } else if (selSpec?.coords) {
+      const pos = v.posAtCoords(selSpec.coords);
+      v.dispatch({selection: {anchor: pos != null ? clamp(pos) : len}});
+    } else if (selSpec?.toEnd) {
+      v.dispatch({selection: {anchor: len}});
+    }
+  }
+
+  function installDirtyGuards({dirtyIds, getContent, save, failMsg, tag = 'craft'}) {
+    const onBeforeUnload = e => {
+      if (!dirtyIds.size) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    const origFollowRename = window.followRename;
+    if (typeof origFollowRename === 'function') {
+      window.followRename = async function(url) {
+        for (const k of [...dirtyIds]) {
+          const content = getContent(k);
+          if (content != null && !(await save(k, content))) {
+            notifyErr(failMsg || 'Could not save edit before reopening renamed dialog.', tag);
+            return;
+          }
+        }
+        return origFollowRename.call(this, url);
+      };
+    }
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload);
+      if (typeof origFollowRename === 'function') window.followRename = origFollowRename;
+    };
+  }
+
+  async function jumpToLastCell(exitFn) {
+    await exitFn();
+    const all = [...document.querySelectorAll('#dialog-container > .editable')].filter(e => !e.hidden && getComputedStyle(e).display !== 'none');
+    const last = all[all.length - 1];
+    if (!last) return;
+    if (window.craftC2?.manages?.(last.id) && !last.querySelector(':scope > .card-in')?.classList.contains('collapsed')) {
+      last.scrollIntoView({block: 'nearest'});
+      window.craftC2.edit(last.id, {toEnd: true});
+    } else if (window.craftMd?.manages?.(last.id)) {
+      last.scrollIntoView({block: 'nearest'});
+      window.craftMd.edit(last.id, {toEnd: true});
+    } else {
+      last.querySelector('div[hx-post^="/editor_"]')?.click();
+    }
+  }
+  const BLOCKED_SEL = 'input,textarea,select,[contenteditable],.monaco-editor,#full_editor,.hk-overlay.open,#solveit-launcher.open,[role="dialog"],.uk-modal.uk-open';
+  const kid = () => document.getElementById('kid')?.value || '';
+  const typingBlocked = (extra = '') => !!document.activeElement?.closest(extra ? `${BLOCKED_SEL},${extra}` : BLOCKED_SEL);
+
+  const htmxPost = (url, values = {}, opts = {}) => window.htmx.ajax('POST', url, {
+    source: '#kid', swap: 'none', ...opts, values: {kid: kid(), ...values},
+  });
+
+  const patch = (node, attrs) => {
+    if (!node || !attrs) return node;
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k === 'cls' || k === 'className') { if (v != null && v !== false) node.className = v; }
+      else if (k === 'classes' && typeof v === 'object') { for (const [c, flag] of Object.entries(v)) node.classList.toggle(c, !!flag); }
+      else if (k === 'dataset') { for (const [dk, dv] of Object.entries(v)) { if (dv == null || dv === false) delete node.dataset[dk]; else node.dataset[dk] = String(dv); } }
+      else if (k === 'style' && typeof v === 'object') Object.assign(node.style, v);
+      else if (k.startsWith('on') && typeof v === 'function') node.addEventListener(k.slice(2).toLowerCase(), v);
+      else if (k in node && !k.includes('-') && k !== 'role' && k !== 'popover' && k !== 'popovertarget') {
+        if (typeof node[k] === 'boolean') node[k] = !!v;
+        else if (v != null && v !== false) node[k] = v;
+      } else if (v == null || v === false) node.removeAttribute(k);
+      else node.setAttribute(k, v === true ? '' : String(v));
+    }
+    return node;
+  };
+
+  const el = (tag, attrs = {}, ...kids) => {
+    const node = patch(document.createElement(tag), attrs);
+    for (const c of kids.flat()) if (c != null && c !== false) node.append(c);
+    return node;
+  };
+
+  const qs = (sel, root = document) => root?.querySelector(sel) || null;
+  const qsa = (sel, root = document) => root ? [...root.querySelectorAll(sel)] : [];
+
+  const on = (target, evs, fn, opts) => {
+    if (!target) return () => {};
+    if (typeof evs === 'object' && !Array.isArray(evs)) {
+      const offs = Object.entries(evs).map(([k, h]) => on(target, k, h, fn));
+      return () => offs.forEach(f => f());
+    }
+    const list = Array.isArray(evs) ? evs : String(evs).trim().split(/\s+/);
+    for (const ev of list) target.addEventListener(ev, fn, opts);
+    return () => { for (const ev of list) target.removeEventListener(ev, fn, opts); };
+  };
+
+  const rafOnce = fn => {
+    let id = 0;
+    const run = () => { if (!id) id = requestAnimationFrame(() => { id = 0; fn(); }); };
+    run.cancel = () => { if (id) { cancelAnimationFrame(id); id = 0; } };
+    return run;
+  };
+
+  const store = {
+    get: (k, def = null, s = localStorage) => { try { const v = s.getItem(k); return v === null ? def : v; } catch { return def; } },
+    set: (k, v, s = localStorage) => { try { if (v === null || v === undefined) s.removeItem(k); else s.setItem(k, String(v)); } catch {} },
+    del: (k, s = localStorage) => { try { s.removeItem(k); } catch {} },
+    json: (k, def = null, s = localStorage) => { try { const v = s.getItem(k); return v === null ? def : JSON.parse(v); } catch { return def; } },
+    setJson: (k, v, s = localStorage) => { try { s.setItem(k, JSON.stringify(v)); } catch {} },
+  };
+
+  const mountTpl = (name, {htmx = false, refs = false} = {}) => {
+    const html = window.__craftTpl?.[name];
+    if (!html) return null;
+    const t = document.createElement('template');
+    t.innerHTML = html;
+    const node = t.content.firstElementChild;
+    if (node && htmx) window.htmx?.process?.(node);
+    if (!refs || !node) return node;
+    const out = {root: node};
+    if (typeof refs === 'object') {
+      for (const [k, sel] of Object.entries(refs)) out[k] = node.querySelector(sel);
+    } else {
+      for (const n of node.querySelectorAll('[data-ref]')) out[n.dataset.ref] = n;
+    }
+    return out;
+  };
+
+  const offsetIn = (root, node, offset) => {
+    if (!root || !node || !root.contains(node)) return null;
+    try {
+      const r = document.createRange();
+      r.selectNodeContents(root);
+      r.setEnd(node, offset);
+      return r.toString().length;
+    } catch { return null; }
+  };
+
+  async function saveInputContents({id, content, waitersMap, key = id, tag = 'craft'}) {
+    let resolveReq;
+    const statusP = new Promise(r => { resolveReq = r; });
+    const waiters = waitersMap.get(key) || [];
+    waiters.push(resolveReq);
+    waitersMap.set(key, waiters);
+    try {
+      const ajaxP = htmxPost('/set_contents_', {id_: '_' + id, ids: id, contents: JSON.stringify({[id]: content})})
+        .then(() => statusP).catch(() => false);
+      const timeoutP = new Promise(r => setTimeout(() => r(false), 8000));
+      return Boolean(await Promise.race([ajaxP, timeoutP]));
+    } catch (err) {
+      console.error(`${tag}: save failed`, err);
+      return false;
+    } finally {
+      const list = waitersMap.get(key);
+      if (list) {
+        const i = list.indexOf(resolveReq);
+        if (i >= 0) list.splice(i, 1);
+        if (!list.length) waitersMap.delete(key);
+      }
+    }
+  }
+
+  async function splitCellAt({id, view, msgType, onSuccess, tag = 'craft'}) {
+    const content = view.state.doc.toString();
+    const linenos = [...new Set(view.state.selection.ranges.map(r => view.state.doc.lineAt(r.from).number))];
+    try {
+      await htmxPost('/split_at_', {content, linenos: JSON.stringify(linenos), id_: id, msg_type: msgType, is_input: '1'});
+      onSuccess?.();
+    } catch (err) {
+      notifyErr('Could not split cell.', tag);
+      console.error(`${tag}: split failed`, err);
+    }
+  }
+
+  async function switchCellMtype({id, mtyp, onMatch, tag = 'craft'}) {
+    try {
+      await htmxPost('/set_mtyp_', {id_: '_' + id, ids: '_' + id, mtyp});
+      if (!onMatch) return;
+      for (let i = 0; i < 60; i++) {
+        if (getCellEl(id)?.querySelector(':scope > .card-in')?.dataset.mtype === mtyp) {
+          onMatch();
+          return;
+        }
+        await new Promise(r => setTimeout(r, 40));
+      }
+    } catch (err) {
+      notifyErr('Could not change cell type.', tag);
+      console.error(`${tag}: set_mtyp failed`, err);
+    }
+  }
+
+  async function runCellCmd({id, cmd, after = '', tag = 'craft', failMsg = ''}) {
+    const runCmd = cmd === 'continue' ? 'run' : cmd;
+    try {
+      await htmxPost('/add_runq_', {id_: '_' + id, ids: '_' + id, cmd: runCmd, after});
+      if (cmd === 'continue') await htmxPost('/continue_prompt_', {id_: '_' + id, ids: '_' + id});
+      return true;
+    } catch (err) {
+      console.error(`${tag}: run failed`, err);
+      if (failMsg) notifyErr(failMsg, tag);
+      return false;
+    }
+  }
+
+  function isAtVerticalEdge(v, up, tol = 2) {
+    const head = v.state.selection.main.head, doc = v.state.doc;
+    const cHead = v.coordsAtPos(head), cEdge = v.coordsAtPos(up ? 0 : doc.length);
+    return cHead && cEdge ? Math.abs(cHead.top - cEdge.top) <= tol : doc.lineAt(head).number === (up ? 1 : doc.lines);
+  }
+
+  const _domSubs = new Set();
+  const _DOM_ATTRS = ['class', 'style', 'hidden', 'data-mtype', 'data-editing', 'data-sm', 'data-sm-header', 'data-c2-editing', 'data-md-editing', 'data-diff', 'data-wait', 'value'];
+  let _domObs = null, _domObserving = false;
+  const _ensureDomObs = () => {
+    if (_domObserving || !_domSubs.size || !document.body) return;
+    if (!_domObs) {
+      _domObs = new MutationObserver(records => {
+        for (const sub of [..._domSubs]) {
+          if (sub.inDialog && !records.some(r => r.target.id === 'dialog-container' || r.target.closest?.('#dialog-container'))) continue;
+          const hit = records.some(r => r.type === 'childList' || (sub.charData && r.type === 'characterData') || (sub.attrs && sub.attrs.has(r.attributeName)));
+          if (!hit) continue;
+          if (sub.delay === 0) sub.fn(records);
+          else if (sub.delay === 'micro') { if (!sub.pend) { sub.pend = true; queueMicrotask(() => { sub.pend = false; if (_domSubs.has(sub)) sub.fn(); }); } }
+          else if (sub.delay === 'raf') { if (!sub.pend) sub.pend = requestAnimationFrame(() => { sub.pend = 0; if (_domSubs.has(sub)) sub.fn(); }); }
+          else if (typeof sub.delay === 'number') { if (!sub.pend) sub.pend = setTimeout(() => { sub.pend = 0; if (_domSubs.has(sub)) sub.fn(); }, sub.delay); }
+        }
+      });
+    }
+    _domObs.observe(document.body, {childList: true, subtree: true, attributes: true, characterData: true, attributeFilter: _DOM_ATTRS});
+    _domObserving = true;
+  };
+  function onDomChange(fn, {attrs = null, delay = 'raf', inDialog = false, charData = false} = {}) {
+    const sub = {fn, attrs: attrs ? new Set(attrs) : null, delay, inDialog, charData, pend: 0};
+    _domSubs.add(sub);
+    if (document.body) _ensureDomObs();
+    else document.addEventListener('DOMContentLoaded', _ensureDomObs, {once: true});
+    return () => {
+      _domSubs.delete(sub);
+      if (sub.delay === 'raf' && sub.pend) cancelAnimationFrame(sub.pend);
+      else if (typeof sub.delay === 'number' && sub.pend) clearTimeout(sub.pend);
+      sub.pend = 0;
+      if (!_domSubs.size && _domObs) { _domObs.disconnect(); _domObserving = false; }
+    };
+  }
+
+  function createInlineEditor(cfg) {
+    const tag = cfg.tag || 'craft';
+    const keyToId = cfg.keyToId || (k => k);
+    const idToInputKey = cfg.idToInputKey || (id => id);
+    const normValue = cfg.normValue || (s => s);
+    const saveState = cfg.saveState || ((m, k, rec) => m.set(k, rec.view.state));
+    const getStateDoc = cfg.getStateDoc || (st => st.doc.toString());
+
+    const states = new Map(), views = new Map(), pendingSaves = new Map();
+    const dirtyIds = new Set(), failedSaves = new Set(), saveWaiters = new Map();
+    const requests = new WeakMap();
+    let activeKey = null, frame = null, destroyed = false;
+
+    const syncSaveState = key => {
+      const st = failedSaves.has(key) ? 'error' : (pendingSaves.has(key) ? 'saving' : (dirtyIds.has(key) ? 'dirty' : ''));
+      cfg.applySaveState(key, st);
+    };
+
+    async function saveCell(key, content) {
+      const id = keyToId(key), el = getCellEl(id);
+      if (!el) return true;
+      const prev = cfg.getText(el, key);
+      if (content === prev) {
+        dirtyIds.delete(key);
+        failedSaves.delete(key);
+        syncSaveState(key);
+        return pendingSaves.get(key) ? await pendingSaves.get(key) : true;
+      }
+      dirtyIds.add(key);
+      failedSaves.delete(key);
+      syncSaveState(key);
+      const p = (async () => {
+        let ok = false;
+        try {
+          ok = cfg.persistSave
+            ? await cfg.persistSave(key, content, saveWaiters)
+            : await saveInputContents({id, content, waitersMap: saveWaiters, key, tag});
+        } finally {
+          if (pendingSaves.get(key) === p) pendingSaves.delete(key);
+        }
+        if (ok) {
+          failedSaves.delete(key);
+          const curEl = getCellEl(id);
+          const inp = cfg.getInput(curEl, key);
+          if (inp && normValue(inp.value) === prev) inp.value = content;
+          const curView = views.get(key)?.view;
+          if (!curView || curView.state.doc.toString() === content) dirtyIds.delete(key);
+        } else {
+          failedSaves.add(key);
+          notifyErr(cfg.saveFailMsg ? cfg.saveFailMsg(key) : 'Could not save cell edit — changes kept in editor.', tag);
+        }
+        syncSaveState(key);
+        return ok;
+      })();
+      pendingSaves.set(key, p);
+      syncSaveState(key);
+      return await p;
+    }
+
+    function unmountCell(key) {
+      const rec = views.get(key);
+      cfg.beforeUnmount?.(key, rec);
+      if (!rec) return;
+      saveState(states, key, rec);
+      const el = getCellEl(keyToId(key)), card = cfg.getCard(el, key);
+      rec.view.destroy();
+      rec.host.remove();
+      views.delete(key);
+      card?.classList.remove(cfg.mountedCls);
+      cfg.setEditing(key, false, el, card);
+      if (activeKey === key) activeKey = null;
+    }
+
+    async function onCellBlur(key) {
+      const rec = views.get(key);
+      cfg.beforeBlur?.(key, rec);
+      if (!rec) return;
+      const el = getCellEl(keyToId(key)), card = cfg.getCard(el, key);
+      cfg.setEditing(key, false, el, card);
+      if (activeKey === key) activeKey = null;
+      const content = rec.view.state.doc.toString();
+      saveState(states, key, rec);
+      const saved = await saveCell(key, content);
+      const cur = views.get(key);
+      if (!cur || cur.view.hasFocus || activeKey === key) return;
+      if (!saved || dirtyIds.has(key) || cfg.keepMounted?.(key, cur)) return;
+      unmountCell(key);
+    }
+
+    async function exitCell(key) {
+      if (!key) return;
+      const rec = views.get(key);
+      cfg.beforeExit?.(key, rec);
+      const el = getCellEl(keyToId(key));
+      if (rec) {
+        rec.view.contentDOM.blur();
+        if (el) window.selectMsg?.(window.$(el), {scroll: false});
+        await onCellBlur(key);
+      }
+      if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+    }
+
+    async function saveAndRun(key, cmd) {
+      const id = keyToId(key), rec = views.get(key), el = getCellEl(id);
+      cfg.beforeRun?.(key, rec);
+      if (!rec || !el) return;
+      const content = rec.view.state.doc.toString();
+      const next = cmd === 'shift-run' ? window.adjacentMsg?.(window.$(el), false) : null;
+      const after = cmd === 'alt-run' ? (window.sectionTail?.(el) || '') : '';
+      saveState(states, key, rec);
+      const saved = await saveCell(key, content);
+      if (!saved) return;
+      cfg.setEditing(key, false, el, cfg.getCard(el, key));
+      if (activeKey === key) activeKey = null;
+      rec.view.contentDOM.blur();
+      if (cmd === 'shift-run' && next?.length) window.selectMsg?.(next);
+      else window.selectMsg?.(window.$(el), {scroll: false});
+      const cur = views.get(key);
+      if (cur && !cur.view.hasFocus && activeKey !== key && !dirtyIds.has(key) && !cfg.keepMounted?.(key, cur)) unmountCell(key);
+      if (await runCellCmd({id, cmd, after, tag, failMsg: cfg.runFailMsg || ''})) schedule();
+    }
+
+    async function splitCell(key, v, msgType) {
+      cfg.beforeSplit?.(key, v);
+      await splitCellAt({
+        id: keyToId(key), view: v, msgType, tag,
+        onSuccess: () => { dirtyIds.delete(key); failedSaves.delete(key); syncSaveState(key); unmountCell(key); },
+      });
+    }
+
+    async function switchCellType(key, v, mtyp, {clearState = false, onMatch} = {}) {
+      const id = keyToId(key);
+      const sel = v.state.selection.main;
+      const selSpec = {anchor: sel.anchor, head: sel.head};
+      cfg.beforeSwitch?.(key, v);
+      const saved = await saveCell(key, v.state.doc.toString());
+      if (!saved) return;
+      unmountCell(key);
+      if (clearState) states.delete(key);
+      const el = getCellEl(id);
+      if (el) window.selectMsg?.(window.$(el), {scroll: false});
+      await switchCellMtype({id, mtyp, tag, onMatch: onMatch ? () => onMatch(id, selSpec) : null});
+    }
+
+    function stepBoundary(key, v, up, {tol = 2, canStep, beforeStep} = {}) {
+      if (v.state.selection.ranges.length !== 1 || !v.state.selection.main.empty) return false;
+      if (canStep && !canStep(v)) return false;
+      if (!isAtVerticalEdge(v, up, tol)) return false;
+      const id = keyToId(key), el = getCellEl(id);
+      const next = el && window.adjacentMsg?.(window.$(el), up);
+      const nextEl = next?.[0];
+      if (!nextEl || nextEl === el) return false;
+      beforeStep?.(key, v);
+      const rec = views.get(key);
+      if (rec) saveState(states, key, {...rec, view: v});
+      cfg.setEditing(key, false, el, cfg.getCard(el, key));
+      if (activeKey === key) activeKey = null;
+      v.contentDOM.blur();
+      saveCell(key, v.state.doc.toString()).then(ok => {
+        const cur = views.get(key);
+        if (ok && cur && !cur.view.hasFocus && activeKey !== key && !dirtyIds.has(key) && !cfg.keepMounted?.(key, cur)) unmountCell(key);
+      });
+      const nextId = normId(nextEl.id);
+      const edgeSel = up ? {toEnd: true} : {anchor: 0, head: 0};
+      const codeCard = nextEl.querySelector('.card-in[data-mtype="code"]');
+      if (window.craftC2?.manages?.(nextId) && codeCard && !codeCard.classList.contains('collapsed')) {
+        nextEl.scrollIntoView({block: 'nearest'});
+        window.craftC2.edit(nextId, edgeSel);
+      } else if (window.craftMd?.manages?.(nextId)) {
+        nextEl.scrollIntoView({block: 'nearest'});
+        window.craftMd.edit(nextId, edgeSel);
+      } else {
+        window.selectMsg?.(next);
+      }
+      return true;
+    }
+
+    function openView(key, {el, card, text, cm, selSpec = null, resolveHint = null, canReuseRec, prepareState, hostClass, extraRec, themeExts, onExisting, onMounted}) {
+      const body = card?.querySelector('.msg-body'), contentEl = body?.querySelector('.msg-content');
+      if (!body || !contentEl) return false;
+      window.selectMsg?.(window.$(el), {scroll: false});
+      let rec = views.get(key);
+      if (rec && (!canReuseRec || canReuseRec(rec))) {
+        if (!body.contains(rec.host)) { contentEl.after(rec.host); card.classList.add(cfg.mountedCls); }
+        if (rec.view.state.doc.toString() !== text && !pendingSaves.has(key) && !dirtyIds.has(key)) {
+          rec.view.dispatch({changes: {from: 0, to: rec.view.state.doc.length, insert: text}});
+        }
+        if (selSpec) applySelection(rec.view, selSpec, resolveHint);
+        activeKey = key;
+        cfg.setEditing(key, true, el, card);
+        syncFindBoxToView(rec.view, cm);
+        rec.view.focus();
+        onExisting?.(rec);
+        return true;
+      }
+      if (rec) unmountCell(key);
+      const {edState, activeComps, reusePrev} = prepareState();
+      const host = document.createElement('div');
+      host.className = hostClass;
+      contentEl.after(host);
+      card.classList.add(cfg.mountedCls);
+      cfg.setEditing(key, true, el, card);
+      const v = new cm.view.EditorView({state: edState, parent: host});
+      attachHost(key, host);
+      rec = {view: v, host, ...activeComps, ...extraRec};
+      views.set(key, rec);
+      activeKey = key;
+      cfg.setEditing(key, true, el, card);
+      if (reusePrev && themeExts && activeComps.themeComp) v.dispatch({effects: activeComps.themeComp.reconfigure(themeExts)});
+      onMounted?.(rec);
+      applySelection(v, selSpec || (reusePrev ? null : {toEnd: true}), resolveHint);
+      syncFindBoxToView(v, cm);
+      v.focus();
+      requestAnimationFrame(() => {
+        if (!destroyed && activeKey === key && views.get(key)?.view === v && !v.hasFocus && document.activeElement === document.body) v.focus();
+      });
+      return true;
+    }
+
+    function attachHost(key, host) {
+      host.addEventListener('keydown', e => { e.stopPropagation(); });
+      host.addEventListener('focusin', () => {
+        activeKey = key;
+        const curEl = getCellEl(keyToId(key));
+        cfg.setEditing(key, true, curEl, cfg.getCard(curEl, key));
+      });
+      host.addEventListener('focusout', () => {
+        const check = () => {
+          if (destroyed) return;
+          if (!host.isConnected) { sync(); return; }
+          const ae = document.activeElement;
+          if (host.contains(ae) || ae?.closest?.('.cm-tooltip')) return;
+          onCellBlur(key);
+        };
+        queueMicrotask(() => {
+          if (destroyed) return;
+          if (!host.isConnected) { sync(); return; }
+          requestAnimationFrame(check);
+        });
+      });
+    }
+
+    const sync = () => {
+      cfg.onSync?.();
+      for (const [key, rec] of [...views]) {
+        const el = getCellEl(keyToId(key)), card = cfg.getCard(el, key);
+        if (!el || !card || !cfg.isViewValid(key, rec, el, card)) {
+          rec.view.destroy();
+          views.delete(key);
+          dirtyIds.delete(key);
+          failedSaves.delete(key);
+          syncSaveState(key);
+          if (activeKey === key) activeKey = null;
+          continue;
+        }
+        const body = card.querySelector('.msg-body'), contentEl = body?.querySelector('.msg-content');
+        if (body && contentEl) {
+          if (!body.contains(rec.host)) contentEl.after(rec.host);
+          card.classList.add(cfg.mountedCls);
+          if (activeKey === key) {
+            cfg.setEditing(key, true, el, card);
+            if (!rec.view.hasFocus || document.activeElement !== rec.view.contentDOM) rec.view.focus();
+          }
+        }
+        cfg.onViewSynced?.(key, rec);
+      }
+    };
+    const schedule = rafOnce(sync);
+
+    const before = ({detail: {ctx} = {}}) => {
+      const request = ctx?.request, body = request?.body;
+      if (!body?.get || request.method !== 'POST') return;
+      const pathname = new URL(request.action, location.href).pathname;
+      if (pathname === '/set_contents_') {
+        const id = normId(body.get('ids'));
+        const key = id ? idToInputKey(id) : '';
+        if (key && saveWaiters.has(key)) requests.set(ctx, {kind: 'save', key});
+        return;
+      }
+      cfg.onBeforeRequest?.(ctx, pathname, body);
+    };
+
+    const after = ({detail: {ctx} = {}}) => {
+      const rec = ctx && requests.get(ctx);
+      if (rec?.kind === 'save') {
+        const ok = Boolean(ctx.response && ctx.response.status >= 200 && ctx.response.status < 300);
+        const waiters = saveWaiters.get(rec.key);
+        const fn = waiters?.shift();
+        if (waiters && !waiters.length) saveWaiters.delete(rec.key);
+        fn?.(ok);
+        return;
+      }
+      cfg.onAfterRequest?.(ctx);
+    };
+
+    const onKeyDown = e => {
+      if (!cfg.openPrimaryOnEnter) return;
+      if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
+      if (typingBlocked(cfg.typingBlockedExtra || '')) return;
+      const el = document.querySelector('#dialog-container > .editable[data-sm="primary"]');
+      if (!el || !cfg.openPrimaryOnEnter(el, false)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      cfg.openPrimaryOnEnter(el, true);
+    };
+
+    const onClick = e => {
+      if (cfg.onEditClick) {
+        const edit = e.target.closest?.(cfg.editClickSel || '.card-in [hx-post="/editor_"]');
+        if (edit && !edit.dataset.craftAllowMonaco) {
+          if (cfg.onEditClick(edit, e)) return;
+        }
+      }
+      cfg.onExtraClick?.(e);
+    };
+
+    const onThemeChange = () => {
+      if (!cfg.getThemeExts) return;
+      for (const rec of views.values()) {
+        const exts = cfg.getThemeExts(rec);
+        if (exts && rec.themeComp) rec.view.dispatch({effects: rec.themeComp.reconfigure(exts)});
+      }
+    };
+
+    const sep = window.htmx?.config.metaCharacter || ':';
+    const configEvent = ['htmx', 'config', 'request'].join(sep);
+    const afterEvent = ['htmx', 'after', 'request'].join(sep);
+    const unsubDom = onDomChange(schedule, {attrs: cfg.domAttrs || null, delay: 'raf', inDialog: Boolean(cfg.inDialog)});
+    const removeDirtyGuards = installDirtyGuards({
+      dirtyIds,
+      getContent: key => (views.get(key) ? views.get(key).view.state.doc.toString() : (states.get(key) ? getStateDoc(states.get(key)) : undefined)),
+      save: saveCell,
+      failMsg: cfg.failRenameMsg || 'Could not save edit before reopening renamed dialog.',
+      tag,
+    });
+    const ac = new AbortController(), sig = {signal: ac.signal}, cap = {capture: true, signal: ac.signal};
+    on(document, {[configEvent]: before, [afterEvent]: after, 'uk-theme-switcher:change': onThemeChange}, sig);
+    on(document, {click: onClick, keydown: onKeyDown}, cap);
+
+    return {
+      states, views, pendingSaves, dirtyIds, failedSaves, saveWaiters,
+      get activeKey() { return activeKey; },
+      set activeKey(v) { activeKey = v; },
+      get destroyed() { return destroyed; },
+      syncSaveState, saveCell, unmountCell, onCellBlur, exitCell, saveAndRun, splitCell,
+      switchCellType, stepBoundary, openView, attachHost, sync, schedule,
+      disable() {
+        destroyed = true;
+        unsubDom();
+        schedule.cancel();
+        removeDirtyGuards();
+        ac.abort();
+        for (const key of [...views.keys()]) unmountCell(key);
+        views.clear(); states.clear(); pendingSaves.clear(); dirtyIds.clear(); failedSaves.clear(); saveWaiters.clear();
+      },
+    };
+  }
+
+  window.__craftCMCore = {
+    LOCAL_CM_BASE, CM_DEPS, CM_URLS, LANG_SPECS, LANG_ALIASES, langCache,
+    isMac, isDark, normId, getCellEl, normalizeText, notifyErr,
+    buildStyles, loadCoreCM, loadLang, codeLanguages, syncFindBoxToView, applySelection,
+    installDirtyGuards, jumpToLastCell,
+    kid, typingBlocked, htmxPost, patch, el, qs, qsa, on, rafOnce, store, mountTpl, offsetIn,
+    saveInputContents, splitCellAt, switchCellMtype, runCellCmd, isAtVerticalEdge,
+    onDomChange, createInlineEditor,
+  };
+})();
+
+/* %% nbs/craft/02_core_ui.ipynb #ca03a923 */
+window.__craftTpl = Object.assign(window.__craftTpl || {}, {"mobile_phone_icon": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"7\" y=\"2\" width=\"10\" height=\"20\" rx=\"2\"></rect><path d=\"M11 18h2\"></path></svg>", "mobile_desk_icon": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"2\" y=\"3\" width=\"20\" height=\"14\" rx=\"2\"></rect><path d=\"M8 21h8M12 17v4\"></path></svg>", "mobile_toggle_btn": "<button id=\"craft-mobile-toggle\" type=\"button\"></button>", "launcher_root": "<div id=\"solveit-launcher\" role=\"dialog\" aria-modal=\"true\" aria-label=\"Command palette\"><div class=\"solveit-launcher-card\"><input type=\"text\" placeholder=\"Run a command or open a dialog/file…\" autocomplete=\"off\" spellcheck=\"false\" aria-label=\"Search commands and files\"><ul role=\"listbox\"></ul></div></div>", "action_menu": "<div id=\"craft-cell-action-menu\" class=\"craft-action-menu\" popover=\"auto\" role=\"menu\"></div>", "insert_trigger": "<button id=\"craft-insert-preview\" type=\"button\" hidden popovertarget=\"craft-insert-preview-menu\"></button>", "insert_menu": "<div id=\"craft-insert-preview-menu\" popover=\"auto\"><small>New cell type</small><button type=\"button\" data-kind=\"Code\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 6l-6 6 6 6m8-12 6 6-6 6M14 4l-4 16\"></path></svg>Code</button><button type=\"button\" data-kind=\"Note\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 3h10l4 4v14H5z M15 3v5h4M8 12h8m-8 4h8\"></path></svg>Note</button><button type=\"button\" data-kind=\"Raw\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 5h18v14H3z M7 9v6\"></path></svg>Raw</button><button type=\"button\" data-kind=\"Prompt\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 4h18v12H9l-6 4z M7 10h.01m5 0h.01m5 0h.01\"></path></svg>Prompt</button></div>", "desk_edge_below": "<button type=\"button\" class=\"craft-desk-edge\" data-edge=\"below\" aria-label=\"Insert cell below (drag to pick type)\"><span class=\"craft-desk-edge-pill\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"12\" height=\"12\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 6v12M6 12h12\"></path></svg><span class=\"craft-desk-edge-kind\"></span></span></button>", "desk_picker": "<div id=\"craft-desk-picker\" role=\"menu\"><div class=\"craft-desk-picker-head\"></div><div class=\"craft-desk-picker-opts\"><button type=\"button\" role=\"menuitem\" data-type=\"Code\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 6l-6 6 6 6m8-12 6 6-6 6M14 4l-4 16\"></path></svg><span>Code</span><kbd>C</kbd></button><button type=\"button\" role=\"menuitem\" data-type=\"Note\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 3h10l4 4v14H5z M15 3v5h4M8 12h8m-8 4h8\"></path></svg><span>Note</span><kbd>N</kbd></button><button type=\"button\" role=\"menuitem\" data-type=\"Prompt\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 4h18v12H9l-6 4z M7 10h.01m5 0h.01m5 0h.01\"></path></svg><span>Prompt</span><kbd>P</kbd></button><button type=\"button\" role=\"menuitem\" data-type=\"Raw\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 5h18v14H3z M7 9v6\"></path></svg><span>Raw</span><kbd>R</kbd></button></div></div>", "action_trigger": "<button type=\"button\" class=\"craft-action-trigger\" aria-haspopup=\"menu\" aria-expanded=\"false\" aria-controls=\"craft-cell-action-menu\">…</button>", "omit_marker": "<button type=\"button\" class=\"craft-omit-marker\"></button>", "insert_placeholder": "<div class=\"craft-insert-placeholder\"></div>", "table_wrap": "<div class=\"craft-table-wrap\" tabindex=\"0\" role=\"region\" aria-label=\"Scrollable table\"></div>", "table_copy_btn": "<button type=\"button\" class=\"craft-table-copy\" aria-label=\"Copy table as TSV\">Copy TSV</button>", "cell_icon_Code": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 6l-6 6 6 6m8-12 6 6-6 6M14 4l-4 16\"></path></svg>", "cell_icon_Note": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 3h10l4 4v14H5z M15 3v5h4M8 12h8m-8 4h8\"></path></svg>", "cell_icon_Raw": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 5h18v14H3z M7 9v6\"></path></svg>", "cell_icon_Prompt": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 4h18v12H9l-6 4z M7 10h.01m5 0h.01m5 0h.01\"></path></svg>", "desk_icon_Code": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"11\" height=\"11\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 6l-6 6 6 6m8-12 6 6-6 6M14 4l-4 16\"></path></svg>", "desk_icon_Note": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"11\" height=\"11\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 3h10l4 4v14H5z M15 3v5h4M8 12h8m-8 4h8\"></path></svg>", "desk_icon_Raw": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"11\" height=\"11\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 5h18v14H3z M7 9v6\"></path></svg>", "desk_icon_Prompt": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"11\" height=\"11\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 4h18v12H9l-6 4z M7 10h.01m5 0h.01m5 0h.01\"></path></svg>"});
+window.__craftCfg = Object.assign(window.__craftCfg || {}, {"cell_types": ["Code", "Note", "Prompt", "Raw"], "key_to_type": {"c": "Code", "n": "Note", "p": "Prompt", "r": "Raw"}, "slash_map": {"c": "Code", "code": "Code", "n": "Note", "note": "Note", "p": "Prompt", "prompt": "Prompt", "r": "Raw", "raw": "Raw"}});
+
+/* %% nbs/craft/02_core_ui.ipynb #255a46c8 */
 /* ── Hotkey manager bootstrap ──────────────────────────────────────
    The shared shortcut registry lives in hotkey_manager.js (served from
    ~/.craft-assets at /static/.craft-assets/hotkey_manager.js). Load it first so the sections below
@@ -14,39 +791,1569 @@
     }
 })();
 
+/* %% nbs/craft/02_core_ui.ipynb #44718d99 */
+/* ── Mobile mode detection & view toggle ───────────────────────────────
+   Auto-enables `html.craft-mobile` only on touch/mobile devices (`(hover: none)
+   and (pointer: coarse)`), so shrinking a desktop window stays in desktop view.
+   Users can explicitly switch between Desktop and Mobile at any time via the
+   navbar toggle button (#craft-mobile-toggle), the launcher, or
+   `window.craftMobile.setMode('auto'|'mobile'|'desktop')`. */
+(() => {
+  window.craftMobile?.disable?.();
+  const {mountTpl, qs, on, store, patch, onDomChange} = window.__craftCMCore;
+  const ac = new AbortController(), sig = {signal: ac.signal};
+  const PREF_KEY = 'craft-mobile-mode';
+  const mq = matchMedia('(hover: none) and (pointer: coarse)');
+  const root = document.documentElement, listeners = new Set();
+  let meta = qs('meta[name="viewport"]'), addedMeta = false, prevMeta = meta?.content;
+  const VIEWPORT = 'width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content';
+  if (!meta) { meta = document.createElement('meta'); meta.name = 'viewport'; document.head.append(meta); addedMeta = true; }
+  if (!/width\s*=\s*device-width/.test(meta.content || '')) meta.content = VIEWPORT;
+  else {
+    if (!/viewport-fit/.test(meta.content)) meta.content += ', viewport-fit=cover';
+    if (!/interactive-widget/.test(meta.content)) meta.content += ', interactive-widget=resizes-content';
+  }
+  const iOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (iOS && !/maximum-scale/.test(meta.content)) meta.content += ', maximum-scale=1';
 
+  const readPref = () => { const v = store.get(PREF_KEY); return (v === 'mobile' || v === 'desktop') ? v : 'auto'; };
+  let pref = readPref();
+  const computeActive = () => pref === 'mobile' ? true : pref === 'desktop' ? false : mq.matches;
+
+  const TPL = window.__craftTpl || {};
+  const PHONE_SVG = TPL.mobile_phone_icon || '', DESK_SVG = TPL.mobile_desk_icon || '';
+
+  const toggleBtn = mountTpl('mobile_toggle_btn');
+
+  const syncToggleBtn = () => {
+    const isMob = root.classList.contains('craft-mobile');
+    const key = `${isMob ? 'm' : 'd'}:${pref}`;
+    if (toggleBtn.dataset.state === key) return;
+    const title = isMob
+      ? `Switch to desktop view (current: ${pref === 'auto' ? 'auto mobile' : 'mobile'})`
+      : `Switch to mobile view (current: ${pref === 'auto' ? 'auto desktop' : 'desktop'})`;
+    patch(toggleBtn, {dataset: {state: key}, innerHTML: isMob ? DESK_SVG : PHONE_SVG, title, 'aria-label': title, 'aria-pressed': String(isMob)});
+  };
+
+  const positionToggleBtn = () => {
+    if (root.classList.contains('craft-mobile')) return;
+    Object.assign(toggleBtn.style, { left: 'auto', right: '10px', top: '6px' });
+  };
+
+  const mountToggleBtn = () => {
+    if (!toggleBtn.isConnected && document.body) document.body.append(toggleBtn);
+    syncToggleBtn();
+    positionToggleBtn();
+  };
+
+  const apply = () => {
+    const on = computeActive();
+    const changed = root.classList.contains('craft-mobile') !== on;
+    if (changed) {
+      root.classList.toggle('craft-mobile', on);
+      listeners.forEach(fn => { try { fn(on); } catch (err) { console.error('craftMobile listener', err); } });
+    }
+    syncToggleBtn();
+  };
+
+  const setMode = m => {
+    pref = (m === 'mobile' || m === 'desktop') ? m : 'auto';
+    store.set(PREF_KEY, pref === 'auto' ? null : pref);
+    apply();
+    return root.classList.contains('craft-mobile');
+  };
+  const toggle = () => setMode(root.classList.contains('craft-mobile') ? 'desktop' : 'mobile');
+  on(toggleBtn, 'click', e => { e.preventDefault(); e.stopPropagation(); toggle(); }, sig);
+  on(mq, 'change', apply, sig);
+  let offDom = null;
+  on(window, 'resize', positionToggleBtn, {passive: true, signal: ac.signal});
+  const start = () => {
+    mountToggleBtn();
+    offDom = onDomChange(mountToggleBtn, {delay: 0});
+  };
+  apply();
+  if (document.body) start(); else on(document, 'DOMContentLoaded', start, {once: true, signal: ac.signal});
+
+  window.__hotkeyRegister?.({
+    id: 'craft-toggle-mobile',
+    label: 'Toggle mobile / desktop view',
+    group: 'CRAFT · Layout',
+    combo: '',
+    handler: () => { toggle(); return true; },
+  });
+
+  window.craftMobile = {
+    active: () => root.classList.contains('craft-mobile'),
+    mode: () => pref,
+    setMode,
+    toggle,
+    onChange: fn => { listeners.add(fn); return () => listeners.delete(fn); },
+    reposition: positionToggleBtn,
+    disable() {
+      ac.abort();
+      offDom?.();
+      toggleBtn.remove();
+      root.classList.remove('craft-mobile');
+      if (addedMeta) meta.remove(); else if (prevMeta != null) meta.content = prevMeta;
+      listeners.clear();
+      delete window.craftMobile;
+    },
+  };
+})();
+
+/* %% nbs/craft/02_core_ui.ipynb #57c379b5 */
+/* ── Auto-hiding top nav ──────────────────────────────────────────────
+   The reveal trigger is decoupled from the bar. The band starts BELOW the
+   browser's own top-edge hotspot so a hidden browser toolbar doesn't fight
+   it, and the bar stays pinned while the pointer is over the nav or inside
+   an open UIkit drop, fading only after a grace period. */
+(() => {
+  const {qs, on} = window.__craftCMCore;
+  const TRIGGER_TOP = 28;      // px: clear of the browser's top-edge hotspot
+  const TRIGGER_BOTTOM = 76;   // px: bottom of the reveal band
+  const HIDE_DELAY = 700;      // ms grace period before fading out
+
+  const SEL = '.uk-container > nav.monster-navbar';
+  const PIN = '.uk-drop, .uk-dropdown, [uk-drop], [uk-dropdown]';
+  const MODAL_OPEN = '.uk-modal.uk-open, .hk-overlay.open, #solveit-launcher.open';
+
+  const nav = () => qs(SEL);
+  let timer = null, last = null;
+
+  function wantOpen() {
+    if (qs(MODAL_OPEN)) return false;
+    if (!last) return false;
+    if (last.y >= TRIGGER_TOP && last.y <= TRIGGER_BOTTOM) return true;
+    const t = last.target;
+    if (t instanceof Element) {
+      if (nav()?.contains(t)) return true;
+      if (t.closest(PIN)) return true;
+    }
+    return !!qs('.uk-drop.uk-open, .uk-dropdown.uk-open');
+  }
+
+  function sync() {
+    const n = nav();
+    if (!n) return;
+    if (wantOpen()) {
+      clearTimeout(timer);
+      timer = null;
+      n.classList.add('nav-shown');
+    } else if (!timer) {
+      timer = setTimeout(() => {
+        timer = null;
+        if (!wantOpen()) nav()?.classList.remove('nav-shown');
+      }, HIDE_DELAY);
+    }
+  }
+
+  on(document, 'mousemove', e => {
+    // Phones: taps emit compat mousemoves, which would flash the bar at random. The mobile toolbar's ☰ drives it instead.
+    if (window.craftMobile?.active()) return;
+    last = { y: e.clientY, target: e.target };
+    sync();
+  }, { passive: true });
+
+  on(document, 'focusin', e => {
+    last = { y: -1, target: e.target };
+    sync();
+  });
+})();
+
+/* ── Compact Monaco line height ──────────────────────────────────── */
+/* Code size and family come from CRAFT.css. Monaco line-height matches the
+   code size; remeasure after webfonts load to keep cursor columns aligned. */
+(() => {
+  let tries = 0;
+  const go = () => {
+    const mon = window.monaco?.editor;
+    if (!mon) return ++tries < 40 && setTimeout(go, 250);
+    // Recompute character widths after the webfonts replace the fallback.
+    if (document.fonts) Promise.all([
+      document.fonts.load('10px "Craft Iosevka"'),
+      document.fonts.load('italic 10px "Craft Iosevka"'),
+      document.fonts.load('bold 10px "Craft Iosevka"'),
+      document.fonts.load('italic bold 10px "Craft Iosevka"')
+    ]).then(() => { mon.remeasureFonts(); mon.getEditors().forEach(ed => ed.layout()); })
+      .catch(err => console.warn('Iosevka could not load; using monospace fallback.', err));
+    const compact = ed => {
+      try {
+        const cs = getComputedStyle(document.documentElement);
+        const fs = parseFloat(cs.getPropertyValue('--craft-code')) || ed.getOption(mon.EditorOption.fontSize);
+        const lh = Math.round(fs * (parseFloat(cs.getPropertyValue('--craft-code-lh')) || 1.2));
+        ed.updateOptions({ fontSize: fs, lineHeight: lh, fontFamily: cs.getPropertyValue('--craft-code-family').trim() || 'monospace' });
+      } catch (e) {}
+    };
+    mon.onDidCreateEditor?.(compact);
+    mon.getEditors().forEach(compact);
+    try { mon.getDiffEditors().forEach(d => { const cs = getComputedStyle(document.documentElement); const fs = parseFloat(cs.getPropertyValue('--craft-code')) || 10; const lh = Math.round(fs * (parseFloat(cs.getPropertyValue('--craft-code-lh')) || 1.2)); d.updateOptions({ fontSize: fs, lineHeight: lh, fontFamily: cs.getPropertyValue('--craft-code-family').trim() || 'monospace' }); }); } catch (e) {}
+  };
+  go();
+})();
+
+/* ── Launcher (⌘⇧P) ──────────────────────────────────────────────────
+   One fuzzy box over commands (every hotkey-registry action, custom and
+   Solveit built-in) and dialogs/files (whatever the file tree has loaded).
+   Enter runs or opens the selection; Esc or a click outside closes. */
+(() => {
+  const {el, mountTpl, qsa, on} = window.__craftCMCore;
+  let root, input, list, results = [], sel = 0, pool = [], prevFocus;
+
+  function score(q, text) {
+    if (!q) return 1;
+    const t = text.toLowerCase();
+    let i = 0, s = 0, run = 0, last = -2;
+    for (const ch of q) {
+      const j = t.indexOf(ch, i);
+      if (j < 0) return 0;
+      run = j === last + 1 ? run + 1 : 0;
+      s += 1 + run * 2 + (j === 0 || /[\s/_.-]/.test(t[j - 1]) ? 3 : 0);
+      last = j; i = j + 1;
+    }
+    return s - t.length * 0.01;
+  }
+
+  const where = n => { try { const u = new URL(n.href, location.href); return u.searchParams.get('name') || u.searchParams.get('fp') || decodeURIComponent(u.pathname); } catch { return ''; } };
+
+  function build() {
+    ({root, input, list} = mountTpl('launcher_root', {refs: {input: 'input', list: 'ul'}}));
+    on(root, 'mousedown', e => { if (e.target === root) close(); });
+    on(input, {
+      input: () => { sel = 0; render(); },
+      keydown: e => {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); sel = (sel + (e.key === 'ArrowDown' ? 1 : -1) + results.length) % Math.max(results.length, 1); paint(); }
+        else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); run(results[sel]); }
+        else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+      },
+    });
+    on(list, 'click', e => { const li = e.target.closest('li[data-i]'); if (li) run(results[+li.dataset.i]); });
+    document.body.append(root);
+  }
+
+  function render() {
+    const q = input.value.trim().toLowerCase();
+    results = pool.map(it => ({it, s: score(q, it.label + ' ' + it.detail)})).filter(r => r.s > 0).sort((a, b) => b.s - a.s).slice(0, 60).map(r => r.it);
+    sel = Math.min(sel, Math.max(results.length - 1, 0));
+    list.replaceChildren(...(results.length ? results.map((it, i) =>
+      el('li', {cls: 'kind-' + it.kind, role: 'option', dataset: {i}},
+        el('span', {cls: 'label'}, it.label), el('span', {cls: 'detail'}, it.detail), el('span', {cls: 'hint'}, it.hint))
+    ) : [el('li', {cls: 'empty'}, 'No matches')]));
+    paint();
+  }
+
+  function paint() {
+    qsa('li[data-i]', list).forEach(li => { const on = +li.dataset.i === sel; li.setAttribute('aria-selected', String(on)); if (on) li.scrollIntoView({block: 'nearest'}); });
+  }
+
+  async function open() {
+    if (!root) build();
+    prevFocus = document.activeElement;
+    const hk = window.solveitHotkeys;
+    const cmds = (hk?.list?.() || []).filter(a => a.id !== 'launcher').map(a => ({kind: 'command', label: a.label, detail: a.group || '', hint: a.combo ? hk.formatCombo(a.combo) : '', go: () => hk.run(a.id)}));
+    pool = cmds; root.classList.add('open'); input.value = ''; sel = 0; render(); input.focus();
+    try {
+      const entries = await window.solveitFileTree?.entries?.() || [];
+      pool = cmds.concat(entries.map(n => ({kind: n.kind, label: n.name, detail: where(n), hint: n.kind, go: () => window.solveitFileTree.open(n)})));
+      if (root.classList.contains('open')) render();
+    } catch {}
+  }
+
+  function close() { if (!root?.classList.contains('open')) return; root.classList.remove('open'); prevFocus?.focus?.(); }
+  function run(item) { if (!item) return; close(); setTimeout(() => Promise.resolve().then(item.go).catch(err => { console.error('Launcher action failed', err); alert('Action failed: ' + (err.message || err)); }), 0); }
+
+  window.__hotkeyRegister?.({id: 'launcher', label: 'Open launcher', group: 'Launcher', combo: 'Mod+Shift+P', handler: () => { if (root?.classList.contains('open')) close(); else open(); return true; }});
+})();
+(() => {
+  window.craftIdleComposer?.disable();
+  if (window.CRAFT_IDLE_COMPOSER === false) return;
+  const {qs, on, onDomChange} = window.__craftCMCore;
+  let editor, originalFocus, subscriptions = [], requested = false, pending = false;
+  const panel = () => document.getElementById('full_editor');
+  const temporary = () => editor?.getModel()?.uri.path.endsWith('/temp');
+  const hasDraft = () => !!window.edValue?.();
+  const reveal = () => {
+    requested = true;
+    panel()?.classList.remove('craft-composer-idle');
+    editor?.layout();
+  };
+  const unbind = () => {
+    subscriptions.forEach(s => s.dispose());
+    subscriptions = [];
+    if (editor && originalFocus) editor.focus = originalFocus;
+  };
+  const sync = () => {
+    pending = false;
+    if (window.editor !== editor) {
+      unbind();
+      editor = window.editor;
+      if (editor) {
+        subscriptions.push(editor.onDidChangeModel(schedule));
+        subscriptions.push(editor.onDidChangeModelContent(schedule));
+      }
+    }
+    const root = panel();
+    if (!root) return;
+    const editingCell = Boolean(editor?.getModel() && !temporary()) || Boolean(qs('.editable[data-editing="true"]'));
+    const emptyDialog = !qs('#dialog-container > .editable');
+    const active = requested || (!insertionHolds.size && (emptyDialog || editingCell || hasDraft()));
+    const idle = !active;
+    if (root.classList.contains('craft-composer-idle') === idle) return;
+    root.classList.toggle('craft-composer-idle', idle);
+    if (active && editor) editor.layout();
+  };
+  const schedule = () => { if (!pending) { pending = true; queueMicrotask(sync); } };
+  const tabClick = e => {
+    const tab = e.target.closest('#full_editor .tabh');
+    if (!tab) return;
+    if (tab.id === 'tabh-code' && window.craftC2?.shouldInterceptCodeTab?.()) return;
+    reveal();
+  };
+  let shortcutOpened = false, dismissTimer;
+  const insertionHolds = new Set(), rootEl = document.documentElement;
+  const clearInsertionHolds = () => { insertionHolds.clear(); rootEl.removeAttribute('data-craft-inserting'); };
+  const holdForInsertion = () => {
+    const token = Symbol();
+    insertionHolds.add(token); rootEl.setAttribute('data-craft-inserting', '');
+    return () => {
+      if (!insertionHolds.delete(token) || insertionHolds.size) return;
+      if (!hasDraft() && temporary()) hide();
+      rootEl.removeAttribute('data-craft-inserting');
+    };
+  };
+  const hide = () => {
+    clearTimeout(dismissTimer);
+    shortcutOpened = false;
+    requested = false;
+    sync();
+  };
+  const show = () => {
+    if (window.editor !== editor) sync();
+    const root = panel();
+    if (!root || !editor?.getModel()) return false;
+    clearTimeout(dismissTimer);
+    clearInsertionHolds();
+    shortcutOpened ||= root.classList.contains('craft-composer-idle');
+    reveal();
+    editor.focus();
+    return true;
+  };
+  const dismissShortcut = e => {
+    if (!shortcutOpened || e.key !== 'Escape' || e.isComposing || !panel()?.contains(e.target)) return;
+    clearTimeout(dismissTimer);
+    dismissTimer = setTimeout(() => {
+      shortcutOpened = false;
+      if (!temporary() || hasDraft() || qs('.editable[data-editing="true"]')) return;
+      requested = false;
+      sync();
+    }, 0);
+  };
+  const ac = new AbortController(), sig = {signal: ac.signal}, cap = {capture: true, signal: ac.signal};
+  const offDom = onDomChange(schedule, {attrs: ['data-editing'], delay: 0});
+  const settleEvent = ['htmx', 'after', 'settle'].join(window.htmx?.config?.metaCharacter || ':');
+  on(window, 'keydown', dismissShortcut, cap);
+  on(document, 'click', tabClick, cap);
+  on(document, settleEvent, schedule, sig);
+  window.craftIdleComposer = {
+    reveal,
+    hide,
+    show,
+    holdForInsertion,
+    disable() {
+      offDom();
+      ac.abort();
+      clearTimeout(dismissTimer);
+      clearInsertionHolds();
+      if (window.craftIdleComposer?.show === show) delete window.craftIdleComposer;
+      unbind();
+      panel()?.classList.remove('craft-composer-idle');
+      editor?.layout();
+    }
+  };
+  sync();
+  window.__hotkeyRegister?.({id: 'composer-show', label: 'Show cell editor', group: 'Editor', combo: 'Shift+I', handler: e => {
+    if (e?.isComposing || e?.target?.closest?.('#solveit-file-tree-panel, #solveit-temp-editor, [role="dialog"], .uk-modal.uk-open, .hk-overlay.open, #solveit-launcher.open')) return false;
+    return window.craftIdleComposer?.show() === true;
+  }});
+})();
+
+/* %% nbs/craft/02_core_ui.ipynb #bedbb7e5 */
+(() => {
+  window.craftCellChains?.disable();
+  let frame;
+  const sync = () => {
+    frame = null;
+    const all = [...document.querySelectorAll('#dialog-container > .editable')];
+    const cells = all.filter(e => !e.hidden && getComputedStyle(e).display !== 'none');
+    const type = e => e?.querySelector(':scope > .card-in')?.dataset.mtype;
+    const joins = (a, b) => ['prompt', 'code', 'note'].includes(type(a)) && type(a) === type(b);
+    const prev = new Set(cells.filter((e, i) => i > 0 && joins(cells[i-1], e)));
+    const next = new Set(cells.filter((e, i) => i < cells.length-1 && joins(e, cells[i+1])));
+    for (const e of all) {
+      if (e.classList.contains('craft-chain-prev') !== prev.has(e)) e.classList.toggle('craft-chain-prev', prev.has(e));
+      if (e.classList.contains('craft-chain-next') !== next.has(e)) e.classList.toggle('craft-chain-next', next.has(e));
+    }
+  };
+  const offDom = window.__craftCMCore.onDomChange(sync, {attrs: ['class', 'style', 'hidden', 'data-mtype'], delay: 'raf'});
+  window.craftCellChains = {
+    sync,
+    disable() {
+      offDom();
+      document.querySelectorAll('.craft-chain-prev,.craft-chain-next').forEach(e => e.classList.remove('craft-chain-prev', 'craft-chain-next'));
+    }
+  };
+  sync();
+})();
+
+(() => {
+  window.craftActionMenus?.disable();
+  if (window.CRAFT_ACTION_MENUS === false) return;
+  let current = null, frame = null;
+  const {mountTpl, qsa, on, onDomChange} = window.__craftCMCore;
+  const menu = mountTpl('action_menu');
+  document.body.append(menu);
+  const close = (restore = false) => {
+    const trigger = current;
+    current = null;
+    trigger?.setAttribute('aria-expanded', 'false');
+    if (menu.matches(':popover-open')) menu.hidePopover();
+    if (restore && trigger?.isConnected) trigger.focus({preventScroll: true});
+  };
+  const open = trigger => {
+    if (current === trigger) return close(true);
+    close();
+    const card = trigger.closest('.msg-card');
+    const group = card.querySelector('.uk-card-header .uk-btn-group');
+    if (!group) return;
+    menu.replaceChildren();
+    for (const source of group.querySelectorAll('button,a')) {
+      if (source.hidden) continue;
+      const label = source.title || source.querySelector('[title]')?.getAttribute('title') || source.getAttribute('aria-label');
+      if (!label) continue;
+      menu.append(window.__craftCMCore.el('button', {
+        type: 'button', role: 'menuitem', disabled: source.disabled,
+        dataset: /^Delete/i.test(label) ? {danger: ''} : {},
+        onClick: e => {
+          e.stopPropagation();
+          close();
+          if (source.isConnected) source.click();
+          queueMicrotask(() => { if (document.activeElement === document.body && trigger.isConnected) trigger.focus({preventScroll: true}); });
+        },
+      }, label));
+    }
+    if (card.matches('.card-in[data-mtype="code"]') && window.craftC2) {
+      const cellEl = card.closest('.editable');
+      const cid = cellEl?.id?.replace(/^_/, '');
+      if (cid) {
+        menu.append(
+          window.__craftCMCore.el('hr', {cls: 'craft-action-sep'}),
+          window.__craftCMCore.el('button', {
+            type: 'button', role: 'menuitem',
+            onClick: e => { e.stopPropagation(); close(); window.craftC2.toggleLineNumbers?.(); },
+          }, `Line numbers: ${window.craftC2.lineNumbers?.() ? 'On' : 'Off'}`),
+        );
+      }
+    }
+    current = trigger;
+    trigger.setAttribute('aria-expanded', 'true');
+    menu.setAttribute('aria-label', trigger.getAttribute('aria-label'));
+    menu.showPopover();
+    const r = trigger.getBoundingClientRect();
+    menu.style.left = Math.max(8, Math.min(r.right - menu.offsetWidth, innerWidth - menu.offsetWidth - 8)) + 'px';
+    menu.style.top = Math.max(8, Math.min(r.bottom + 4, innerHeight - menu.offsetHeight - 8)) + 'px';
+    menu.querySelector('button:not(:disabled)')?.focus({preventScroll: true});
+  };
+  const sync = () => {
+    frame = null;
+    if (current && !current.isConnected) close();
+    for (const group of document.querySelectorAll('#dialog-container .msg-card > .uk-card-header .uk-btn-group')) {
+      const nav = group.closest('nav');
+      if (!nav) continue;
+      let shell = group;
+      while (shell.parentElement !== nav && shell.parentElement) shell = shell.parentElement;
+      if (shell === group && shell.parentElement !== nav) continue;
+      shell.classList.add('craft-action-source');
+      for (const button of nav.querySelectorAll(':scope > button[data-uk-toggle]')) button.classList.add('craft-old-action-toggle');
+      if (nav.querySelector(':scope > .craft-action-trigger')) continue;
+      const trigger = mountTpl('action_trigger');
+      const card = nav.closest('.msg-card');
+      trigger.setAttribute('aria-label', card.classList.contains('card-out') ? 'Output actions' : 'Input actions');
+      on(trigger, {
+        click: e => { e.stopPropagation(); open(trigger); },
+        keydown: e => { if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); open(trigger); } },
+      });
+      nav.append(trigger);
+    }
+  };
+  const keys = e => {
+    if (!current) return;
+    if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); close(true); return; }
+    if (!menu.contains(e.target)) return;
+    e.stopImmediatePropagation();
+    const items = qsa('button:not(:disabled)', menu);
+    const i = items.indexOf(document.activeElement);
+    if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) {
+      e.preventDefault();
+      const j = e.key === 'Home' ? 0 : e.key === 'End' ? items.length-1 : (i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+      items[j]?.focus();
+    }
+  };
+  const focus = e => { if (current && !menu.contains(e.target) && e.target !== current) close(); };
+  const toggled = () => { if (!menu.matches(':popover-open') && current) close(); };
+  const ac = new AbortController(), sig = {signal: ac.signal}, cap = {capture: true, signal: ac.signal};
+  const offDom = onDomChange(sync, {delay: 'raf', inDialog: true});
+  on(document, 'keydown', keys, cap);
+  on(document, {focusin: focus, 'htmx:beforeSwap': () => close()}, sig);
+  on(menu, 'toggle', toggled, sig);
+  window.craftActionMenus = {
+    sync,
+    close,
+    disable() {
+      offDom();
+      close();
+      ac.abort();
+      qsa('.craft-action-trigger').forEach(e => e.remove());
+      qsa('.craft-action-source,.craft-old-action-toggle').forEach(e => e.classList.remove('craft-action-source', 'craft-old-action-toggle'));
+      menu.remove();
+    }
+  };
+  sync();
+})();
+
+
+(() => {
+  const {mountTpl, qsa, on, onDomChange} = window.__craftCMCore;
+  const preserved = qsa('.editable.craft-omitted').map(e => e.id);
+  window.craftOmit?.disable();
+  const omitted = new Set(preserved), markers = new Map();
+  let frame, approach = 1;
+  const root = () => document.getElementById('dialog-container');
+  const cells = () => qsa(':scope > .editable', root());
+  const eligible = e => !e.hidden && !e.matches('.filter-hidden,.heading-hidden,.hidden');
+  const marker = () => document.activeElement?.closest('.craft-omit-marker');
+  const blocked = () => window.__craftCMCore.typingBlocked();
+  const selected = () => cells().filter(e => e.matches('[data-sm="primary"],[data-sm="secondary"]') && e.offsetParent !== null);
+  const clearSelection = () => document.querySelectorAll('[data-sm="primary"],[data-sm="secondary"]').forEach(e => e.setAttribute('data-sm', 'unselected'));
+  const choose = (e, direction = 1) => {
+    if (!e) return;
+    approach = direction;
+    if (e.matches('.craft-omit-marker')) {
+      clearSelection();
+      e.focus({preventScroll: true});
+      e.scrollIntoView({block: 'nearest'});
+    } else {
+      marker()?.blur();
+      window.selectMsg(window.$(e));
+      document.activeElement?.closest('.craft-omit-marker')?.blur();
+    }
+  };
+  const restore = button => {
+    const ids = JSON.parse(button.dataset.omitIds);
+    ids.forEach(id => { omitted.delete(id); window.craftParts?.restoreCell(id); });
+    const target = document.getElementById(approach < 0 ? ids.at(-1) : ids[0]);
+    sync();
+    if (target) choose(target);
+    return true;
+  };
+  const sync = () => {
+    frame = null;
+    const all = cells(), runs = [];
+    let run;
+    for (const e of all) {
+      const hide = omitted.has(e.id) || !!window.craftParts?.fullyHidden(e);
+      if (e.classList.contains('craft-omitted') !== hide) e.classList.toggle('craft-omitted', hide);
+      if (!eligible(e) || !hide) { run = null; continue; }
+      if (!run) { run = []; runs.push(run); }
+      run.push(e);
+    }
+    const keys = new Set();
+    for (const group of runs) {
+      const key = group[0].id, ids = group.map(e => e.id);
+      keys.add(key);
+      let button = markers.get(key);
+      if (!button) {
+        button = mountTpl('omit_marker');
+        on(button, {click: () => restore(button), focus: clearSelection});
+        markers.set(key, button);
+      }
+      const text = `▸ ${ids.length}`, label = `Expand ${ids.length} omitted ${ids.length === 1 ? 'cell' : 'cells'}`;
+      if (button.textContent !== text) button.textContent = text;
+      if (button.getAttribute('aria-label') !== label) {
+        button.setAttribute('aria-label', label);
+        button.title = label + ' · Right arrow, Enter, or Omit';
+      }
+      button.setAttribute('aria-expanded', 'false');
+      button.dataset.omitIds = JSON.stringify(ids);
+      if (button.nextElementSibling !== group[0]) group[0].before(button);
+    }
+    for (const [key, button] of markers) {
+      if (keys.has(key)) continue;
+      const focused = document.activeElement === button;
+      const ids = JSON.parse(button.dataset.omitIds);
+      button.remove();
+      markers.delete(key);
+      if (focused) {
+        const replacement = [...markers.values()].find(b => JSON.parse(b.dataset.omitIds).some(id => ids.includes(id)));
+        replacement?.focus();
+      }
+    }
+    window.craftCellChains?.sync();
+  };
+  const toggle = () => {
+    if (blocked()) return false;
+    if (marker()) return restore(marker());
+    const targets = selected();
+    if (!targets.length) return false;
+    const editing = document.getElementById('id_')?.value;
+    if (targets.some(e => e.dataset.editing === 'true' || e.id === '_' + editing)) {
+      window.UIkit?.notification('Finish editing the cell before omitting it.', {status: 'warning'});
+      return true;
+    }
+    targets.forEach(e => omitted.add(e.id));
+    sync();
+    const button = [...markers.values()].find(b => JSON.parse(b.dataset.omitIds).includes(targets[0].id));
+    choose(button);
+    return true;
+  };
+  const stop = e => { e.preventDefault(); e.stopImmediatePropagation(); };
+  const keys = e => {
+    if (blocked() || e.isComposing) return;
+    const current = marker();
+    if (!e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+      if (current && ['ArrowRight', 'Enter', ' '].includes(e.key)) { stop(e); restore(current); return; }
+      const direction = ['ArrowDown','j'].includes(e.key) ? 1 : ['ArrowUp','k'].includes(e.key) ? -1 : 0;
+      if (direction) {
+        const visible = [...(root()?.children || [])].filter(n => n.matches('.editable,.craft-omit-marker') && n.offsetParent !== null);
+        const active = current || document.querySelector('#dialog-container > [data-sm="primary"]');
+        const index = visible.indexOf(active), next = visible[index + direction];
+        if (current || next?.matches('.craft-omit-marker')) { stop(e); choose(next, direction); return; }
+      }
+      if (current && ['Home','End'].includes(e.key)) {
+        const visible = [...root().children].filter(n => n.matches('.editable,.craft-omit-marker') && n.offsetParent !== null);
+        stop(e); choose(e.key === 'Home' ? visible[0] : visible.at(-1)); return;
+      }
+    }
+    if (current && e.key !== 'Tab') stop(e);
+  };
+  const pointer = e => { if (marker() && !e.target.closest('.craft-omit-marker')) marker().blur(); };
+  const ac = new AbortController();
+  const offDom = onDomChange(sync, {attrs: ['class', 'hidden', 'data-sm-header'], delay: 'raf', inDialog: true});
+  on(document, {keydown: keys, pointerdown: pointer}, {capture: true, signal: ac.signal});
+  window.__hotkeyRegister?.({id: 'cell-omit', label: 'Toggle omit cells', group: 'Dialog · Presentation', combo: 'u', handler: () => window.craftOmit?.toggle() === true});
+  window.craftOmit = {
+    toggle, sync,
+    disable() {
+      offDom();
+      ac.abort();
+      markers.forEach(b => b.remove());
+      cells().forEach(e => e.classList.remove('craft-omitted'));
+      window.craftCellChains?.sync();
+    }
+  };
+  sync();
+})();
+
+
+(() => {
+  window.craftParts?.disable();
+  const states = new Map(), controls = new Map(), pending = new Map();
+  const originals = window.solveitHotkeys?.list().filter(s => ['si-i','si-o'].includes(s.id)) || [];
+  let bypass = false, frame;
+  const {qsa, on, onDomChange} = window.__craftCMCore;
+  const cells = () => qsa('#dialog-container > .editable');
+  const card = (e, side) => e.querySelector(side === 'input' ? ':scope > .card-in' : ':scope > .card-out');
+  const button = (e, side) => card(e, side)?.querySelector('[hx-post="/collapse_"]');
+  const present = (e, side) => side === 'input' ? !!card(e, side) : !!card(e, side)?.querySelector('.msg-body');
+  const blocked = () => window.__craftCMCore.typingBlocked();
+  const busy = e => e.dataset.editing === 'true' || e.id === '_' + document.getElementById('id_')?.value;
+  const waiting = (e, side) => {
+    const key = e.id + side, p = pending.get(key);
+    if (p && (p.collapsed !== !!card(e, side)?.classList.contains('collapsed') || performance.now() > p.until)) pending.delete(key);
+    return pending.has(key);
+  };
+  const native = (e, side) => {
+    const b = button(e, side);
+    if (!b || waiting(e, side)) return;
+    const selection = cells().map(n => [n, n.getAttribute('data-sm')]);
+    window.selectMsg($(e), {scroll: false});
+    pending.set(e.id + side, {collapsed: !!card(e, side)?.classList.contains('collapsed'), until: performance.now() + 5000});
+    bypass = true;
+    try { b.click(); }
+    finally {
+      bypass = false;
+      selection.forEach(([n, value]) => value === null ? n.removeAttribute('data-sm') : n.setAttribute('data-sm', value));
+    }
+  };
+  const restore = (id, side) => {
+    const state = states.get(id), e = document.getElementById(id);
+    if (!state || !e) return;
+    state.hidden.delete(side);
+    if (!state.hidden.size) states.delete(id);
+    sync();
+    if (card(e, side)?.classList.contains('collapsed')) native(e, side);
+    window.selectMsg($(e), {scroll: false});
+  };
+  const restoreCell = id => {
+    const state = states.get(id);
+    if (state) restore(id, state.last);
+  };
+  const fullyHidden = e => {
+    const state = states.get(e.id);
+    return !!state && ['input','output'].filter(s => present(e, s)).every(s => state.hidden.has(s));
+  };
+  const focusMarker = id => {
+    const b = [...document.querySelectorAll('.craft-omit-marker')].find(n => JSON.parse(n.dataset.omitIds).includes(id));
+    b?.focus({preventScroll: true});
+  };
+  const sync = () => {
+    frame = null;
+    const live = new Set();
+    for (const e of cells()) {
+      const state = states.get(e.id), full = fullyHidden(e);
+      for (const side of ['input','output']) {
+        const c = card(e, side), hidden = !!state?.hidden.has(side), key = e.id + ':' + side;
+        if (c && c.classList.contains('craft-part-hidden') !== hidden) c.classList.toggle('craft-part-hidden', hidden);
+        if (!hidden || !c || full) continue;
+        live.add(key);
+        let b = controls.get(key);
+        if (!b) {
+          b = window.__craftCMCore.el('button', {
+            type: 'button', cls: 'craft-part-restore', title: `Restore ${side}`,
+            'aria-label': `Restore ${side}`, onClick: () => restore(e.id, side),
+          }, side === 'input' ? '⌃' : '⌄');
+          controls.set(key, b);
+        }
+        if (side === 'input') {
+          const output = card(e, 'output');
+          if (output && b.nextElementSibling !== output) output.before(b);
+        } else if (b.previousElementSibling !== card(e, 'input')) card(e, 'input')?.after(b);
+      }
+    }
+    for (const [key, b] of controls) if (!live.has(key)) { b.remove(); controls.delete(key); }
+    window.craftOmit?.sync();
+  };
+  const cycleOne = (e, side) => {
+    if (!present(e, side) || waiting(e, side)) return;
+    if (busy(e)) {
+      window.UIkit?.notification('Finish editing before minimizing this cell.', {status: 'warning'});
+      return;
+    }
+    const state = states.get(e.id);
+    if (state?.hidden.has(side)) { restore(e.id, side); return; }
+    if (!card(e, side).classList.contains('collapsed')) { native(e, side); return; }
+    const next = state || {hidden: new Set(), last: side};
+    next.hidden.add(side);
+    next.last = side;
+    states.set(e.id, next);
+    sync();
+    if (fullyHidden(e)) focusMarker(e.id);
+  };
+  const cycle = side => {
+    if (blocked()) return false;
+    const marker = document.activeElement?.closest('.craft-omit-marker');
+    if (marker) {
+      for (const id of JSON.parse(marker.dataset.omitIds)) if (states.get(id)?.hidden.has(side)) restore(id, side);
+      return true;
+    }
+    const selected = cells().filter(e => e.matches('[data-sm="primary"],[data-sm="secondary"]') && e.offsetParent !== null);
+    selected.forEach(e => cycleOne(e, side));
+    return !!selected.length;
+  };
+  const click = event => {
+    if (bypass) return;
+    const b = event.target.closest('[hx-post="/collapse_"]');
+    const c = b?.closest('.msg-card'), e = c?.closest('.editable');
+    if (!e) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    cycleOne(e, c.classList.contains('card-in') ? 'input' : 'output');
+  };
+  const finished = event => {
+    const b = event.detail?.elt?.closest?.('[hx-post="/collapse_"]');
+    const c = b?.closest('.msg-card'), e = c?.closest('.editable');
+    if (e) pending.delete(e.id + (c.classList.contains('card-in') ? 'input' : 'output'));
+  };
+  const ac = new AbortController();
+  const offDom = onDomChange(sync, {attrs: ['class'], delay: 'raf', inDialog: true});
+  on(document, 'click', click, {capture: true, signal: ac.signal});
+  on(document, 'htmx:afterRequest', finished, {signal: ac.signal});
+  window.__hotkeyRegister?.({id: 'si-i', label: 'Cycle input: expanded / collapsed / hidden', group: 'Solveit · Dialog (selection mode)', combo: 'i', handler: () => cycle('input')});
+  window.__hotkeyRegister?.({id: 'si-o', label: 'Cycle output: expanded / collapsed / hidden', group: 'Solveit · Dialog (selection mode)', combo: 'o', handler: () => cycle('output')});
+  window.craftParts = {
+    cycle, sync, fullyHidden, restoreCell,
+    disable() {
+      offDom();
+      ac.abort();
+      controls.forEach(b => b.remove());
+      states.clear();
+      qsa('.craft-part-hidden').forEach(c => c.classList.remove('craft-part-hidden'));
+      originals.forEach(s => window.__hotkeyRegister?.({...s, handler: () => true}));
+      window.craftOmit?.sync();
+    }
+  };
+  sync();
+})();
+
+
+(() => {
+  window.craftInsertPreview?.disable();
+  if (!document.getElementById('dialog-container')) return;
+  const types = {Code: 1, Note: 1, Raw: 1, Prompt: 1};
+  const icon = name => window.__craftTpl?.[`cell_icon_${name}`] || '';
+  const key = 'craft-insert-preview:v1:' + (new URLSearchParams(location.search).get('name') || location.pathname);
+  const {mountTpl, qs, qsa, on, store, patch, onDomChange} = window.__craftCMCore;
+  const ac = new AbortController(), sig = {signal: ac.signal}, cap = {capture: true, signal: ac.signal};
+  const trigger = mountTpl('insert_trigger'), menu = mountTpl('insert_menu');
+  let current;
+  const select = name => {
+    current = name;
+    const title = `A/B inserts: ${name}`;
+    patch(trigger, {innerHTML: icon(name), title, 'aria-label': title});
+    for (const option of qsa('button', menu)) option.setAttribute('aria-pressed', String(option.dataset.kind === name));
+  };
+  const saved = store.get(key);
+  select(Object.hasOwn(types, saved) ? saved : document.getElementById('default_code')?.checked ? 'Code' : 'Prompt');
+  let scroller;
+  const position = () => {
+    if (!scroller) return;
+    const rect = scroller.getBoundingClientRect();
+    trigger.hidden = !rect.width || !rect.height;
+    Object.assign(trigger.style, {left: 'auto', right: '42px', top: '6px'});
+    Object.assign(menu.style, {right: '10px', top: '36px'});
+    window.craftMobile?.reposition?.();
+  };
+  const resize = new ResizeObserver(position);
+  const sync = () => {
+    const next = document.getElementById('dialog-container');
+    if (scroller === next) return;
+    if (scroller) {
+      resize.unobserve(scroller);
+      scroller.classList.remove('craft-insert-preview');
+    }
+    scroller = next;
+    if (!scroller) { trigger.hidden = true; return; }
+    scroller.classList.add('craft-insert-preview');
+    resize.observe(scroller); position();
+  };
+  const choose = name => {
+    select(name);
+    store.set(key, name);
+  };
+  const activeCells = () => qsa('.editable:is([data-sm="primary"],[data-sm="secondary"])', scroller).filter(el => el.getClientRects().length);
+  const cellType = el => el?.querySelector('.card-in[data-mtype]')?.dataset.mtype;
+  const editorCell = () => (document.querySelector('#full_editor #id_')?.value || '').replace(/^_/, '');
+  const notify = error => {
+    console.error('CRAFT insertion:', error);
+    window.UIkit?.notification?.({message: error.message, status: 'danger'});
+  };
+  const waitFor = (check, timeout = 5000) => {
+    const immediate = check();
+    if (immediate) return Promise.resolve(immediate);
+    return new Promise(resolve => {
+      let done = false;
+      const finish = val => {
+        if (done) return;
+        done = true;
+        offDomWait();
+        clearInterval(tick);
+        clearTimeout(cap);
+        resolve(val);
+      };
+      const probe = () => { const r = check(); if (r) finish(r); };
+      const offDomWait = onDomChange(probe, {attrs: ['data-mtype', 'class', 'hidden', 'data-editing'], delay: 0});
+      const tick = setInterval(probe, 100);
+      const cap = setTimeout(() => finish(null), timeout);
+    });
+  };
+  const setType = async (id, type) => {
+    if (cellType(document.getElementById(id)) !== type) {
+      await window.__craftCMCore.htmxPost('/set_mtyp_', {id_: id, ids: id, mtyp: type});
+      if (!(await waitFor(() => cellType(document.getElementById(id)) === type))) throw new Error(`Could not switch cell to ${type}.`);
+    }
+  };
+  const blocked = () => window.__craftCMCore.typingBlocked('.cm-editor,#craft-insert-preview-menu');
+  let busy = false;
+  const execute = action => {
+    if (!busy) {
+      busy = true;
+      Promise.resolve().then(action).catch(notify).finally(() => { busy = false; });
+    }
+    return true;
+  };
+  const mode = name => {
+    if (blocked()) return false;
+    choose(name);
+    const cells = activeCells();
+    if (cells.length !== 1) return true;
+    return execute(async () => { await setType(cells[0].id, name.toLowerCase()); });
+  };
+  // opts.type ('Code'|'Note'|'Prompt'|'Raw') overrides the picker; opts.cell targets a cell other than the
+  // selection; opts.force skips the focus guard (the mobile toolbar has already closed any editor).
+  const insert = (where, opts = {}) => {
+    if (!opts.force && blocked()) return false;
+    const primary = opts.cell || activeCells().find(el => el.dataset.sm === 'primary');
+    const button = primary?.querySelector(`[hx-post="/add_${where}_"]`);
+    if (!button) return true;
+    const name = Object.hasOwn(types, opts.type || '') ? opts.type : current;
+    return execute(async () => {
+      const type = name.toLowerCase(), old = new Set([...scroller.querySelectorAll('.editable[id]')].map(el => el.id));
+      if (!window.craftC2?.guardNonCodeInsertion) throw new Error('Reload this dialog to enable typed insertion.');
+      if (type === 'code') {
+        if (!window.craftC2?.expectCodeInsertion) throw new Error('Reload this dialog to enable C2 insertion.');
+        window.craftC2.expectCodeInsertion();
+      }
+      const release = type !== 'code' ? window.craftC2.guardNonCodeInsertion(old) : null;
+      const unhide = window.craftIdleComposer?.holdForInsertion();
+      const ph = window.__craftCMCore.mountTpl('insert_placeholder');
+      if (where === 'above') primary.before(ph); else primary.after(ph);
+      let id = null;
+      try {
+        button.dispatchEvent(new MouseEvent('click', {bubbles:false}));
+        id = await waitFor(() => {
+          const editing = editorCell(), id = '_' + editing;
+          if (editing && !old.has(id) && document.getElementById(id)) return id;
+          if (type === 'code') return [...scroller.querySelectorAll('.editable[id]')].find(el => !old.has(el.id) && window.craftC2?.manages(el.id))?.id;
+        });
+        if (!id) throw new Error(`Could not confirm ${name} insertion.`);
+        if (type === 'code') {
+          if (!(await waitFor(() => cellType(document.getElementById(id)) === 'code' && editorCell() !== id.slice(1) && Boolean(document.getElementById(id)?.querySelector('.craft-c2-host'))))) throw new Error('Could not confirm C2 handoff.');
+        } else {
+          await setType(id, type);
+          const cancel = await waitFor(() => {
+            if (editorCell() !== id.slice(1) || window.edValue?.()) return true;
+            const btn = document.getElementById('cancel_btn');
+            return btn && !btn.disabled ? btn : null;
+          });
+          if (!cancel) throw new Error('Could not close the insertion composer.');
+          if (cancel && cancel !== true) {
+            const field = document.querySelector('#full_editor #msg_type');
+            if (field) field.value = type;
+            cancel.click();
+            if (!(await waitFor(() => editorCell() !== id.slice(1)))) throw new Error('Could not close the insertion composer.');
+            if (cellType(document.getElementById(id)) !== type) throw new Error(`New cell did not retain type ${type}.`);
+          }
+        }
+      } finally { ph.remove(); release?.(); unhide?.(); }
+      if (id) {
+        document.getElementById(id)?.scrollIntoView({block: 'nearest'});
+        if (type === 'code') {
+          if (!document.activeElement?.closest?.(`#${id} .craft-c2-host`)) window.craftC2?.edit?.(id, {anchor: 0, head: 0});
+        } else if (!document.activeElement?.closest?.(`#${id} .craft-md-host`)) {
+          window.craftMd?.edit?.(id, {toEnd: true});
+        }
+      }
+    });
+  };
+  const defs = [
+    ['si-a', 'a', 'Add message above', () => insert('above')],
+    ['si-b', 'b', 'Add message below', () => insert('below')],
+    ...['Code','Note','Prompt','Raw'].map((name,i) => [`si-mode-${name.toLowerCase()}`, `Mod+Shift+${'JKL;'[i]}`, `Switch message to ${name.toLowerCase()}`, () => mode(name)]),
+  ].map(([id,combo,label,handler]) => ({id,combo,label,handler,group:'Solveit · Dialog (selection mode)'}));
+  const registerBindings = () => defs.forEach(spec => window.__hotkeyRegister?.(spec));
+  const builtins = qs('script[data-solveit-hotkeys="builtins"]');
+  on(builtins, 'load', registerBindings, {once: true, signal: ac.signal});
+  registerBindings();
+  on(menu, 'click', e => {
+    const option = e.target.closest('button[data-kind]');
+    if (!option) return;
+    choose(option.dataset.kind);
+    menu.hidePopover(); trigger.focus();
+  }, sig);
+  document.body.append(trigger, menu);
+  const KIND_MAP = {code: 'Code', note: 'Note', prompt: 'Prompt', raw: 'Raw'};
+  const onHtmxConfig = e => {
+    const path = e.detail?.path || '';
+    const mtyp = e.detail?.parameters?.mtyp || e.detail?.parameters?.msg_type;
+    if ((path.includes('set_mtyp') || path.includes('upsert_msg')) && mtyp && KIND_MAP[String(mtyp).toLowerCase()]) {
+      choose(KIND_MAP[String(mtyp).toLowerCase()]);
+    }
+  };
+  const onTabClick = e => {
+    const tab = e.target?.closest?.('#full_editor [role="tab"], #full_editor button');
+    const name = tab && KIND_MAP[(tab.textContent || '').trim().toLowerCase()];
+    if (name) choose(name);
+  };
+  on(document, 'htmx:configRequest', onHtmxConfig, sig);
+  on(document, 'click', onTabClick, cap);
+  const offDom = onDomChange(sync, {delay: 0});
+  on(window, 'resize', position, sig);
+  window.craftInsertPreview = {
+    insert: (where, opts) => insert(where, opts),
+    choose,
+    setType,
+    type: () => current,
+    isBusy: () => busy,
+    disable() {
+    ac.abort();
+    offDom(); resize.disconnect();
+    defs.forEach(spec => window.__hotkeyRegister?.({...spec, builtin:true, handler:() => true}));
+    scroller?.classList.remove('craft-insert-preview');
+    trigger.remove(); menu.remove(); delete window.craftInsertPreview;
+  }};
+  sync();
+})();
+
+
+(() => {
+  window.craftInlineNote?.disable?.();
+  window.craftInlineText?.disable?.();
+  if (!document.getElementById('dialog-container')) return;
+  if (!document.querySelector('script[data-craft-md="1"]')) {
+    const s = document.createElement('script');
+    s.src = '/static/.craft-assets/craft_md.js';
+    s.dataset.craftMd = '1';
+    document.head.append(s);
+  }
+})();
+
+(() => {
+  window.craftImageDrop?.disable();
+  const {qs, on} = window.__craftCMCore;
+  const target = e => {
+    if (e.target.closest?.('.monaco-editor')) return;
+    return e.target.closest?.('#dialog-container > .editable > .card-in:is([data-mtype="code"],[data-mtype="note"],[data-mtype="prompt"])');
+  };
+  const field = id => qs(`#full_editor #${id}`)?.value;
+  const editorId = () => (field('id_') || '').replace(/^_/, '');
+  const model = () => window.editor?.getModel();
+  const notify = message => window.UIkit?.notification?.({message, status: 'warning'});
+  let busy = false, disabled = false;
+  const dragover = e => {
+    if (!target(e)) return;
+    const items = [...(e.dataTransfer?.items || [])];
+    if (!items.some(i => i.kind === 'file' && (!i.type || i.type.startsWith('image/'))) && (items.length || !e.dataTransfer?.types.includes('Files'))) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  };
+  const attach = async (e, card, file) => {
+    if (typeof window.handleBlob !== 'function') return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (busy) return notify('Wait for the current image upload to finish.');
+    const cell = card.parentElement, id = cell.id.slice(1), kind = card.dataset.mtype;
+    const priorModel = model();
+    const ready = () => editorId() === id && field('is_input') === '1' && field('msg_type') === kind && model() && !model().uri.path.endsWith('/temp');
+    busy = true;
+    try {
+      if (!ready()) {
+        if (editorId() || window.edValue?.()) return notify('Finish editing the open cell before attaching an image to another cell.');
+        if (window.craftC2?.active?.() === id) await window.craftC2.exit(id);
+        if (window.craftMd?.active?.() === `${id}:in`) await window.craftMd.exit(id, 'in');
+        const btn = card.querySelector('[hx-post="/editor_"]');
+        if (btn) { btn.dataset.craftAllowMonaco = '1'; btn.click(); delete btn.dataset.craftAllowMonaco; }
+        for (let i = 0; i < 100 && !disabled && !(ready() && model() !== priorModel); i++) await new Promise(resolve => setTimeout(resolve, 50));
+        if (disabled) return;
+        if (!ready() || model() === priorModel) return notify('Could not open the cell to attach the image.');
+      }
+      window.craftIdleComposer?.reveal();
+      window.editor.focus();
+      const ext = file.name.match(/\.([^.]+)$/)?.[1] || file.type.split('/')[1] || 'png';
+      await window.handleBlob(file, ext, true, file.name);
+    } catch (err) {
+      console.error('CRAFT image attachment:', err);
+      notify('Could not attach the image.');
+    } finally { busy = false; }
+  };
+  const drop = e => {
+    const card = target(e), file = e.dataTransfer?.files[0];
+    if (card && file?.type.startsWith('image/')) attach(e, card, file);
+  };
+  const ac = new AbortController();
+  on(window, {dragover, drop}, {capture: true, signal: ac.signal});
+  window.craftImageDrop = {disable() {
+    disabled = true;
+    ac.abort();
+    delete window.craftImageDrop;
+  }};
+})();
+
+/* ── Progressive table enhancer (wrap, numeric align, flat-table sort, copy TSV) ── */
+(() => {
+  const NUM_RE = /^[-+\u2212]?[$€£¥]?\s*\d[\d,_]*(?:\.\d+)?(?:[eE][+-]?\d+)?%?$/;
+  const EMPTY_RE = /^(?:|nan|na|n\/a|null|none|-|\u2014)$/i;
+  const parseNum = s => {
+    const t = s.trim();
+    if (!t || EMPTY_RE.test(t)) return null;
+    if (!NUM_RE.test(t)) return NaN;
+    return parseFloat(t.replace(/[\u2212]/g, '-').replace(/[$€£¥,\s_%]/g, ''));
+  };
+
+  const enhanceTable = tbl => {
+    if (!tbl || tbl.dataset.craftTable) return;
+    tbl.dataset.craftTable = '1';
+
+    // 1. Wrap in a keyboard-scrollable container if not already wrapped
+    let wrap = tbl.parentElement;
+    if (!wrap?.classList.contains('craft-table-wrap')) {
+      wrap = window.__craftCMCore.mountTpl('table_wrap');
+      tbl.parentNode.insertBefore(wrap, tbl);
+      wrap.appendChild(tbl);
+    }
+
+    const headRows = [...tbl.querySelectorAll(':scope > thead > tr')];
+    const tbody = tbl.querySelector(':scope > tbody');
+    const bodyRows = tbody ? [...tbody.querySelectorAll(':scope > tr')] : [];
+    const hasSpans = [...tbl.querySelectorAll('th, td')].some(c => c.colSpan > 1 || c.rowSpan > 1);
+
+    // 2. Detect numeric columns and right-align both header and cells
+    if (!hasSpans && bodyRows.length) {
+      const sample = bodyRows.slice(0, 40);
+      const colCount = sample[0].children.length;
+      const headCells = headRows.length === 1 ? [...headRows[0].children] : null;
+      for (let col = 0; col < colCount; col++) {
+        let numHits = 0, nonEmpty = 0;
+        for (const row of sample) {
+          const cell = row.children[col];
+          if (!cell || cell.tagName === 'TH') continue;
+          const v = parseNum(cell.textContent || '');
+          if (v === null) continue;
+          nonEmpty++;
+          if (!Number.isNaN(v)) numHits++;
+        }
+        if (nonEmpty > 0 && numHits === nonEmpty) {
+          for (const row of bodyRows) row.children[col]?.classList.add('craft-num');
+          if (headCells && headCells[col]) headCells[col].classList.add('craft-num');
+        }
+      }
+    } else if (hasSpans && bodyRows.length) {
+      // MultiIndex: align numeric <td> cells (and matching top-row headers) without disturbing rowspan
+      for (const row of bodyRows) {
+        for (const cell of row.children) {
+          if (cell.tagName !== 'TD') continue;
+          const v = parseNum(cell.textContent || '');
+          if (v !== null && !Number.isNaN(v)) cell.classList.add('craft-num');
+        }
+      }
+      if (headRows.length && headRows[0].children.length === bodyRows[0].children.length) {
+        for (let col = 0; col < bodyRows[0].children.length; col++) {
+          if (bodyRows[0].children[col]?.classList.contains('craft-num')) {
+            headRows[0].children[col]?.classList.add('craft-num');
+          }
+        }
+      }
+    }
+
+    // 3. Click/keyboard sort on flat tables (>= 2 rows, single header row, no spans)
+    if (!hasSpans && headRows.length === 1 && bodyRows.length >= 2) {
+      const origOrder = bodyRows.slice();
+      const ths = [...headRows[0].children];
+      ths.forEach((th, colIdx) => {
+        if (!(th.textContent || '').trim()) return;
+        th.classList.add('craft-sort');
+        th.tabIndex = 0;
+        th.setAttribute('aria-sort', 'none');
+        const toggle = () => {
+          const cur = th.getAttribute('aria-sort');
+          const next = cur === 'ascending' ? 'descending' : cur === 'descending' ? 'none' : 'ascending';
+          for (const other of ths) if (other !== th && other.classList.contains('craft-sort')) other.setAttribute('aria-sort', 'none');
+          th.setAttribute('aria-sort', next);
+          if (next === 'none') {
+            tbody.append(...origOrder);
+            return;
+          }
+          const dir = next === 'ascending' ? 1 : -1;
+          const isNum = th.classList.contains('craft-num');
+          const sorted = origOrder.slice().sort((a, b) => {
+            const ta = (a.children[colIdx]?.textContent || '').trim();
+            const tb = (b.children[colIdx]?.textContent || '').trim();
+            if (isNum) {
+              const na = parseNum(ta), nb = parseNum(tb);
+              const va = (na === null || Number.isNaN(na)) ? Infinity : na;
+              const vb = (nb === null || Number.isNaN(nb)) ? Infinity : nb;
+              return (va - vb) * dir;
+            }
+            return ta.localeCompare(tb, undefined, { numeric: true, sensitivity: 'base' }) * dir;
+          });
+          tbody.append(...sorted);
+        };
+        th.addEventListener('click', toggle);
+        th.addEventListener('keydown', e => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+        });
+      });
+    }
+
+    // 4. Subtle Copy TSV button on output tables
+    if (tbl.closest('.card-out') && !wrap.querySelector(':scope > .craft-table-copy')) {
+      const btn = window.__craftCMCore.mountTpl('table_copy_btn');
+      btn.addEventListener('click', async e => {
+        e.stopPropagation();
+        const rows = [...tbl.querySelectorAll('tr')].map(tr =>
+          [...tr.children].map(c => (c.textContent || '').replace(/[\t\r\n]+/g, ' ').trim()).join('\t')
+        ).join('\n');
+        try {
+          await navigator.clipboard.writeText(rows);
+          btn.textContent = 'Copied';
+          btn.classList.add('is-copied');
+          setTimeout(() => { btn.textContent = 'Copy TSV'; btn.classList.remove('is-copied'); }, 1400);
+        } catch {}
+      });
+      wrap.insertBefore(btn, tbl);
+    }
+  };
+
+  const enhanceAll = () => {
+    for (const tbl of document.querySelectorAll('#dialog-container .msg-content table:not([data-craft-table])')) {
+      enhanceTable(tbl);
+    }
+  };
+  const start = () => {
+    window.__craftCMCore.onDomChange(enhanceAll, {delay: 80, inDialog: true});
+    enhanceAll();
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+  else start();
+  window.craftTables = { enhance: enhanceAll, disable() { mo.disconnect(); clearTimeout(timer); } };
+})();
+
+/* ── Accessibility: mirror uk-tooltip & fallback aria-labels on icon controls ── */
+(() => {
+  const extractTip = raw => {
+    if (!raw) return '';
+    const s = String(raw).trim();
+    const m = s.match(/(?:^|;)\s*title\s*:\s*([^;]+)/i);
+    return (m ? m[1] : s).replace(/<[^>]*>/g, '').trim();
+  };
+  const labelControls = (root = document) => {
+    // 1. Any interactive element carrying uk-tooltip / data-uk-tooltip without an accessible name
+    for (const el of root.querySelectorAll('[uk-tooltip], [data-uk-tooltip]')) {
+      if (!el.matches('button, a, input, select, textarea')) continue;
+      if (el.hasAttribute('aria-label') || el.hasAttribute('aria-labelledby')) continue;
+      const tip = extractTip(el.getAttribute('uk-tooltip') || el.getAttribute('data-uk-tooltip'));
+      if (tip) el.setAttribute('aria-label', tip);
+    }
+    // 2. #find-box controls (checkboxes wrapped in <label uk-tooltip>, search/replace inputs)
+    const fb = root.getElementById ? root.getElementById('find-box') : root.querySelector?.('#find-box');
+    if (fb) {
+      for (const el of fb.querySelectorAll('input, button, select')) {
+        if (el.hasAttribute('aria-label') || el.hasAttribute('aria-labelledby')) continue;
+        const lbl = el.closest('label') || (el.id && fb.querySelector(`label[for="${CSS.escape(el.id)}"]`));
+        const tip = extractTip(
+          el.getAttribute('uk-tooltip') || el.getAttribute('data-uk-tooltip') ||
+          lbl?.getAttribute('uk-tooltip') || lbl?.getAttribute('data-uk-tooltip') ||
+          el.getAttribute('title') || lbl?.getAttribute('title')
+        );
+        const fallback = tip || (el.getAttribute('placeholder') || '').replace(/\.+$/, '').trim();
+        if (fallback) el.setAttribute('aria-label', fallback);
+      }
+    }
+    // 3. Navbar <select name="mode"> and Dialogs link
+    const nav = root.querySelector?.('.uk-container > nav.monster-navbar') || document.querySelector('.uk-container > nav.monster-navbar');
+    if (nav) {
+      const modeSel = nav.querySelector('select[name="mode"]');
+      if (modeSel && !modeSel.hasAttribute('aria-label')) modeSel.setAttribute('aria-label', 'AI mode');
+      const dlgsLink = nav.querySelector('a[href^="/?at="]');
+      if (dlgsLink && !dlgsLink.hasAttribute('aria-label') && !(dlgsLink.textContent || '').trim()) {
+        dlgsLink.setAttribute('aria-label', 'Dialogs');
+      }
+    }
+  };
+  let offDom = null;
+  const start = () => {
+    labelControls(document);
+    offDom = window.__craftCMCore.onDomChange(() => labelControls(document), {delay: 120});
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+  else start();
+  window.craftA11y = { refresh: () => labelControls(document), disable() { offDom?.(); } };
+})();
+
+/* ── Desktop UX: hover-edge drag-to-insert, click-margin escape, Shift+A/B seam picker & slash-morph ── */
+(() => {
+  window.craftDesktopUX?.disable?.();
+  if (!document.getElementById('dialog-container')) return;
+  const {mountTpl, on} = window.__craftCMCore;
+  const ac = new AbortController(), sig = {signal: ac.signal}, cap = {capture: true, signal: ac.signal};
+  const isMobile = () => !!window.craftMobile?.active?.();
+  const dialog = () => document.getElementById('dialog-container');
+  const CELL_TYPES = window.__craftCfg?.cell_types || ['Code', 'Note', 'Prompt', 'Raw'];
+  const KEY_TO_TYPE = window.__craftCfg?.key_to_type || {c: 'Code', n: 'Note', p: 'Prompt', r: 'Raw'};
+  const SLASH_RE = /^\/(c|code|n|note|p|prompt|r|raw)[ \t\n]$/i;
+  const SLASH_MAP = window.__craftCfg?.slash_map || {c: 'Code', code: 'Code', n: 'Note', note: 'Note', p: 'Prompt', prompt: 'Prompt', r: 'Raw', raw: 'Raw'};
+  /* Bottom hover-edge + handle on desktop (shown when hovering near bottom-center) */
+  const hBelow = mountTpl('desk_edge_below');
+  const syncHandleKinds = () => {
+    const t = window.craftInsertPreview?.type?.() || 'Code';
+    const k = hBelow.querySelector('.craft-desk-edge-kind');
+    if (k) k.innerHTML = window.__craftTpl?.[`desk_icon_${t}`] || window.__craftTpl?.desk_icon_Code || '';
+    hBelow.title = `Click to insert ${t} below · Drag to choose type`;
+  };
+
+  /* Shared 4-option fan picker for both drag-to-insert and Shift+A/B */
+  const picker = mountTpl('desk_picker');
+  document.body.append(picker);
+
+  let hostCell = null, pState = null; // {edge, cell, pointerId, startX, startY, dragged, hotType, keyMode}
+  const detachHandles = () => {
+    hBelow.removeAttribute('data-near');
+    hostCell?.classList.remove('craft-desk-host');
+    hBelow.remove();
+    hostCell = null;
+  };
+  const attachHandles = cell => {
+    if (isMobile() || !cell?.isConnected) { detachHandles(); return; }
+    if (cell === hostCell) { syncHandleKinds(); return; }
+    detachHandles();
+    hostCell = cell;
+    cell.classList.add('craft-desk-host');
+    syncHandleKinds();
+    cell.append(hBelow);
+  };
+  const setHot = type => {
+    if (pState) pState.hotType = type;
+    for (const b of picker.querySelectorAll('button[data-type]')) {
+      b.toggleAttribute('data-hot', b.dataset.type === type);
+    }
+  };
+  const closePicker = () => {
+    hBelow.removeAttribute('data-active');
+    picker.classList.remove('open');
+    setHot(null);
+    pState = null;
+  };
+  const positionPicker = (anchorRect, edge, hint) => {
+    picker.querySelector('.craft-desk-picker-head').textContent = hint || (edge === 'above' ? 'Insert above' : 'Insert below');
+    picker.classList.add('open');
+    const pw = picker.offsetWidth || 270, ph = picker.offsetHeight || 68;
+    const cx = anchorRect.left + anchorRect.width / 2;
+    const left = Math.max(8, Math.min(cx - pw / 2, innerWidth - pw - 8));
+    let top;
+    if (edge === 'above') {
+      const aboveTop = anchorRect.top - ph - 10;
+      top = aboveTop >= 8 ? aboveTop : Math.min(anchorRect.bottom + 10, innerHeight - ph - 8);
+    } else {
+      const belowTop = anchorRect.bottom + 10;
+      top = (belowTop + ph <= innerHeight - 8) ? belowTop : Math.max(8, anchorRect.top - ph - 10);
+    }
+    picker.style.left = Math.round(left) + 'px';
+    picker.style.top = Math.round(top) + 'px';
+  };
+  const hitOpt = (x, y) => {
+    const PAD = 8;
+    for (const b of picker.querySelectorAll('button[data-type]')) {
+      const r = b.getBoundingClientRect();
+      if (x >= r.left - PAD && x <= r.right + PAD && y >= r.top - PAD && y <= r.bottom + PAD) return b.dataset.type;
+    }
+    return null;
+  };
+  async function commitEditors() {
+    if (window.craftC2?.active?.()) await window.craftC2.exit();
+    if (window.craftMd?.active?.()) await window.craftMd.exit();
+  }
+  async function doInsert(edge, cell, type) {
+    if (type) window.craftInsertPreview?.choose?.(type);
+    syncHandleKinds();
+    await commitEditors();
+    window.craftInsertPreview?.insert?.(edge, {type: type || window.craftInsertPreview?.type?.(), cell, force: true});
+  }
+
+  const onHandleDown = e => {
+    if (isMobile() || e.button !== 0) return;
+    const handle = e.currentTarget;
+    const cell = handle.closest('#dialog-container > .editable[id]');
+    if (!cell) return;
+    e.preventDefault(); e.stopPropagation();
+    closePicker();
+    const edge = handle.dataset.edge;
+    handle.dataset.active = 'true';
+    handle.setPointerCapture?.(e.pointerId);
+    pState = {edge, cell, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, dragged: false, hotType: null, keyMode: false};
+  };
+  const onHandleMove = e => {
+    if (!pState || e.pointerId !== pState.pointerId || pState.keyMode) return;
+    const dist = Math.hypot(e.clientX - pState.startX, e.clientY - pState.startY);
+    if (!pState.dragged && dist > 6) {
+      pState.dragged = true;
+      positionPicker(e.currentTarget.getBoundingClientRect(), pState.edge, `Drop to insert ${pState.edge} & set default`);
+    }
+    if (pState.dragged) setHot(hitOpt(e.clientX, e.clientY));
+  };
+  const onHandleUp = e => {
+    if (!pState || e.pointerId !== pState.pointerId || pState.keyMode) return;
+    const {edge, cell, dragged, hotType} = pState;
+    closePicker();
+    if (!dragged) doInsert(edge, cell, null);
+    else if (hotType) doInsert(edge, cell, hotType);
+  };
+  const onHandleCancel = e => { if (pState && e.pointerId === pState.pointerId) closePicker(); };
+  const onHandleClick = e => { e.preventDefault(); e.stopPropagation(); };
+  on(hBelow, {pointerdown: onHandleDown, pointermove: onHandleMove, pointerup: onHandleUp, pointercancel: onHandleCancel, click: onHandleClick}, sig);
+  const onPickerClick = e => {
+    const b = e.target.closest('button[data-type]');
+    if (!b || !pState) return;
+    e.preventDefault(); e.stopPropagation();
+    const {edge, cell} = pState;
+    closePicker();
+    doInsert(edge, cell, b.dataset.type);
+  };
+  on(picker, 'click', onPickerClick, sig);
+
+  /* Track cursor proximity to the bottom-center target area of a cell on desktop */
+  const onMouseMove = e => {
+    if (isMobile() || pState) return;
+    const t = e.target;
+    if (t instanceof Element && hBelow.contains(t)) {
+      hBelow.dataset.near = 'true';
+      return;
+    }
+    const cell = t instanceof Element ? t.closest('#dialog-container > .editable[id]') : null;
+    if (cell) {
+      attachHandles(cell);
+      if (hostCell === cell) {
+        const r = cell.getBoundingClientRect();
+        const nearY = Math.abs(e.clientY - r.bottom) <= 26;
+        const nearX = Math.abs(e.clientX - (r.left + r.width / 2)) <= 140;
+        hBelow.toggleAttribute('data-near', nearY && nearX);
+      }
+    } else if (hostCell) {
+      const r = hostCell.getBoundingClientRect();
+      const nearY = Math.abs(e.clientY - r.bottom) <= 26;
+      const nearX = Math.abs(e.clientX - (r.left + r.width / 2)) <= 140;
+      if (nearY && nearX) hBelow.dataset.near = 'true';
+      else hBelow.removeAttribute('data-near');
+    }
+  };
+  const onDialogLeave = () => { if (!pState) detachHandles(); };
+  on(document, 'mousemove', onMouseMove, {passive: true, signal: ac.signal});
+  on(dialog(), 'mouseleave', onDialogLeave, sig);
+
+  /* Click-margin / click-header to escape active inline editors on desktop */
+  const onDocMouseDown = e => {
+    if (isMobile()) return;
+    if (pState?.keyMode && !picker.contains(e.target)) closePicker();
+    if (e.button !== 0) return;
+    const hasEd = !!(window.craftC2?.active?.() || window.craftMd?.active?.());
+    if (!hasEd) return;
+    const t = e.target;
+    if (!(t instanceof Element)) return;
+    if (t.closest('#solveit-file-tree-panel, #solveit-temp-editor, #solveit-launcher, .craft-action-menu, #craft-desk-picker, .craft-desk-edge, .cm-editor, .cm-tooltip, .uk-modal, .uk-dropdown, .uk-drop, nav.monster-navbar')) return;
+    const inDialog = t.closest('#dialog-container');
+    if (!inDialog) return;
+    const inCell = t.closest('#dialog-container > .editable[id]');
+    const onHeaderBlank = inCell && t.closest('.uk-card-header') && !t.closest('button, a, input, select');
+    if (!inCell || onHeaderBlank) {
+      commitEditors();
+    }
+  };
+  on(document, 'mousedown', onDocMouseDown, cap);
+
+  /* Shift+A / Shift+B inline seam quick-picker in selection mode */
+  const blocked = () => document.activeElement?.closest?.('input,textarea,select,[contenteditable],.monaco-editor,.cm-editor,#full_editor,.hk-overlay.open,#solveit-launcher.open,[role="dialog"],.uk-modal.uk-open');
+  const onKeyDown = e => {
+    if (isMobile() || e.isComposing) return;
+    if (pState?.keyMode) {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); closePicker(); return; }
+      const t = KEY_TO_TYPE[e.key.toLowerCase()];
+      if (t && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault(); e.stopImmediatePropagation();
+        const {edge, cell} = pState;
+        closePicker();
+        doInsert(edge, cell, t);
+        return;
+      }
+      return;
+    }
+    if (e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && (e.key === 'A' || e.key === 'B')) {
+      if (blocked()) return;
+      const cell = dialog()?.querySelector(':scope > .editable[data-sm="primary"]');
+      if (!cell) return;
+      e.preventDefault(); e.stopImmediatePropagation();
+      const edge = e.key === 'A' ? 'above' : 'below';
+      const r = cell.getBoundingClientRect();
+      const seamRect = edge === 'above'
+        ? {left: r.left, width: r.width, top: r.top, bottom: r.top}
+        : {left: r.left, width: r.width, top: r.bottom, bottom: r.bottom};
+      pState = {edge, cell, pointerId: null, startX: 0, startY: 0, dragged: false, hotType: null, keyMode: true};
+      positionPicker(seamRect, edge, `Insert ${edge} · press C / N / P / R`);
+    }
+  };
+  on(document, 'keydown', onKeyDown, cap);
+
+  /* Slash-morph on empty cells: typing /c, /code, /n, /note, /p, /prompt, /r, /raw + Space/Enter morphs the cell */
+  let morphing = false;
+  const checkSlashMorph = () => {
+    if (morphing || isMobile()) return;
+    let id = null, view = null, isCode = false;
+    const c2Id = window.craftC2?.active?.();
+    if (c2Id) {
+      view = window.craftC2.view(c2Id);
+      if (view?.hasFocus) { id = '_' + String(c2Id).replace(/^_/, ''); isCode = true; }
+    }
+    if (!id) {
+      const mdKey = window.craftMd?.active?.();
+      if (mdKey && mdKey.endsWith(':in')) {
+        view = window.craftMd.view(mdKey);
+        if (view?.hasFocus) id = '_' + mdKey.split(':')[0].replace(/^_/, '');
+      }
+    }
+    if (!id || !view) return;
+    const text = view.state.doc.toString();
+    const m = SLASH_RE.exec(text);
+    if (!m) return;
+    const targetName = SLASH_MAP[m[1].toLowerCase()];
+    const targetType = targetName.toLowerCase();
+    const el = document.getElementById(id);
+    const curType = el?.querySelector('.card-in[data-mtype]')?.dataset.mtype;
+    if (!el || curType === targetType) return;
+    morphing = true;
+    view.dispatch({changes: {from: 0, to: text.length, insert: ''}});
+    (async () => {
+      try {
+        await commitEditors();
+        window.craftInsertPreview?.choose?.(targetName);
+        if (window.craftInsertPreview?.setType) {
+          await window.craftInsertPreview.setType(id, targetType);
+        }
+        if (targetType === 'code') window.craftC2?.edit?.(id.slice(1), {anchor: 0, head: 0});
+        else window.craftMd?.edit?.(id.slice(1), {toEnd: true});
+      } catch (err) {
+        console.error('craftDesktopUX: slash-morph failed', err);
+      } finally { morphing = false; }
+    })();
+  };
+  const onSlashInput = () => { queueMicrotask(checkSlashMorph); };
+  on(document, 'input', onSlashInput, cap);
+
+  const offMobile = window.craftMobile?.onChange?.(active => { if (active) { closePicker(); detachHandles(); } });
+  window.craftDesktopUX = {
+    disable() {
+      offMobile?.(); closePicker(); detachHandles(); picker.remove();
+      ac.abort();
+      delete window.craftDesktopUX;
+    },
+  };
+})();
+
+/* %% nbs/craft/03_file_tree.ipynb #654a40d5 */
+window.__craftTpl = Object.assign(window.__craftTpl || {}, {"ft_upload_icon": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"></path><polyline points=\"17 8 12 3 7 8\"></polyline><line x1=\"12\" y1=\"3\" x2=\"12\" y2=\"15\"></line></svg>", "ft_collapse_icon": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"7 20 12 15 17 20\"></polyline><polyline points=\"7 4 12 9 17 4\"></polyline><line x1=\"4\" y1=\"12\" x2=\"20\" y2=\"12\"></line></svg>", "ft_temp_editor": "<div id=\"solveit-temp-editor\"><div class=\"solveit-temp-editor-bar\"><strong></strong><button type=\"button\" aria-label=\"Close editor\">×</button></div><iframe title=\"Temporary file editor\"></iframe></div>", "ft_create_form": "<form class=\"solveit-tree-create\"><input type=\"text\" autocomplete=\"off\" spellcheck=\"false\" enterkeyhint=\"done\" aria-describedby=\"solveit-tree-create-error\"><div id=\"solveit-tree-create-error\" role=\"alert\"></div></form>", "ft_upload_pop": "<div class=\"solveit-tree-upload-pop\" role=\"dialog\"><div class=\"solveit-tree-upload-head\"><span class=\"solveit-tree-upload-dest\"></span><button type=\"button\" class=\"solveit-tree-upload-x\" aria-label=\"Close\">×</button></div><div class=\"solveit-tree-upload-drop\">Drop files or folders here</div><div class=\"solveit-tree-upload-actions\"><button type=\"button\" class=\"solveit-tree-upload-pick-files\">Files…</button><button type=\"button\" class=\"solveit-tree-upload-pick-dir\">Folder…</button></div><input type=\"file\" class=\"solveit-tree-upload-input-files\" multiple hidden><input type=\"file\" class=\"solveit-tree-upload-input-dir\" webkitdirectory multiple hidden></div>", "ft_panel": "<aside id=\"solveit-file-tree-panel\" role=\"complementary\" aria-label=\"Files\"><div class=\"solveit-tree-brand\"><span class=\"solveit-tree-appname\">solveit</span></div><header><strong>Files</strong><kbd class=\"solveit-tree-shortcut\" data-hotkey=\"file-tree-toggle\">⌘B</kbd><button class=\"solveit-tree-new\" type=\"button\" aria-label=\"New dialog, file, or folder\" title=\"New dialog, file, or folder (name/ for folder)\">+</button><button class=\"solveit-tree-upload\" type=\"button\" aria-label=\"Upload files or folders\" title=\"Upload files or folders\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"></path><polyline points=\"17 8 12 3 7 8\"></polyline><line x1=\"12\" y1=\"3\" x2=\"12\" y2=\"15\"></line></svg></button><button class=\"solveit-tree-collapse\" type=\"button\" aria-label=\"Collapse all folders\" title=\"Collapse all folders\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"7 20 12 15 17 20\"></polyline><polyline points=\"7 4 12 9 17 4\"></polyline><line x1=\"4\" y1=\"12\" x2=\"20\" y2=\"12\"></line></svg></button><button class=\"solveit-tree-dots\" type=\"button\" aria-pressed=\"true\">.*</button><button class=\"solveit-tree-refresh\" type=\"button\" aria-label=\"Refresh files\" title=\"Refresh files\">↻</button><button class=\"solveit-tree-home\" type=\"button\" aria-label=\"Dialogs home\" title=\"Dialogs home\">⌂</button></header><input class=\"solveit-tree-filter\" type=\"search\" placeholder=\"Filter loaded files…\" autocomplete=\"off\"><div class=\"solveit-tree-status\" role=\"status\"></div><div class=\"solveit-tree-rootbar\" title=\"Right-click to create/paste/upload in root; drop here to move or upload to root\"><span class=\"solveit-tree-rootbar-path\">~/</span><span class=\"solveit-tree-rootbar-hint\">root · drop / right-click</span><button class=\"solveit-tree-row-upload\" type=\"button\" aria-label=\"Upload into root\" title=\"Upload into root\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"></path><polyline points=\"17 8 12 3 7 8\"></polyline><line x1=\"12\" y1=\"3\" x2=\"12\" y2=\"15\"></line></svg></button><button class=\"solveit-tree-row-more\" type=\"button\" aria-label=\"Actions for root\" title=\"New dialog, file, folder…\">⋯</button></div><div id=\"solveit-file-tree\" role=\"tree\"></div><div class=\"solveit-tree-resizer\" aria-hidden=\"true\" title=\"Drag to resize · Double-click to reset\"></div></aside>", "ft_menu": "<div class=\"solveit-tree-menu\" role=\"menu\"></div>", "ft_workspace": "<div class=\"solveit-tree-workspace\"></div>"});
+
+/* %% nbs/craft/03_file_tree.ipynb #2cac7d02 */
 /* ── Lightweight file tree ─────────────────────────────────────────── */
 (() => {
   window.solveitFileTree?.disable?.();
+  const {mountTpl, qs, on, store, patch} = window.__craftCMCore;
   const QUERCUS_JS = '/static/.craft-assets/quercus-treeview.js', QUERCUS_CSS = '/static/.craft-assets/quercus-treeview.css';
   const DOTS_KEY = 'solveit-file-tree:hide-dots';
   const CACHE_KEY = 'solveit-file-tree:v4', CLIP_KEY = 'solveit-file-tree:clipboard', CACHE_MAX_AGE = 180000;
   let panel, tree, loaded = false, filterText = '', restoring = false, previousFocus;
   let refreshTimer, busy = false, menu = null, uploadPop = null, lastTreeDir = null;
-  const UPLOAD_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>';
-  const COLLAPSE_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="7 20 12 15 17 20"/><polyline points="7 4 12 9 17 4"/><line x1="4" y1="12" x2="20" y2="12"/></svg>';
+  const UPLOAD_SVG = window.__craftTpl?.ft_upload_icon || '', COLLAPSE_SVG = window.__craftTpl?.ft_collapse_icon || '';
   let workspaceRow = null, dlgNameNode = null, dlgNameOrigParent = null, dlgNameOrigNext = null;
   let draggedNode = null, dropHighlightEl = null, hoverExpandTimer = null, hoverExpandPath = null;
 
-  let hideDots = true;
-  try { const v = localStorage.getItem(DOTS_KEY); if (v !== null) hideDots = v === '1'; } catch {}
+  let hideDots = store.get(DOTS_KEY, '1') === '1';
 
   const OPEN_KEY = 'solveit-file-tree:open';
-  function saveOpen(open) { try { sessionStorage.setItem(OPEN_KEY, open ? '1' : '0'); } catch {} }
+  const saveOpen = open => store.set(OPEN_KEY, open ? '1' : '0', sessionStorage);
   window.__hotkeyRegister?.({id: 'file-tree-toggle', label: 'Toggle file tree', group: 'File tree', combo: 'Mod+B', handler: () => { toggle(); return true; }});
 
   const rowsByPath = new Map(), fetchedAtByPath = new Map(), expandedPaths = new Set(), loadingPaths = new Set();
-  try {
-    const cached = JSON.parse(sessionStorage.getItem(CACHE_KEY));
-    if (cached) {
-      cached.rows.forEach(([path, rows]) => rowsByPath.set(path, rows));
-      cached.fetchedAt.forEach(([path, time]) => fetchedAtByPath.set(path, time));
-      cached.expanded.forEach(path => expandedPaths.add(path));
-    }
-  } catch {}
-  function saveCache() {
-    try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({rows: [...rowsByPath], fetchedAt: [...fetchedAtByPath], expanded: [...expandedPaths]})); } catch {}
+  const cached = store.json(CACHE_KEY, null, sessionStorage);
+  if (cached) {
+    cached.rows?.forEach(([path, rows]) => rowsByPath.set(path, rows));
+    cached.fetchedAt?.forEach(([path, time]) => fetchedAtByPath.set(path, time));
+    cached.expanded?.forEach(path => expandedPaths.add(path));
   }
+  const saveCache = () => store.setJson(CACHE_KEY, {rows: [...rowsByPath], fetchedAt: [...fetchedAtByPath], expanded: [...expandedPaths]}, sessionStorage);
 
   /* ── Path & clipboard helpers ──────────────────────────────────────── */
   const normPath = p => {
@@ -86,17 +2393,10 @@
     if (location.pathname === '/') return {dir: normPath(params.get('at') || '.'), dlgPath: null};
     return {dir: '.', dlgPath: null};
   }
-  function getClipboard() {
-    try { return JSON.parse(sessionStorage.getItem(CLIP_KEY)) || null; } catch { return null; }
-  }
-  function setClipboard(item) {
-    try {
-      if (item) sessionStorage.setItem(CLIP_KEY, JSON.stringify(item));
-      else sessionStorage.removeItem(CLIP_KEY);
-    } catch {}
-  }
+  const getClipboard = () => store.json(CLIP_KEY, null, sessionStorage);
+  const setClipboard = item => item ? store.setJson(CLIP_KEY, item, sessionStorage) : store.del(CLIP_KEY, sessionStorage);
   function setStatus(msg) {
-    const el = panel?.querySelector('.solveit-tree-status');
+    const el = qs('.solveit-tree-status', panel);
     if (el) el.textContent = msg || '';
   }
 
@@ -262,12 +2562,18 @@
   }
 
   /* ── Tree rendering & navigation ───────────────────────────────────── */
+  const KIND_ORDER = {directory: 0, dialog: 1, file: 2};
   function nodesFor(path, curAncestors) {
     return (rowsByPath.get(path) || [])
       .filter(n => {
         const fname = n.filename || n.name || '';
         if (!hideDots || !fname.startsWith('.')) return true;
         return n.kind === 'directory' && curAncestors.has(n.path);
+      })
+      .sort((a, b) => {
+        const ka = KIND_ORDER[a.kind] ?? 3, kb = KIND_ORDER[b.kind] ?? 3;
+        if (ka !== kb) return ka - kb;
+        return (a.name || '').localeCompare(b.name || '', undefined, {numeric: true, sensitivity: 'base'});
       })
       .map(node => node.kind !== 'directory' ? node : ({
         ...node,
@@ -278,8 +2584,12 @@
   }
 
   function findNode(path) {
-    return [...(panel?.querySelectorAll('#solveit-file-tree li[data-node-data]') || [])]
-      .find(li => JSON.parse(li.dataset.nodeData).path === path);
+    if (!panel) return null;
+    const esc = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(path) : path.replace(/["\\]/g, '\\$&');
+    const direct = panel.querySelector(`#solveit-file-tree li[data-path="${esc}"]`);
+    if (direct) return direct;
+    return [...panel.querySelectorAll('#solveit-file-tree li[data-node-data]')]
+      .find(li => JSON.parse(li.dataset.nodeData).path === path) || null;
   }
 
   function focusPath(path) {
@@ -298,7 +2608,9 @@
     content.classList.add('solveit-tree-' + node.kind);
     content.tabIndex = 0;
     content.setAttribute('role', 'treeitem');
-    if (node.kind !== 'loading') content.draggable = true;
+    // Touch: no drag (long-press would start a drag instead of the context menu); rows get a ⋯ menu button below.
+    const touch = window.craftMobile?.active();
+    if (node.kind !== 'loading' && !touch) content.draggable = true;
     if (node.kind === 'directory') content.setAttribute('aria-expanded', String(expandedPaths.has(node.path)));
     if ((dlgPath && node.path === dlgPath) || (!dlgPath && dir !== '.' && node.path === dir)) {
       content.classList.add('solveit-tree-current');
@@ -310,24 +2622,29 @@
       const icon = node.kind === 'directory'
         ? (expandedPaths.has(node.path) ? 'default_folder_opened.svg' : 'default_folder.svg')
         : node.kind === 'dialog' ? 'file_type_ipynb.svg' : (icons[ext] || 'default_file.svg');
-      const img = document.createElement('img');
-      img.className = 'solveit-tree-icon'; img.src = `/static/.craft-assets/vscode-icons/${icon}`; img.alt = '';
-      content.append(img);
+      content.append(window.__craftCMCore.el('img', {cls: 'solveit-tree-icon', src: `/static/.craft-assets/vscode-icons/${icon}`, alt: ''}));
     }
-    const label = document.createElement('span');
-    label.className = 'treeview-node-text'; label.textContent = node.name;
-    content.append(label);
+    content.append(window.__craftCMCore.el('span', {cls: 'treeview-node-text'}, node.name));
     if (node.kind === 'directory') {
-      const up = document.createElement('button');
-      up.type = 'button'; up.className = 'solveit-tree-row-upload'; up.tabIndex = -1;
-      up.title = `Upload into ${node.name}`; up.setAttribute('aria-label', `Upload into ${node.name}`);
+      const up = window.__craftCMCore.el('button', {
+        type: 'button', cls: 'solveit-tree-row-upload', tabIndex: -1,
+        title: `Upload into ${node.name}`, 'aria-label': `Upload into ${node.name}`,
+      });
       up.innerHTML = UPLOAD_SVG;
       content.append(up);
+    }
+    if (touch && node.kind !== 'loading') {
+      const t = `Actions for ${node.name}`;
+      content.append(window.__craftCMCore.el('button', {
+        type: 'button', cls: 'solveit-tree-row-more', tabIndex: -1, title: t, 'aria-label': t,
+      }, '⋯'));
     }
   }
 
   function renderTree() {
     if (!panel) return;
+    const treeEl = panel.querySelector('#solveit-file-tree');
+    const prevScroll = treeEl ? treeEl.scrollTop : 0;
     const focused = createDraft?.input;
     const draftFocus = focused && document.activeElement === focused ? [focused.selectionStart, focused.selectionEnd] : null;
     const {dir} = getCurrentContext();
@@ -335,9 +2652,16 @@
     const data = nodesFor('.', curAncestors);
     if (!tree) tree = new Treeview({containerId: 'solveit-file-tree', data, initiallyExpanded: false, nodeSelectionEnabled: false, onRenderNode: renderNode});
     else tree.setData(data);
+    const nodeIndex = new Map();
+    for (const li of panel.querySelectorAll('#solveit-file-tree li[data-node-data]')) {
+      try {
+        const p = JSON.parse(li.dataset.nodeData).path;
+        if (p) { li.dataset.path = p; nodeIndex.set(p, li); }
+      } catch {}
+    }
     restoring = true;
     [...expandedPaths].sort((a, b) => a.length - b.length).forEach(path => {
-      const li = findNode(path), expander = li?.querySelector(':scope > .treeview-node-content > .treeview-expander');
+      const li = nodeIndex.get(path), expander = li?.querySelector(':scope > .treeview-node-content > .treeview-expander');
       if (expander && !li.classList.contains('expanded')) expander.click();
     });
     restoring = false;
@@ -350,6 +2674,7 @@
     }
     const rootLabel = panel.querySelector('.solveit-tree-rootbar-path');
     if (rootLabel) rootLabel.textContent = dir === '.' ? '~/' : `~/${dir}`;
+    if (treeEl && prevScroll) treeEl.scrollTop = prevScroll;
   }
 
   async function loadFolder(path, force = false) {
@@ -375,22 +2700,33 @@
     renderTree();
   }
 
+  function activeRefreshPaths() {
+    const set = new Set(['.']);
+    for (const p of expandedPaths) set.add(p);
+    return [...set];
+  }
+
   async function refreshTree() {
     const button = panel.querySelector('.solveit-tree-refresh');
     button.disabled = true; setStatus('Refreshing files…');
     try {
-      const keys = rowsByPath.size ? [...rowsByPath.keys()] : ['.'];
+      const keys = activeRefreshPaths();
       const results = await Promise.allSettled(keys.map(async p => [p, await getRows(p)]));
+      let changed = false;
       results.forEach((res, i) => {
         if (res.status === 'fulfilled') {
           const [p, rows] = res.value;
+          const prev = rowsByPath.get(p);
+          if (!prev || JSON.stringify(prev) !== JSON.stringify(rows)) changed = true;
           rowsByPath.set(p, rows); fetchedAtByPath.set(p, Date.now());
         } else if (keys[i] !== '.') {
           rowsByPath.delete(keys[i]); fetchedAtByPath.delete(keys[i]); expandedPaths.delete(keys[i]);
+          changed = true;
         }
       });
       saveCache();
-      renderTree(); setStatus('');
+      if (changed || !tree) renderTree();
+      setStatus('');
     } catch (err) { setStatus(`Could not refresh files: ${err.message || err}`); }
     finally { button.disabled = false; }
   }
@@ -398,11 +2734,17 @@
   async function ensureCurrentDirLoaded() {
     const {dir} = getCurrentContext();
     const chain = ancestorsOf(dir);
+    const missing = [];
     for (const p of chain) {
       if (p !== '.') expandedPaths.add(p);
-      if (!rowsByPath.has(p)) {
-        rowsByPath.set(p, await getRows(p));
-        fetchedAtByPath.set(p, Date.now());
+      if (!rowsByPath.has(p)) missing.push(p);
+    }
+    if (missing.length) {
+      const results = await Promise.all(missing.map(async p => [p, await getRows(p)]));
+      const now = Date.now();
+      for (const [p, rows] of results) {
+        rowsByPath.set(p, rows);
+        fetchedAtByPath.set(p, now);
       }
     }
     saveCache();
@@ -410,21 +2752,32 @@
 
   function openNode(node) {
     if (!node.href) return;
+    // On a phone the drawer covers the content: get it out of the way (and don't restore it after navigation).
+    if (window.craftMobile?.active() && panel?.classList.contains('open')) closePanel();
     if (node.kind === 'dialog') { location.href = node.href; return; }
     const url = new URL(node.href, location.href); url.pathname = '/file_editor_';
-    let overlay = document.querySelector('#solveit-temp-editor');
+    let overlay = qs('#solveit-temp-editor');
     if (!overlay) {
-      overlay = document.createElement('div'); overlay.id = 'solveit-temp-editor';
-      overlay.innerHTML = '<div class="solveit-temp-editor-bar"><strong></strong><button type="button" aria-label="Close editor">×</button></div><iframe title="Temporary file editor"></iframe>';
-      overlay.querySelector('button').onclick = () => { overlay.classList.remove('open'); overlay.querySelector('iframe').src = 'about:blank'; };
+      const {root: ov, close, frame} = mountTpl('ft_temp_editor', {refs: {close: 'button', frame: 'iframe'}});
+      overlay = ov;
+      close.onclick = () => { overlay.classList.remove('open'); frame.src = 'about:blank'; };
       document.body.append(overlay);
-      const frame = overlay.querySelector('iframe');
-      frame.addEventListener('load', () => frame.contentWindow.addEventListener('keydown', e => {
-        if (window.solveitHotkeys?.dispatch(e)) { e.preventDefault(); e.stopImmediatePropagation(); }
-      }, true));
+      on(frame, 'load', () => {
+        on(frame.contentWindow, 'keydown', e => {
+          if (window.solveitHotkeys?.dispatch(e)) { e.preventDefault(); e.stopImmediatePropagation(); }
+        }, true);
+        // Phone: the overlay bar already names the file and closes it, so give Monaco the page's own header room too.
+        const fd = frame.contentDocument;
+        if (window.craftMobile?.active() && fd?.head && !fd.getElementById('craft-mobile-file-editor')) {
+          const st = fd.createElement('style'); st.id = 'craft-mobile-file-editor';
+          st.textContent = 'body > div.h-screen > header { display: none !important; } body > div.h-screen { padding: 0 !important; gap: 0 !important; } #file_editor { border: 0 !important; }';
+          fd.head.append(st);
+          frame.contentWindow.dispatchEvent(new Event('resize'));
+        }
+      });
     }
-    overlay.querySelector('strong').textContent = url.searchParams.get('fp') || 'File editor';
-    overlay.classList.add('open'); overlay.querySelector('iframe').src = url.href;
+    qs('strong', overlay).textContent = url.searchParams.get('fp') || 'File editor';
+    overlay.classList.add('open'); qs('iframe', overlay).src = url.href;
   }
 
   function handleTreeClick(e) {
@@ -432,6 +2785,13 @@
     const li = e.target.closest('li[data-node-data]');
     if (!li) return;
     const node = JSON.parse(li.dataset.nodeData), expander = e.target.closest('.treeview-expander');
+    const moreBtn = e.target.closest('.solveit-tree-row-more');
+    if (moreBtn) {
+      e.preventDefault(); e.stopPropagation();
+      const content = moreBtn.closest('.treeview-node-content');
+      showMenu({target: content, currentTarget: moreBtn, clientX: 0, clientY: 0, preventDefault() {}, stopPropagation() {}});
+      return;
+    }
     const upBtn = e.target.closest('.solveit-tree-row-upload');
     if (upBtn && node.kind === 'directory') {
       e.preventDefault(); e.stopPropagation();
@@ -514,20 +2874,17 @@
     if (busy) { setStatus('Wait for the current file action to finish…'); return; }
     dismissCreate();
     const label = {dialog: 'New dialog name', file: 'New file name', directory: 'New folder name', auto: 'New name (.ipynb by default)'}[kind];
-    const form = document.createElement('form');
-    form.className = 'solveit-tree-create';
-    form.innerHTML = '<input type="text" autocomplete="off" spellcheck="false" enterkeyhint="done" aria-describedby="solveit-tree-create-error"><div id="solveit-tree-create-error" role="alert"></div>';
-    const input = form.querySelector('input'), error = form.querySelector('[role="alert"]');
+    const {root: form, input, error} = mountTpl('ft_create_form', {refs: {input: 'input', error: '[role="alert"]'}});
     input.placeholder = label;
     input.setAttribute('aria-label', label);
     const setError = msg => { error.textContent = msg; input.setAttribute('aria-invalid', String(!!msg)); };
     const draft = createDraft = {dir, form, input};
-    form.addEventListener('keydown', e => {
+    on(form, 'keydown', e => {
       e.stopPropagation();
       if (e.key === 'Escape' && !e.isComposing) { e.preventDefault(); if (!input.readOnly) dismissCreate(true); }
     });
-    input.addEventListener('input', () => setError(''));
-    form.addEventListener('submit', async e => {
+    on(input, 'input', () => setError(''));
+    on(form, 'submit', async e => {
       e.preventDefault();
       if (input.readOnly) return;
       if (busy) { setError('Wait for the current file action to finish.'); return; }
@@ -672,6 +3029,60 @@
 
       if (affectsActive) {
         const nextDlg = dlgPath === src.path ? newPath : newPath + dlgPath.slice(src.path.length);
+        location.href = `/dialog_?name=${encodeURIComponent(nextDlg)}`;
+      }
+    });
+  }
+
+  async function renameNode(node) {
+    if (!node || node.kind === 'loading') return;
+    const oldName = node.filename || baseOf(node.path);
+    const dir = node.parentPath || parentOf(node.path);
+    const raw = prompt(`Rename '${oldName}' to:`, oldName);
+    if (raw === null) return;
+    const newName = raw.trim();
+    if (!newName || newName === oldName) return;
+    if (newName.includes('/') || newName.includes('\\') || newName === '.' || newName === '..') {
+      setStatus('Invalid name: cannot contain slashes or be "." / "..".');
+      return;
+    }
+    const {dlgPath} = getCurrentContext();
+    const affectsActive = dlgPath && (dlgPath === node.path || (node.kind === 'directory' && dlgPath.startsWith(node.path + '/')));
+    if (affectsActive && !confirm(`'${oldName}' includes the currently open dialog. Renaming it will reload at the new path. Continue?`)) return;
+
+    await withBusy(`Renaming '${oldName}' to '${newName}'…`, async () => {
+      const siblings = await getRows(dir);
+      if (siblings.some(r => r.filename === newName)) {
+        throw new Error(`'${newName}' already exists in ${dir === '.' ? '~/' : dir}`);
+      }
+      const bytes = await downloadBytes(node);
+      if (node.kind === 'directory') {
+        const zipBlob = renameZipTopDir(bytes, oldName, newName);
+        await uploadBlob(dir, `${newName}.zip`, zipBlob, true);
+      } else {
+        await uploadBlob(dir, newName, new Blob([bytes]), false);
+      }
+      const after = await getRows(dir);
+      const created = after.find(r => r.filename === newName);
+      if (!created) throw new Error(`Rename aborted: '${newName}' did not appear`);
+
+      await deleteRecursive(node);
+      const wasExpanded = node.kind === 'directory' && expandedPaths.has(node.path);
+      if (node.kind === 'directory') purgeDirCache(node.path);
+      const newPath = joinPath(dir, newName);
+      if (wasExpanded) expandedPaths.add(newPath);
+
+      const clip = getClipboard();
+      if (clip && (clip.path === node.path || (node.kind === 'directory' && clip.path.startsWith(node.path + '/')))) {
+        setClipboard(null);
+      }
+      rowsByPath.set(dir, after); fetchedAtByPath.set(dir, Date.now());
+      await refreshDirs(dir, ...(wasExpanded ? [newPath] : []));
+      focusPath(newPath);
+      setStatus(`Renamed '${oldName}' to '${newName}'`);
+
+      if (affectsActive) {
+        const nextDlg = dlgPath === node.path ? newPath : newPath + dlgPath.slice(node.path.length);
         location.href = `/dialog_?name=${encodeURIComponent(nextDlg)}`;
       }
     });
@@ -822,54 +3233,45 @@
   function openUploadPop(targetDir, anchorEl = null) {
     const dest = normPath(targetDir);
     closeMenu(); closeUploadPop();
-    const pop = uploadPop = document.createElement('div');
-    pop.className = 'solveit-tree-upload-pop';
-    pop.setAttribute('role', 'dialog');
+    const {root: pop, dest: destEl, files: filesInput, dir: dirInput, drop: dropZone, close: closeBtn, pickFiles, pickDir} = mountTpl('ft_upload_pop', {refs: {
+      dest: '.solveit-tree-upload-dest', files: '.solveit-tree-upload-input-files',
+      dir: '.solveit-tree-upload-input-dir', drop: '.solveit-tree-upload-drop',
+      close: '.solveit-tree-upload-x', pickFiles: '.solveit-tree-upload-pick-files',
+      pickDir: '.solveit-tree-upload-pick-dir',
+    }});
+    uploadPop = pop;
     pop.setAttribute('aria-label', `Upload to ${dest === '.' ? '~/' : dest}`);
     const labelPath = dest === '.' ? '~/' : `~/${dest}/`;
-    pop.innerHTML =
-      `<div class="solveit-tree-upload-head"><span class="solveit-tree-upload-dest"></span>` +
-      `<button type="button" class="solveit-tree-upload-x" aria-label="Close">×</button></div>` +
-      `<div class="solveit-tree-upload-drop">Drop files or folders here</div>` +
-      `<div class="solveit-tree-upload-actions">` +
-      `<button type="button" class="solveit-tree-upload-pick-files">Files…</button>` +
-      `<button type="button" class="solveit-tree-upload-pick-dir">Folder…</button>` +
-      `</div>` +
-      `<input type="file" class="solveit-tree-upload-input-files" multiple hidden>` +
-      `<input type="file" class="solveit-tree-upload-input-dir" webkitdirectory multiple hidden>`;
-
-    const destEl = pop.querySelector('.solveit-tree-upload-dest');
     destEl.textContent = `Upload to ${labelPath}`; destEl.title = labelPath;
-    const filesInput = pop.querySelector('.solveit-tree-upload-input-files');
-    const dirInput = pop.querySelector('.solveit-tree-upload-input-dir');
-    const dropZone = pop.querySelector('.solveit-tree-upload-drop');
 
-    pop.querySelector('.solveit-tree-upload-x').onclick = () => closeUploadPop();
-    pop.querySelector('.solveit-tree-upload-pick-files').onclick = () => { filesInput.value = ''; filesInput.click(); };
-    pop.querySelector('.solveit-tree-upload-pick-dir').onclick = () => { dirInput.value = ''; dirInput.click(); };
+    closeBtn.onclick = () => closeUploadPop();
+    pickFiles.onclick = () => { filesInput.value = ''; filesInput.click(); };
+    pickDir.onclick = () => { dirInput.value = ''; dirInput.click(); };
 
     const onPicked = input => () => {
       const items = collectFromFileList(input.files);
       closeUploadPop();
       if (items.length) uploadItemsTo(dest, items);
     };
-    filesInput.addEventListener('change', onPicked(filesInput));
-    dirInput.addEventListener('change', onPicked(dirInput));
+    on(filesInput, 'change', onPicked(filesInput));
+    on(dirInput, 'change', onPicked(dirInput));
 
-    dropZone.addEventListener('dragover', e => {
-      e.preventDefault(); e.stopPropagation();
-      e.dataTransfer.dropEffect = 'copy';
-      dropZone.classList.add('dragover');
-    });
-    dropZone.addEventListener('dragleave', e => {
-      if (!dropZone.contains(e.relatedTarget)) dropZone.classList.remove('dragover');
-    });
-    dropZone.addEventListener('drop', e => {
-      e.preventDefault(); e.stopPropagation();
-      dropZone.classList.remove('dragover');
-      const snap = snapshotDataTransfer(e.dataTransfer);
-      closeUploadPop();
-      handleDroppedTransfer(dest, snap);
+    on(dropZone, {
+      dragover: e => {
+        e.preventDefault(); e.stopPropagation();
+        e.dataTransfer.dropEffect = 'copy';
+        dropZone.classList.add('dragover');
+      },
+      dragleave: e => {
+        if (!dropZone.contains(e.relatedTarget)) dropZone.classList.remove('dragover');
+      },
+      drop: e => {
+        e.preventDefault(); e.stopPropagation();
+        dropZone.classList.remove('dragover');
+        const snap = snapshotDataTransfer(e.dataTransfer);
+        closeUploadPop();
+        handleDroppedTransfer(dest, snap);
+      },
     });
 
     panel.append(pop);
@@ -907,21 +3309,14 @@
     e.preventDefault(); e.stopPropagation(); closeMenu();
 
     const clip = getClipboard();
-    menu = document.createElement('div');
-    menu.className = 'solveit-tree-menu';
-    menu.setAttribute('role', 'menu');
+    menu = window.__craftCMCore.mountTpl('ft_menu');
     const item = (label, fn, {disabled = false, title = '', danger = false} = {}) => {
-      const b = document.createElement('button');
-      b.type = 'button'; b.setAttribute('role', 'menuitem'); b.textContent = label;
-      b.disabled = disabled; if (title) b.title = title; if (danger) b.className = 'danger';
-      b.onclick = ev => { ev.stopPropagation(); closeMenu(); fn(); };
-      menu.append(b);
+      menu.append(window.__craftCMCore.el('button', {
+        type: 'button', role: 'menuitem', disabled, title: title || null, cls: danger ? 'danger' : null,
+        onClick: ev => { ev.stopPropagation(); closeMenu(); fn(); },
+      }, label));
     };
-    const sep = () => {
-      const hr = document.createElement('hr');
-      hr.className = 'solveit-tree-menu-sep';
-      menu.append(hr);
-    };
+    const sep = () => { menu.append(window.__craftCMCore.el('hr', {cls: 'solveit-tree-menu-sep'})); };
 
     if (!node || node.kind === 'directory') {
       const targetDir = forcedDir ? normPath(forcedDir) : (node ? node.path : '.');
@@ -931,6 +3326,7 @@
       item('Upload…', () => openUploadPop(targetDir, li || e.currentTarget));
       sep();
       if (node) {
+        item('Rename…', () => renameNode(node));
         item('Copy', () => copyNode(node));
         item('Copy Path', () => copyNodePath(node));
       }
@@ -947,6 +3343,7 @@
       item('Open', () => openNode(node), {disabled: !node.href});
       item('Upload…', () => openUploadPop(targetDir, li || e.currentTarget));
       sep();
+      item('Rename…', () => renameNode(node));
       item('Copy', () => copyNode(node));
       item('Copy Path', () => copyNodePath(node));
       item(clip ? `Paste '${clip.filename}'` : 'Paste', () => pasteNodeInto(clip, targetDir), {
@@ -1080,68 +3477,64 @@
       if (!panel.contains(e.relatedTarget)) clearDropState();
     };
 
-    panel.addEventListener('dragover', onDragOver);
-    panel.addEventListener('drop', onDrop);
-    panel.addEventListener('dragleave', onDragLeave);
-    treeEl.addEventListener('dragend', onDragEnd);
+    on(panel, {dragover: onDragOver, drop: onDrop, dragleave: onDragLeave});
+    on(treeEl, 'dragend', onDragEnd);
   }
 
   /* ── Panel construction & lifecycle ────────────────────────────────── */
   function updateDotsBtn() {
-    const dots = panel?.querySelector('.solveit-tree-dots');
+    const dots = qs('.solveit-tree-dots', panel);
     if (!dots) return;
-    dots.setAttribute('aria-pressed', String(hideDots));
     const lbl = hideDots ? 'Hidden files are hidden (click to show)' : 'Showing all files (click to hide dot files)';
-    dots.title = lbl; dots.setAttribute('aria-label', lbl);
+    patch(dots, {'aria-pressed': String(hideDots), title: lbl, 'aria-label': lbl});
   }
 
   function makePanel() {
     if (panel) return panel;
-    panel = document.createElement('aside'); panel.id = 'solveit-file-tree-panel';
-    panel.innerHTML =
-      '<div class="solveit-tree-brand"><span class="solveit-tree-appname">solveit</span></div>' +
-      '<header><strong>Files</strong>' +
-      '<kbd class="solveit-tree-shortcut" data-hotkey="file-tree-toggle">⌘B</kbd>' +
-      '<button class="solveit-tree-upload" type="button" aria-label="Upload files or folders" title="Upload files or folders">' + UPLOAD_SVG + '</button>' +
-      '<button class="solveit-tree-collapse" type="button" aria-label="Collapse all folders" title="Collapse all folders">' + COLLAPSE_SVG + '</button>' +
-      '<button class="solveit-tree-dots" type="button" aria-pressed="true">.*</button>' +
-      '<button class="solveit-tree-refresh" type="button" aria-label="Refresh files" title="Refresh files">↻</button>' +
-      '<button class="solveit-tree-home" type="button" aria-label="Dialogs home" title="Dialogs home">⌂</button>' +
-      '</header>' +
-      '<input class="solveit-tree-filter" type="search" placeholder="Filter loaded files…" autocomplete="off">' +
-      '<div class="solveit-tree-status" role="status"></div>' +
-      '<div class="solveit-tree-rootbar" title="Right-click to create/paste/upload in root; drop here to move or upload to root"><span class="solveit-tree-rootbar-path">~/</span><span class="solveit-tree-rootbar-hint">root · drop / right-click</span><button class="solveit-tree-row-upload" type="button" aria-label="Upload into root" title="Upload into root">' + UPLOAD_SVG + '</button></div>' +
-      '<div id="solveit-file-tree" role="tree"></div>';
+    const r = mountTpl('ft_panel', {refs: {
+      brand: '.solveit-tree-brand', btnNew: '.solveit-tree-new', btnUpload: '.solveit-tree-upload',
+      btnCollapse: '.solveit-tree-collapse', btnRefresh: '.solveit-tree-refresh', btnDots: '.solveit-tree-dots',
+      btnHome: '.solveit-tree-home', filter: '.solveit-tree-filter', treeEl: '#solveit-file-tree',
+      rootbar: '.solveit-tree-rootbar', resizer: '.solveit-tree-resizer',
+    }});
+    panel = r.root;
+    const {treeEl, rootbar, resizer} = r;
 
-    dlgNameNode = document.querySelector('nav.monster-navbar h2#dlg-name');
+    dlgNameNode = qs('nav.monster-navbar h2#dlg-name');
     if (dlgNameNode) {
       dlgNameOrigParent = dlgNameNode.parentNode;
       dlgNameOrigNext = dlgNameNode.nextSibling;
-      panel.querySelector('.solveit-tree-brand').append(dlgNameNode);
+      r.brand.append(dlgNameNode);
     }
-    panel.addEventListener('click', e => e.stopPropagation());
-    panel.querySelector('.solveit-tree-upload').onclick = e => {
-      const targetDir = lastTreeDir || getCurrentContext().dir;
-      openUploadPop(targetDir, e.currentTarget);
-    };
-    panel.querySelector('.solveit-tree-collapse').onclick = collapseAllFolders;
-    panel.querySelector('.solveit-tree-refresh').onclick = refreshTree;
+    on(panel, 'click', e => e.stopPropagation());
+    r.btnNew.onclick = () => beginCreate(lastTreeDir || getCurrentContext().dir, 'auto');
+    r.btnUpload.onclick = e => openUploadPop(lastTreeDir || getCurrentContext().dir, e.currentTarget);
+    r.btnCollapse.onclick = collapseAllFolders;
+    r.btnRefresh.onclick = refreshTree;
     updateDotsBtn();
-    panel.querySelector('.solveit-tree-dots').onclick = () => {
+    r.btnDots.onclick = () => {
       hideDots = !hideDots;
       updateDotsBtn();
-      try { localStorage.setItem(DOTS_KEY, hideDots ? '1' : '0'); } catch {}
+      store.set(DOTS_KEY, hideDots ? '1' : '0');
       if (tree) renderTree();
     };
-    panel.querySelector('.solveit-tree-home').onclick = () => { location.href = '/?at=.'; };
+    r.btnHome.onclick = () => { location.href = '/?at=.'; };
     window.solveitHotkeys?.refreshChips();
-    panel.querySelector('.solveit-tree-filter').addEventListener('input', e => { filterText = e.target.value; tree?.search(filterText); });
-
-    const treeEl = panel.querySelector('#solveit-file-tree');
-    const rootbar = panel.querySelector('.solveit-tree-rootbar');
+    let filterTimer = null;
+    on(r.filter, 'input', e => {
+      filterText = e.target.value;
+      clearTimeout(filterTimer);
+      if (!filterText) { tree?.search(''); return; }
+      filterTimer = setTimeout(() => { tree?.search(filterText); }, 80);
+    });
     rootbar.querySelector('.solveit-tree-row-upload').onclick = e => {
       e.stopPropagation();
       openUploadPop('.', e.currentTarget);
+    };
+    rootbar.querySelector('.solveit-tree-row-more').onclick = e => {
+      e.stopPropagation();
+      const b = e.currentTarget;
+      showMenu({target: b, currentTarget: b, clientX: 0, clientY: 0, preventDefault() {}, stopPropagation() {}}, '.');
     };
     treeEl.addEventListener('focusin', e => {
       const li = e.target.closest?.('li[data-node-data]');
@@ -1155,6 +3548,33 @@
     panel.addEventListener('contextmenu', e => {
       if (e.target === panel || e.target.matches('.solveit-tree-status')) showMenu(e, '.');
     });
+    /* iOS Safari never fires contextmenu for a touch hold, so hold-to-open is done by hand.
+       Android fires both: whichever comes first wins and the other is swallowed. */
+    let lpTimer = null, lpStart = null, lpFiredAt = 0;
+    const lpCancel = () => { clearTimeout(lpTimer); lpTimer = null; };
+    panel.addEventListener('touchstart', e => {
+      lpCancel();
+      if (e.touches.length !== 1) return;
+      const t = e.target, onRoot = rootbar.contains(t);
+      if (t.closest('button, input, .solveit-tree-create') || !(onRoot || t.closest('li[data-node-data]'))) return;
+      const {clientX, clientY} = e.touches[0];
+      lpStart = {x: clientX, y: clientY};
+      lpTimer = setTimeout(() => {
+        lpTimer = null; lpFiredAt = Date.now();
+        navigator.vibrate?.(10);
+        showMenu({target: t, currentTarget: t, clientX, clientY, preventDefault() {}, stopPropagation() {}}, onRoot ? '.' : null);
+      }, 500);
+    }, {passive: true});
+    panel.addEventListener('touchmove', e => {
+      const p = e.touches[0];
+      if (lpTimer && Math.hypot(p.clientX - lpStart.x, p.clientY - lpStart.y) > 10) lpCancel();
+    }, {passive: true});
+    panel.addEventListener('touchend', e => { lpCancel(); if (Date.now() - lpFiredAt < 800) e.preventDefault(); });  // the hold must not also open the row
+    panel.addEventListener('touchcancel', lpCancel, {passive: true});
+    panel.addEventListener('contextmenu', e => {
+      lpCancel();
+      if (Date.now() - lpFiredAt < 1000) { e.preventDefault(); e.stopImmediatePropagation(); }
+    }, true);
     panel.addEventListener('dblclick', e => {
       if (e.target.closest('.solveit-tree-row-upload, .solveit-tree-upload-pop')) return;
       const atRoot = rootbar.contains(e.target);
@@ -1166,12 +3586,40 @@
     });
     treeEl.addEventListener('click', handleTreeClick, true);
     wireDragAndDrop(treeEl, rootbar);
+    const WIDTH_KEY = 'solveit-file-tree:width';
+    const applyWidth = px => {
+      if (!px) { panel.style.removeProperty('--solveit-tree-w'); return; }
+      const clamped = Math.max(200, Math.min(Math.round(px), Math.round(innerWidth * 0.6)));
+      panel.style.setProperty('--solveit-tree-w', clamped + 'px');
+    };
+    const savedW = Number(store.get(WIDTH_KEY)); if (savedW >= 200) applyWidth(savedW);
+    on(resizer, {
+      pointerdown: e => {
+        if (e.button !== 0 || window.craftMobile?.active?.()) return;
+        e.preventDefault(); e.stopPropagation();
+        resizer.setPointerCapture?.(e.pointerId);
+        panel.classList.add('resizing');
+        const startX = e.clientX, startW = panel.getBoundingClientRect().width;
+        const onMove = ev => applyWidth(startW + (ev.clientX - startX));
+        let offDrag;
+        const onUp = () => {
+          panel.classList.remove('resizing');
+          offDrag?.();
+          store.set(WIDTH_KEY, Math.round(panel.getBoundingClientRect().width));
+        };
+        offDrag = on(resizer, {pointermove: onMove, pointerup: onUp, pointercancel: onUp});
+      },
+      dblclick: e => {
+        e.preventDefault(); e.stopPropagation();
+        applyWidth(0);
+        store.del(WIDTH_KEY);
+      },
+    });
 
     panel.inert = true;
-    const scroller = document.querySelector('.uk-container > .overflow-y-auto');
+    const scroller = qs('.uk-container > .overflow-y-auto');
     if (scroller) {
-      workspaceRow = document.createElement('div');
-      workspaceRow.className = 'solveit-tree-workspace';
+      workspaceRow = mountTpl('ft_workspace');
       scroller.before(workspaceRow);
       workspaceRow.append(panel, scroller);
     } else document.body.append(panel);
@@ -1184,7 +3632,7 @@
     previousFocus = document.activeElement; p.inert = false; p.classList.add('open');
     saveOpen(true);
     if (!refreshTimer) refreshTimer = setInterval(() => {
-      if (panel?.classList.contains('open') && [...rowsByPath.keys()].some(path => Date.now() - (fetchedAtByPath.get(path) || 0) > CACHE_MAX_AGE)) refreshTree();
+      if (panel?.classList.contains('open') && activeRefreshPaths().some(path => Date.now() - (fetchedAtByPath.get(path) || 0) > CACHE_MAX_AGE)) refreshTree();
     }, CACHE_MAX_AGE);
     try {
       setStatus('Loading files…');
@@ -1195,7 +3643,7 @@
         const {dir, dlgPath} = getCurrentContext();
         if (!(dlgPath && focusPath(dlgPath)) && !(dir !== '.' && focusPath(dir))) p.querySelector('#solveit-file-tree .treeview-node-content')?.focus();
       }
-      if ([...rowsByPath.keys()].some(path => Date.now() - (fetchedAtByPath.get(path) || 0) > CACHE_MAX_AGE)) refreshTree();
+      if (activeRefreshPaths().some(path => Date.now() - (fetchedAtByPath.get(path) || 0) > CACHE_MAX_AGE)) refreshTree();
     } catch (err) { setStatus('Unable to load files: ' + (err.message || err)); }
   }
 
@@ -1226,6 +3674,16 @@
       e.preventDefault();
       if (node.kind === 'directory') li.querySelector(':scope > .treeview-node-content > .treeview-expander')?.click();
       else if (node.href) openNode(node);
+    } else if (e.key === 'F2') {
+      e.preventDefault(); renameNode(node);
+    } else if (e.key === 'Delete' || e.key === 'Backspace') {
+      e.preventDefault(); deleteNode(node);
+    } else if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 'c') {
+      e.preventDefault(); copyNode(node);
+    } else if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 'v') {
+      e.preventDefault();
+      const clip = getClipboard();
+      if (clip) pasteNodeInto(clip, node.kind === 'directory' ? node.path : (node.parentPath || '.'));
     } else if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
       e.preventDefault(); showMenu({target: current, currentTarget: current, clientX: 0, clientY: 0, preventDefault() {}, stopPropagation() {}});
     }
@@ -1247,22 +3705,22 @@
     if (e.target.closest?.('.solveit-tree-create')) return;
     if (e.key === 'Escape' && (closeUploadPop() || closeMenu())) { e.preventDefault(); e.stopImmediatePropagation(); return; }
     const active = panel?.classList.contains('open') && panel.contains(document.activeElement);
-    if (active && !menu && !e.target.closest?.('.solveit-tree-filter') && ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Enter', ' ', 'ContextMenu', 'F10'].includes(e.key)) {
+    const isTreeMod = (e.metaKey || e.ctrlKey) && !e.altKey && ['c', 'v'].includes(e.key.toLowerCase());
+    if (active && !menu && !e.target.closest?.('.solveit-tree-filter') && (isTreeMod || ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Enter', ' ', 'ContextMenu', 'F10', 'F2', 'Delete', 'Backspace'].includes(e.key))) {
       if (e.key === 'F10' && !e.shiftKey) return;
       e.stopImmediatePropagation();
       handleTreeKeys(e);
       return;
     }
   };
-  document.addEventListener('pointerdown', onDocPointerDown, true);
-  window.addEventListener('keydown', onWinKeyDown, true);
+  const ac = new AbortController(), cap = {capture: true, signal: ac.signal};
+  on(document, 'pointerdown', onDocPointerDown, cap);
+  on(window, 'keydown', onWinKeyDown, cap);
 
   function disable() {
     clearInterval(refreshTimer); refreshTimer = null;
     closeMenu(); closeUploadPop(); dismissCreate(); clearDropState();
-    document.removeEventListener('DOMContentLoaded', restoreOpen);
-    document.removeEventListener('pointerdown', onDocPointerDown, true);
-    window.removeEventListener('keydown', onWinKeyDown, true);
+    ac.abort();
     if (dlgNameNode && dlgNameOrigParent) {
       if (dlgNameOrigNext && dlgNameOrigNext.parentNode === dlgNameOrigParent) dlgNameOrigParent.insertBefore(dlgNameNode, dlgNameOrigNext);
       else dlgNameOrigParent.append(dlgNameNode);
@@ -1277,8 +3735,11 @@
     panel = null; tree = null;
   }
 
+  const offMobile = window.craftMobile?.onChange(() => { if (tree) renderTree(); });
   window.solveitFileTree = {
-    toggle, open: openNode, disable,
+    toggle, open: openNode, close: closePanel,
+    isOpen: () => !!panel?.classList.contains('open'),
+    disable() { offMobile?.(); disable(); },
     async entries() {  // every loaded dialog/file, for the launcher
       if (!rowsByPath.has('.')) { rowsByPath.set('.', await getRows('.')); fetchedAtByPath.set('.', Date.now()); saveCache(); }
       return [...rowsByPath.entries()]
@@ -1288,9 +3749,10 @@
     },
   };
   function restoreOpen() {
-    try { if (sessionStorage.getItem(OPEN_KEY) === '1' && !panel?.classList.contains('open')) toggle(false); } catch {}
+    if (window.craftMobile?.active()) return;  // a drawer popping open over the page on load is just in the way on a phone
+    if (store.get(OPEN_KEY, null, sessionStorage) === '1' && !panel?.classList.contains('open')) toggle(false);
   }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', restoreOpen, {once: true});
+  if (document.readyState === 'loading') on(document, 'DOMContentLoaded', restoreOpen, {once: true, signal: ac.signal});
   else restoreOpen();
 })();
 
@@ -1311,340 +3773,25 @@
   }
 
   markDotPrompts();
-
-  new MutationObserver(markDotPrompts).observe(document.body, {
-    childList: true,
-    subtree: true,
-    characterData: true
-  });
+  window.__craftCMCore.onDomChange(markDotPrompts, {delay: 'raf', inDialog: true, charData: true});
 })();
 
-/* ── Auto-hiding top nav ──────────────────────────────────────────────
-   The reveal trigger is decoupled from the bar. The band starts BELOW the
-   browser's own top-edge hotspot so a hidden browser toolbar doesn't fight
-   it, and the bar stays pinned while the pointer is over the nav or inside
-   an open UIkit drop, fading only after a grace period. */
-(() => {
-  const TRIGGER_TOP = 28;      // px: clear of the browser's top-edge hotspot
-  const TRIGGER_BOTTOM = 76;   // px: bottom of the reveal band
-  const HIDE_DELAY = 700;      // ms grace period before fading out
+/* %% nbs/craft/04_craft_c2.ipynb #e2023303 */
+window.__craftTpl = Object.assign(window.__craftTpl || {}, {"c2_tooltip_portal": "<div id=\"craft-c2-tooltips\" class=\"craft-c2-tooltips\"></div>", "c2_ai_form": "<form class=\"craft-c2-ai-form\"><input type=\"text\" name=\"query\" autocomplete=\"off\" class=\"craft-c2-ai-input\" placeholder=\"Enter your query... (Enter to apply, Esc to cancel)\"></form>", "c2_spinner": "<div class=\"craft-c2-spinner\" data-uk-spinner=\"ratio: 0.5\"></div>"});
 
-  const SEL = '.uk-container > nav.monster-navbar';
-  const PIN = '.uk-drop, .uk-dropdown, .uk-modal, [role="dialog"], [uk-drop], [uk-dropdown]';
-
-  const nav = () => document.querySelector(SEL);
-  let timer = null, last = null;
-
-  function wantOpen() {
-    if (!last) return false;
-    if (last.y >= TRIGGER_TOP && last.y <= TRIGGER_BOTTOM) return true;
-    const t = last.target;
-    if (t instanceof Element) {
-      if (nav()?.contains(t)) return true;
-      if (t.closest(PIN)) return true;
-    }
-    return !!document.querySelector('.uk-drop.uk-open, .uk-dropdown.uk-open');
-  }
-
-  function sync() {
-    const n = nav();
-    if (!n) return;
-    if (wantOpen()) {
-      clearTimeout(timer);
-      timer = null;
-      n.classList.add('nav-shown');
-    } else if (!timer) {
-      timer = setTimeout(() => {
-        timer = null;
-        if (!wantOpen()) nav()?.classList.remove('nav-shown');
-      }, HIDE_DELAY);
-    }
-  }
-
-  document.addEventListener('mousemove', e => {
-    last = { y: e.clientY, target: e.target };
-    sync();
-  }, { passive: true });
-
-  document.addEventListener('focusin', e => {
-    last = { y: -1, target: e.target };
-    sync();
-  });
-})();
-
-/* ── Compact Monaco line height ──────────────────────────────────── */
-/* Code size and family come from CRAFT.css. Monaco line-height matches the
-   code size; remeasure after webfonts load to keep cursor columns aligned. */
-(() => {
-  let tries = 0;
-  const go = () => {
-    const mon = window.monaco?.editor;
-    if (!mon) return ++tries < 40 && setTimeout(go, 250);
-    // Recompute character widths after the webfonts replace the fallback.
-    if (document.fonts) Promise.all([
-      document.fonts.load('10px "Craft Iosevka"'),
-      document.fonts.load('italic 10px "Craft Iosevka"'),
-      document.fonts.load('bold 10px "Craft Iosevka"'),
-      document.fonts.load('italic bold 10px "Craft Iosevka"')
-    ]).then(() => { mon.remeasureFonts(); mon.getEditors().forEach(ed => ed.layout()); })
-      .catch(err => console.warn('Iosevka could not load; using monospace fallback.', err));
-    const compact = ed => {
-      try {
-        const fs = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--craft-code')) || ed.getOption(mon.EditorOption.fontSize);
-        ed.updateOptions({ fontSize: fs, lineHeight: fs, fontFamily: getComputedStyle(document.documentElement).getPropertyValue('--craft-code-family').trim() || 'monospace'  });  // line height = font size: glyphs just touch
-      } catch (e) {}
-    };
-    mon.onDidCreateEditor?.(compact);
-    mon.getEditors().forEach(compact);
-    try { mon.getDiffEditors().forEach(d => { const fs = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--craft-code')) || 10; d.updateOptions({ fontSize: fs, lineHeight: fs, fontFamily: getComputedStyle(document.documentElement).getPropertyValue('--craft-code-family').trim() || 'monospace'  }); }); } catch (e) {}
-  };
-  go();
-})();
-
-/* ── Launcher (⌘⇧P) ──────────────────────────────────────────────────
-   One fuzzy box over commands (every hotkey-registry action, custom and
-   Solveit built-in) and dialogs/files (whatever the file tree has loaded).
-   Enter runs or opens the selection; Esc or a click outside closes. */
-(() => {
-  let root, input, list, results = [], sel = 0, pool = [], prevFocus;
-
-  function score(q, text) {
-    if (!q) return 1;
-    const t = text.toLowerCase();
-    let i = 0, s = 0, run = 0, last = -2;
-    for (const ch of q) {
-      const j = t.indexOf(ch, i);
-      if (j < 0) return 0;
-      run = j === last + 1 ? run + 1 : 0;
-      s += 1 + run * 2 + (j === 0 || /[\s/_.-]/.test(t[j - 1]) ? 3 : 0);
-      last = j; i = j + 1;
-    }
-    return s - t.length * 0.01;
-  }
-
-  const where = n => { try { const u = new URL(n.href, location.href); return u.searchParams.get('name') || u.searchParams.get('fp') || decodeURIComponent(u.pathname); } catch { return ''; } };
-
-  function build() {
-    root = document.createElement('div'); root.id = 'solveit-launcher';
-    root.innerHTML = '<div class="solveit-launcher-card" role="dialog" aria-label="Launcher"><input type="text" placeholder="Run a command or open a dialog/file…" autocomplete="off" spellcheck="false" aria-label="Search commands and files"><ul role="listbox"></ul></div>';
-    input = root.querySelector('input'); list = root.querySelector('ul');
-    root.addEventListener('mousedown', e => { if (e.target === root) close(); });
-    input.addEventListener('input', () => { sel = 0; render(); });
-    input.addEventListener('keydown', e => {
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); sel = (sel + (e.key === 'ArrowDown' ? 1 : -1) + results.length) % Math.max(results.length, 1); paint(); }
-      else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); run(results[sel]); }
-      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
-    });
-    list.addEventListener('click', e => { const li = e.target.closest('li[data-i]'); if (li) run(results[+li.dataset.i]); });
-    document.body.append(root);
-  }
-
-  function render() {
-    const q = input.value.trim().toLowerCase();
-    results = pool.map(it => ({it, s: score(q, it.label + ' ' + it.detail)})).filter(r => r.s > 0).sort((a, b) => b.s - a.s).slice(0, 60).map(r => r.it);
-    sel = Math.min(sel, Math.max(results.length - 1, 0));
-    list.replaceChildren(...(results.length ? results.map((it, i) => {
-      const li = document.createElement('li'); li.dataset.i = i; li.className = 'kind-' + it.kind; li.setAttribute('role', 'option');
-      for (const [cls, text] of [['label', it.label], ['detail', it.detail], ['hint', it.hint]]) { const s = document.createElement('span'); s.className = cls; s.textContent = text; li.append(s); }
-      return li;
-    }) : [Object.assign(document.createElement('li'), {className: 'empty', textContent: 'No matches'})]));
-    paint();
-  }
-
-  function paint() {
-    list.querySelectorAll('li[data-i]').forEach(li => { const on = +li.dataset.i === sel; li.setAttribute('aria-selected', String(on)); if (on) li.scrollIntoView({block: 'nearest'}); });
-  }
-
-  async function open() {
-    if (!root) build();
-    prevFocus = document.activeElement;
-    const hk = window.solveitHotkeys;
-    const cmds = (hk?.list?.() || []).filter(a => a.id !== 'launcher').map(a => ({kind: 'command', label: a.label, detail: a.group || '', hint: a.combo ? hk.formatCombo(a.combo) : '', go: () => hk.run(a.id)}));
-    pool = cmds; root.classList.add('open'); input.value = ''; sel = 0; render(); input.focus();
-    try {
-      const entries = await window.solveitFileTree?.entries?.() || [];
-      pool = cmds.concat(entries.map(n => ({kind: n.kind, label: n.name, detail: where(n), hint: n.kind, go: () => window.solveitFileTree.open(n)})));
-      if (root.classList.contains('open')) render();
-    } catch {}
-  }
-
-  function close() { if (!root?.classList.contains('open')) return; root.classList.remove('open'); prevFocus?.focus?.(); }
-  function run(item) { if (!item) return; close(); setTimeout(() => Promise.resolve().then(item.go).catch(err => { console.error('Launcher action failed', err); alert('Action failed: ' + (err.message || err)); }), 0); }
-
-  window.__hotkeyRegister?.({id: 'launcher', label: 'Open launcher', group: 'Launcher', combo: 'Mod+Shift+P', handler: () => { if (root?.classList.contains('open')) close(); else open(); return true; }});
-})();
-(() => {
-  window.craftIdleComposer?.disable();
-  if (window.CRAFT_IDLE_COMPOSER === false) return;
-  let editor, originalFocus, subscriptions = [], requested = false, pending = false;
-  const panel = () => document.getElementById('full_editor');
-  const temporary = () => editor?.getModel()?.uri.path.endsWith('/temp');
-  const hasDraft = () => !!window.edValue?.();
-  const reveal = () => {
-    requested = true;
-    panel()?.classList.remove('craft-composer-idle');
-    editor?.layout();
-  };
-  const unbind = () => {
-    subscriptions.forEach(s => s.dispose());
-    subscriptions = [];
-    if (editor && originalFocus) editor.focus = originalFocus;
-  };
-  const sync = () => {
-    pending = false;
-    if (window.editor !== editor) {
-      unbind();
-      editor = window.editor;
-      if (editor) {
-        subscriptions.push(editor.onDidChangeModel(schedule));
-        subscriptions.push(editor.onDidChangeModelContent(schedule));
-      }
-    }
-    const root = panel();
-    if (!root) return;
-    const editingCell = Boolean(editor?.getModel() && !temporary()) || Boolean(document.querySelector('.editable[data-editing="true"]'));
-    const active = requested || (!insertionHolds.size && (editingCell || hasDraft()));
-    const idle = !active;
-    if (root.classList.contains('craft-composer-idle') === idle) return;
-    root.classList.toggle('craft-composer-idle', idle);
-    if (active && editor) editor.layout();
-  };
-  const schedule = () => { if (!pending) { pending = true; queueMicrotask(sync); } };
-  const tabClick = e => {
-    const tab = e.target.closest('#full_editor .tabh');
-    if (!tab) return;
-    if (tab.id === 'tabh-code' && window.craftC2?.shouldInterceptCodeTab?.()) return;
-    reveal();
-  };
-  let shortcutOpened = false, dismissTimer;
-  const insertionHolds = new Set(), rootEl = document.documentElement;
-  const clearInsertionHolds = () => { insertionHolds.clear(); rootEl.removeAttribute('data-craft-inserting'); };
-  const holdForInsertion = () => {
-    const token = Symbol();
-    insertionHolds.add(token); rootEl.setAttribute('data-craft-inserting', '');
-    return () => {
-      if (!insertionHolds.delete(token) || insertionHolds.size) return;
-      if (!hasDraft() && temporary()) hide();
-      rootEl.removeAttribute('data-craft-inserting');
-    };
-  };
-  const hide = () => {
-    clearTimeout(dismissTimer);
-    shortcutOpened = false;
-    requested = false;
-    sync();
-  };
-  const show = () => {
-    if (window.editor !== editor) sync();
-    const root = panel();
-    if (!root || !editor?.getModel()) return false;
-    clearTimeout(dismissTimer);
-    clearInsertionHolds();
-    shortcutOpened ||= root.classList.contains('craft-composer-idle');
-    reveal();
-    editor.focus();
-    return true;
-  };
-  const dismissShortcut = e => {
-    if (!shortcutOpened || e.key !== 'Escape' || e.isComposing || !panel()?.contains(e.target)) return;
-    clearTimeout(dismissTimer);
-    dismissTimer = setTimeout(() => {
-      shortcutOpened = false;
-      if (!temporary() || hasDraft() || document.querySelector('.editable[data-editing="true"]')) return;
-      requested = false;
-      sync();
-    }, 0);
-  };
-  window.addEventListener('keydown', dismissShortcut, true);
-  const observer = new MutationObserver(schedule);
-  observer.observe(document.body, {childList: true, subtree: true, attributes: true, attributeFilter: ['data-editing']});
-  document.addEventListener('click', tabClick, true);
-  const settleEvent = ['htmx', 'after', 'settle'].join(window.htmx?.config?.metaCharacter || ':');
-  document.addEventListener(settleEvent, schedule);
-  window.craftIdleComposer = {
-    reveal,
-    hide,
-    show,
-    holdForInsertion,
-    disable() {
-      observer.disconnect();
-      document.removeEventListener('click', tabClick, true);
-      document.removeEventListener(settleEvent, schedule);
-      window.removeEventListener('keydown', dismissShortcut, true);
-      clearTimeout(dismissTimer);
-      clearInsertionHolds();
-      if (window.craftIdleComposer?.show === show) delete window.craftIdleComposer;
-      unbind();
-      panel()?.classList.remove('craft-composer-idle');
-      editor?.layout();
-    }
-  };
-  sync();
-  window.__hotkeyRegister?.({id: 'composer-show', label: 'Show cell editor', group: 'Editor', combo: 'Shift+I', handler: e => {
-    if (e?.isComposing || e?.target?.closest?.('#solveit-file-tree-panel, #solveit-temp-editor, [role="dialog"], .uk-modal.uk-open, .hk-overlay.open, #solveit-launcher.open')) return false;
-    return window.craftIdleComposer?.show() === true;
-  }});
-})();
-
+/* %% nbs/craft/04_craft_c2.ipynb #cb2ed5a6 */
 (() => {
   window.craftC2?.disable();
-  const key = 'solveit-craft:c2:v1', DLG_KEY = 'solveit-craft:c2:dlgs:v1', ALL_KEY = 'solveit-craft:c2:all', LN_KEY = 'solveit-craft:c2:linenums';
-  const requests = new WeakMap(), staticHlText = new WeakMap(), smartSelHist = new WeakMap();
-  const ids = new Set(), states = new Map(), views = new Map(), pendingSaves = new Map(), dirtyIds = new Set(), failedSaves = new Set();
-  const syncSaveState = id => {
-    const el = document.getElementById('_' + id);
-    if (!el) return;
-    const st = failedSaves.has(id) ? 'error' : (pendingSaves.has(id) ? 'saving' : (dirtyIds.has(id) ? 'dirty' : ''));
-    if (st) el.dataset.c2Save = st;
-    else delete el.dataset.c2Save;
-  };
-  const ghostTimers = new Map(), ghostAborts = new Map(), sigAborts = new Map(), saveWaiters = new Map();
+  const {mountTpl, qsa, on, store, patch} = window.__craftCMCore;
+  const LN_KEY = 'solveit-craft:c2:linenums';
+  const staticHlText = new WeakMap(), smartSelHist = new WeakMap();
+  const ghostTimers = new Map(), ghostAborts = new Map(), sigAborts = new Map();
   const getTooltipPortal = () => {
     let p = document.getElementById('craft-c2-tooltips');
-    if (!p) { p = document.createElement('div'); p.id = 'craft-c2-tooltips'; p.className = 'craft-c2-tooltips'; document.body.append(p); }
+    if (!p) { p = mountTpl('c2_tooltip_portal'); document.body.append(p); }
     return p;
   };
-  try { for (const id of JSON.parse(localStorage.getItem(key) || '[]')) ids.add(id); } catch {}
-  let dlgMap = (() => { try { return JSON.parse(localStorage.getItem(DLG_KEY) || '{}') || {}; } catch { return {}; } })();
-  const currentDlgKey = () => new URLSearchParams(location.search).get('name') || location.pathname;
-  const saveIds = () => {
-    try { localStorage.setItem(key, JSON.stringify([...ids])); } catch {}
-    try { localStorage.setItem(DLG_KEY, JSON.stringify(dlgMap)); } catch {}
-  };
-  const recordDlgId = id => {
-    const dk = currentDlgKey();
-    const list = dlgMap[dk] || (dlgMap[dk] = []);
-    if (list.includes(id)) return false;
-    list.push(id);
-    return true;
-  };
-  const removeDlgId = id => {
-    let changed = false;
-    for (const [dk, list] of Object.entries(dlgMap)) {
-      if (!Array.isArray(list)) continue;
-      const i = list.indexOf(id);
-      if (i >= 0) { list.splice(i, 1); changed = true; if (!list.length) delete dlgMap[dk]; }
-    }
-    return changed;
-  };
-  const pruneCurrentDlgIds = domIds => {
-    const dk = currentDlgKey();
-    const list = dlgMap[dk];
-    if (!Array.isArray(list) || !list.length) return false;
-    let changed = false;
-    for (let i = list.length - 1; i >= 0; i--) {
-      const id = list[i];
-      if (!domIds.has(id)) {
-        list.splice(i, 1);
-        ids.delete(id);
-        changed = true;
-      }
-    }
-    if (!list.length) delete dlgMap[dk];
-    return changed;
-  };
-  let allMode = (() => { try { const v = localStorage.getItem(ALL_KEY); return v == null ? true : v === '1'; } catch { return true; } })();
-  let showLineNums = (() => { try { return localStorage.getItem(LN_KEY) === '1'; } catch { return false; } })();
+  let showLineNums = store.get(LN_KEY) === '1';
 
   const isMac = navigator.userAgentData?.platform === 'macOS' || /Mac/.test(navigator.userAgent);
   let parsedServerPrefs = null;
@@ -1652,7 +3799,7 @@
     if (!parsedServerPrefs) {
       let enterComp = false, autoClose = false;
       try {
-        const s = [...document.querySelectorAll('script')].map(n => n.textContent || '').find(t => t.includes('createMonacoEditor(')) || '';
+        const s = qsa('script').map(n => n.textContent || '').find(t => t.includes('createMonacoEditor(')) || '';
         const m = s.match(/createMonacoEditor\([\s\S]*?,\s*(true|false)\s*,\s*(true|false)\s*,\s*['"][^'"]*['"]\s*,\s*(true|false)\s*,\s*(true|false)\s*\)/);
         if (m) enterComp = m[2] === 'true';
         const acm = s.match(/['"]autoClosingBrackets['"]\s*:\s*(true|false|['"][^'"]+['"])/);
@@ -1665,121 +3812,15 @@
     return {enterComp: parsedServerPrefs.enterComp, autoClose};
   };
 
-  const LOCAL_CM_BASE = '/static/.craft-assets/cm6';
-  const CM_DEPS = 'deps=@codemirror/state@6.5.2,@codemirror/view@6.36.5,@codemirror/language@6.11.0';
-  const CM_URLS = {
-    state: 'https://esm.sh/@codemirror/state@6.5.2',
-    view: 'https://esm.sh/@codemirror/view@6.36.5?deps=@codemirror/state@6.5.2',
-    lang: 'https://esm.sh/@codemirror/language@6.11.0?deps=@codemirror/state@6.5.2,@codemirror/view@6.36.5',
-    python: `https://esm.sh/@codemirror/lang-python@6.1.7?${CM_DEPS}`,
-    cmds: `https://esm.sh/@codemirror/commands@6.8.1?${CM_DEPS}`,
-    ac: `https://esm.sh/@codemirror/autocomplete@6.18.6?${CM_DEPS}`,
-    search: 'https://esm.sh/@codemirror/search@6.5.10?deps=@codemirror/state@6.5.2,@codemirror/view@6.36.5',
-    hl: 'https://esm.sh/@lezer/highlight@1.2.1',
-  };
-  const LOCAL_LANG_LOADERS = {
-    javascript: () => import(`${LOCAL_CM_BASE}/lang-javascript.js`).then(m => m.javascript({jsx: true})),
-    typescript: () => import(`${LOCAL_CM_BASE}/lang-javascript.js`).then(m => m.javascript({typescript: true, jsx: true})),
-    html: () => import(`${LOCAL_CM_BASE}/lang-html.js`).then(m => m.html()),
-    css: () => import(`${LOCAL_CM_BASE}/lang-css.js`).then(m => m.css()),
-    json: () => import(`${LOCAL_CM_BASE}/lang-json.js`).then(m => m.json()),
-    sql: () => import(`${LOCAL_CM_BASE}/lang-sql.js`).then(m => m.sql()),
-    markdown: () => import(`${LOCAL_CM_BASE}/lang-markdown.js`).then(m => m.markdown()),
-    xml: () => import(`${LOCAL_CM_BASE}/lang-xml.js`).then(m => m.xml()),
-    yaml: () => import(`${LOCAL_CM_BASE}/lang-yaml.js`).then(m => m.yaml()),
-    rust: () => import(`${LOCAL_CM_BASE}/lang-rust.js`).then(m => m.rust()),
-    cpp: () => import(`${LOCAL_CM_BASE}/lang-cpp.js`).then(m => m.cpp()),
-    shell: () => import(`${LOCAL_CM_BASE}/mode-shell.js`).then(m => cmCache.lang.StreamLanguage.define(m.shell)),
-  };
-  const CDN_LANG_LOADERS = {
-    javascript: () => import(`https://esm.sh/@codemirror/lang-javascript@6?${CM_DEPS}`).then(m => m.javascript({jsx: true})),
-    typescript: () => import(`https://esm.sh/@codemirror/lang-javascript@6?${CM_DEPS}`).then(m => m.javascript({typescript: true, jsx: true})),
-    html: () => import(`https://esm.sh/@codemirror/lang-html@6?${CM_DEPS}`).then(m => m.html()),
-    css: () => import(`https://esm.sh/@codemirror/lang-css@6?${CM_DEPS}`).then(m => m.css()),
-    json: () => import(`https://esm.sh/@codemirror/lang-json@6?${CM_DEPS}`).then(m => m.json()),
-    sql: () => import(`https://esm.sh/@codemirror/lang-sql@6?${CM_DEPS}`).then(m => m.sql()),
-    markdown: () => import(`https://esm.sh/@codemirror/lang-markdown@6?${CM_DEPS}`).then(m => m.markdown()),
-    xml: () => import(`https://esm.sh/@codemirror/lang-xml@6?${CM_DEPS}`).then(m => m.xml()),
-    yaml: () => import(`https://esm.sh/@codemirror/lang-yaml@6?${CM_DEPS}`).then(m => m.yaml()),
-    rust: () => import(`https://esm.sh/@codemirror/lang-rust@6?${CM_DEPS}`).then(m => m.rust()),
-    cpp: () => import(`https://esm.sh/@codemirror/lang-cpp@6?${CM_DEPS}`).then(m => m.cpp()),
-    shell: () => import(`https://esm.sh/@codemirror/legacy-modes@6.5.1/mode/shell?${CM_DEPS}`).then(m => cmCache.lang.StreamLanguage.define(m.shell)),
-  };
-  const LANG_ALIASES = {
-    py: 'python', py3: 'python', python3: 'python',
-    js: 'javascript', jsx: 'javascript',
-    ts: 'typescript', tsx: 'typescript',
-    md: 'markdown', svg: 'xml', yml: 'yaml', rs: 'rust', c: 'cpp', 'c++': 'cpp', cxx: 'cpp',
-    bash: 'shell', sh: 'shell', zsh: 'shell', shell: 'shell', script: 'shell',
-  };
-  const langCache = window.__craftCM6Langs ??= new Map();
+    const CORE = window.__craftCMCore, {normId} = CORE;
+  const {LOCAL_CM_BASE, CM_DEPS, CM_URLS, LANG_ALIASES, langCache, isDark, buildStyles} = CORE;
+  let cmCache = null, pendingPointer = null;
 
-  let cmCache = null, draft = null, frame = null, activeId = null, pendingPointer = null, bypassMonacoId = null, destroyed = false;
-
-  const isDark = () => document.documentElement.classList.contains('dark');
   const kernelLang = () => (document.getElementById('kid')?.dataset.language || 'python').toLowerCase();
   const fimEnabled = () => kernelLang() === 'python';
   const dialogMode = () => document.querySelector('[name=mode]')?.value || '';
-  const notifyErr = msg => {
-    const d = document.createElement('div');
-    d.textContent = String(msg || 'Request failed.');
-    if (window.UIkit?.notification) window.UIkit.notification(d.innerHTML, {status: 'destructive', pos: 'bottom-right'});
-    else console.error('craftC2:', msg);
-  };
-
-  const buildStyles = cm => {
-    const t = cm.hl.tags;
-    cm.ghDarkStyle = cm.lang.HighlightStyle.define([
-      {tag: [t.comment, t.lineComment, t.blockComment, t.docComment], color: '#6a737d'},
-      {tag: [t.keyword, t.controlKeyword, t.operatorKeyword, t.definitionKeyword, t.moduleKeyword, t.operator, t.compareOperator, t.logicOperator, t.arithmeticOperator, t.bitwiseOperator, t.updateOperator], color: '#f97583'},
-      {tag: [t.string, t.special(t.string), t.docString], color: '#9ecbff'},
-      {tag: [t.regexp], color: '#dbedff'},
-      {tag: [t.self, t.escape, t.number, t.integer, t.float, t.bool, t.null, t.atom, t.constant(t.variableName), t.propertyName, t.attributeName, t.standard(t.variableName), t.special(t.variableName), t.link, t.url], color: '#79b8ff'},
-      {tag: [t.function(t.variableName), t.function(t.propertyName), t.definition(t.function(t.variableName)), t.className, t.definition(t.className), t.typeName, t.meta, t.annotation], color: '#b392f0'},
-      {tag: [t.tagName], color: '#85e89d'},
-      {tag: [t.heading], color: '#79b8ff', fontWeight: 'bold'},
-      {tag: [t.strong], fontWeight: 'bold', color: '#e1e4e8'},
-      {tag: [t.emphasis], fontStyle: 'italic', color: '#e1e4e8'},
-      {tag: [t.variableName, t.definition(t.variableName), t.punctuation, t.bracket, t.paren, t.squareBracket, t.brace], color: '#e1e4e8'},
-      {tag: [t.invalid], color: '#fdaeb7', fontStyle: 'italic'},
-    ]);
-    cm.ghLightStyle = cm.lang.HighlightStyle.define([
-      {tag: [t.comment, t.lineComment, t.blockComment, t.docComment], color: '#6a737d'},
-      {tag: [t.keyword, t.controlKeyword, t.operatorKeyword, t.definitionKeyword, t.moduleKeyword, t.operator, t.compareOperator, t.logicOperator, t.arithmeticOperator, t.bitwiseOperator, t.updateOperator], color: '#d73a49'},
-      {tag: [t.string, t.special(t.string), t.docString], color: '#032f62'},
-      {tag: [t.regexp], color: '#032f62'},
-      {tag: [t.self, t.escape, t.number, t.integer, t.float, t.bool, t.null, t.atom, t.constant(t.variableName), t.propertyName, t.attributeName, t.standard(t.variableName), t.special(t.variableName), t.link, t.url], color: '#005cc5'},
-      {tag: [t.function(t.variableName), t.function(t.propertyName), t.definition(t.function(t.variableName)), t.className, t.definition(t.className), t.typeName, t.meta, t.annotation], color: '#6f42c1'},
-      {tag: [t.tagName], color: '#22863a'},
-      {tag: [t.heading], color: '#005cc5', fontWeight: 'bold'},
-      {tag: [t.strong], fontWeight: 'bold', color: '#24292e'},
-      {tag: [t.emphasis], fontStyle: 'italic', color: '#24292e'},
-      {tag: [t.variableName, t.definition(t.variableName), t.punctuation, t.bracket, t.paren, t.squareBracket, t.brace], color: '#24292e'},
-      {tag: [t.invalid], color: '#cb2431', fontStyle: 'italic'},
-    ]);
-    cm.darkTheme = cm.view.EditorView.theme({'&': {lineHeight: '1'}, '.cm-scroller': {lineHeight: '1'}}, {dark: true});
-    cm.lightTheme = cm.view.EditorView.theme({'&': {lineHeight: '1'}, '.cm-scroller': {lineHeight: '1'}}, {dark: false});
-    cm.theme = cm.darkTheme;
-    return cm;
-  };
-
-  const loadCM = () => window.__craftCM6LocalPromise ??= (async () => {
-    try {
-      const mod = await import(`${LOCAL_CM_BASE}/index.js`);
-      const cm = {...mod, _source: 'local'};
-      return buildStyles(cm);
-    } catch (localErr) {
-      console.warn('craftC2: local CM6 bundle unavailable, falling back to esm.sh', localErr);
-      const entries = await Promise.all(Object.entries(CM_URLS).map(async ([k, u]) => [k, await import(u)]));
-      const cm = Object.fromEntries(entries);
-      cm._source = 'cdn';
-      return buildStyles(cm);
-    }
-  })().catch(err => {
-    window.__craftCM6LocalPromise = null;
-    console.error('craftC2: failed to load CodeMirror 6', err);
-    throw err;
-  });
+  const notifyErr = msg => CORE.notifyErr(msg, 'craftC2');
+  const loadCM = CORE.loadCoreCM;
   loadCM().then(cm => { cmCache = cm; schedule(); }).catch(() => {});
 
   let cmExtras = null;
@@ -1795,10 +3836,7 @@
       constructor(text) { super(); this.text = text; }
       eq(other) { return other.text === this.text; }
       toDOM() {
-        const span = document.createElement('span');
-        span.className = 'craft-c2-ghost';
-        span.textContent = this.text;
-        return span;
+        return CORE.el('span', {cls: 'craft-c2-ghost'}, this.text);
       }
       ignoreEvent() { return true; }
     }
@@ -1835,72 +3873,29 @@
       strictSide: false,
       arrow: false,
       create(edView) {
-        const dom = document.createElement('div');
-        dom.className = 'craft-c2-sighelp';
+        const {el} = CORE;
+        const dom = el('div', {cls: 'craft-c2-sighelp'});
         const render = cur => {
           dom.replaceChildren();
           const s = cur.values[cur.active] || cur.values[0];
           if (!s) return;
-          const head = document.createElement('div');
-          head.className = 'craft-c2-sig-head';
-          const sigEl = document.createElement('span');
-          sigEl.className = 'craft-c2-sig-label';
           const descs = (s.params || []).map(p => typeof p === 'string' ? p : String(p.desc || p.name || '').replace(/^param /, ''));
-          const fullLabel = String(s.label || '');
-          const openIdx = fullLabel.indexOf('('), closeIdx = fullLabel.lastIndexOf(')');
-          const fnName = openIdx >= 0 ? fullLabel.slice(0, openIdx) : fullLabel;
-          const tail = closeIdx >= 0 ? fullLabel.slice(closeIdx) : ')';
-          sigEl.append(fnName + '(');
-          descs.forEach((d, i) => {
-            if (i > 0) sigEl.append(', ');
-            if (i === s.idx) {
-              const st = document.createElement('strong');
-              st.className = 'craft-c2-sig-active';
-              st.textContent = d;
-              sigEl.append(st);
-            } else sigEl.append(d);
-          });
-          sigEl.append(tail);
-          head.append(sigEl);
-          if (cur.values.length > 1) {
-            const nav = document.createElement('span');
-            nav.className = 'craft-c2-sig-nav';
-            const mkBtn = (txt, delta) => {
-              const b = document.createElement('button');
-              b.type = 'button';
-              b.textContent = txt;
-              b.addEventListener('mousedown', e => {
-                e.preventDefault();
-                const n = cur.values.length;
-                edView.dispatch({effects: setSigHelp.of({...cur, active: (cur.active + delta + n) % n})});
-              });
-              return b;
-            };
-            nav.append(mkBtn('▲', -1), ` ${cur.active + 1}/${cur.values.length} `, mkBtn('▼', 1));
-            head.append(nav);
-          }
-          dom.append(head);
-          if (s.typ || s.mod) {
-            const meta = document.createElement('div');
-            meta.className = 'craft-c2-sig-meta';
-            if (s.typ) {
-              const b = document.createElement('b'); b.textContent = 'Type: ';
-              const k = document.createElement('kbd'); k.textContent = s.typ;
-              meta.append(b, k, ' ');
-            }
-            if (s.mod) {
-              const b = document.createElement('b'); b.textContent = 'Module: ';
-              const k = document.createElement('kbd'); k.textContent = s.mod;
-              meta.append(b, k);
-            }
-            dom.append(meta);
-          }
-          if (s.doc) {
-            const pre = document.createElement('pre');
-            pre.className = 'craft-c2-sig-doc';
-            pre.textContent = s.doc;
-            dom.append(pre);
-          }
+          const fullLabel = String(s.label || ''), openIdx = fullLabel.indexOf('('), closeIdx = fullLabel.lastIndexOf(')');
+          const sigEl = el('span', {cls: 'craft-c2-sig-label'},
+            (openIdx >= 0 ? fullLabel.slice(0, openIdx) : fullLabel) + '(',
+            ...descs.flatMap((d, i) => [i > 0 ? ', ' : null, i === s.idx ? el('strong', {cls: 'craft-c2-sig-active'}, d) : d]),
+            closeIdx >= 0 ? fullLabel.slice(closeIdx) : ')');
+          const mkBtn = (txt, delta) => el('button', {type: 'button', onMousedown: e => {
+            e.preventDefault();
+            const n = cur.values.length;
+            edView.dispatch({effects: setSigHelp.of({...cur, active: (cur.active + delta + n) % n})});
+          }}, txt);
+          const nav = cur.values.length > 1 ? el('span', {cls: 'craft-c2-sig-nav'}, mkBtn('▲', -1), ` ${cur.active + 1}/${cur.values.length} `, mkBtn('▼', 1)) : null;
+          dom.append(el('div', {cls: 'craft-c2-sig-head'}, sigEl, nav));
+          if (s.typ || s.mod) dom.append(el('div', {cls: 'craft-c2-sig-meta'},
+            s.typ && [el('b', {}, 'Type: '), el('kbd', {}, s.typ), ' '],
+            s.mod && [el('b', {}, 'Module: '), el('kbd', {}, s.mod)]));
+          if (s.doc) dom.append(el('pre', {cls: 'craft-c2-sig-doc'}, s.doc));
         };
         render(val);
         return {
@@ -1927,15 +3922,8 @@
       constructor(spec) { super(); this.spec = spec; }
       eq(other) { return other.spec === this.spec; }
       toDOM() {
-        const form = document.createElement('form');
-        form.className = 'craft-c2-ai-form';
-        const input = document.createElement('input');
-        input.type = 'text';
-        input.name = 'query';
-        input.autocomplete = 'off';
-        input.placeholder = 'Enter your query... (Enter to apply, Esc to cancel)';
-        input.className = 'craft-c2-ai-input';
-        form.append(input);
+        const form = CORE.mountTpl('c2_ai_form');
+        const input = form.querySelector('input');
         form.addEventListener('submit', e => {
           e.preventDefault();
           e.stopPropagation();
@@ -2064,10 +4052,7 @@
 
     const hoverFoldGutter = cm.lang.foldGutter({
       markerDOM(open) {
-        const span = document.createElement('span');
-        span.className = 'craft-c2-fold ' + (open ? 'is-open' : 'is-closed');
-        span.textContent = open ? '▾' : '▸';
-        return span;
+        return CORE.el('span', {cls: 'craft-c2-fold ' + (open ? 'is-open' : 'is-closed')}, open ? '▾' : '▸');
       },
     });
 
@@ -2092,21 +4077,9 @@
     return LANG_ALIASES[kl] || kl;
   };
 
-  async function resolveLangExt(cm, langKey) {
-    if (langKey === 'python') return cm.python.python();
-    const cacheKey = `${cm._source || 'cdn'}:${langKey}`;
-    if (langCache.has(cacheKey)) return langCache.get(cacheKey);
-    const loaders = cm._source === 'local' ? LOCAL_LANG_LOADERS : CDN_LANG_LOADERS;
-    const loader = loaders[langKey];
-    if (!loader) return [];
-    try {
-      const ext = await loader();
-      langCache.set(cacheKey, ext);
-      return ext;
-    } catch (err) {
-      console.warn('craftC2: language fallback to plaintext for', langKey, err);
-      return [];
-    }
+    async function resolveLangExt(cm, langKey) {
+    try { return await CORE.loadLang(cm, langKey); }
+    catch (err) { console.warn('craftC2: language fallback to plaintext for', langKey, err); return []; }
   }
 
   async function syncCellLanguage(id, v) {
@@ -2129,10 +4102,7 @@
     cmCache.hl.highlightTree(tree, staticHighlighter, (from, to, cls) => {
       if (from > pos) frag.append(document.createTextNode(text.slice(pos, from)));
       if (cls) {
-        const span = document.createElement('span');
-        span.setAttribute('style', cls.trim().replace(/\s+/g, ';'));
-        span.textContent = text.slice(from, to);
-        frag.append(span);
+        frag.append(CORE.el('span', {style: cls.trim().replace(/\s+/g, ';')}, text.slice(from, to)));
       } else {
         frag.append(document.createTextNode(text.slice(from, to)));
       }
@@ -2166,7 +4136,7 @@
       return;
     }
     resolveLangExt(cmCache, langKey).then(ext => {
-      if (destroyed || !codeEl.isConnected) return;
+      if (ed.destroyed || !codeEl.isConnected) return;
       const curCard = codeEl.closest('.card-in');
       if (curCard?.classList.contains('craft-c2-mounted')) return;
       if ((codeEl.textContent || '') !== text) return;
@@ -2175,23 +4145,7 @@
     });
   }
 
-  function syncFindBoxToView(v) {
-    if (!cmCache) return;
-    const box = document.getElementById('find-box');
-    if (!box || box.classList.contains('hidden')) return;
-    const q = document.getElementById('search')?.value || '';
-    if (!q) return;
-    const isRegex = Boolean(document.getElementById('use_regex')?.checked);
-    const useCase = Boolean(document.getElementById('use_case')?.checked);
-    const caseSensitive = typeof window.smartCased === 'function' ? window.smartCased(q, useCase) : (useCase || /\p{Uppercase}/u.test(q));
-    const replRow = document.getElementById('replace-row');
-    const replace = replRow && !replRow.classList.contains('hidden') ? (document.getElementById('replace')?.value || '') : '';
-    try {
-      const sq = new cmCache.search.SearchQuery({search: q, regexp: isRegex, caseSensitive, replace});
-      v.dispatch({effects: cmCache.search.setSearchQuery.of(sq)});
-      cmCache.search.openSearchPanel(v);
-    } catch {}
-  }
+    const syncFindBoxToView = v => CORE.syncFindBoxToView(v, cmCache);
 
   function smartExpandSelection(v) {
     if (!cmCache) return false;
@@ -2233,65 +4187,23 @@
 
   async function switchCellType(id, v, mtyp) {
     if (mtyp === 'code') return;
-    const sel = v.state.selection.main;
-    const selSpec = {anchor: sel.anchor, head: sel.head};
-    cancelGhost(id, v);
-    const saved = await saveCell(id, v.state.doc.toString());
-    if (!saved) return;
-    unmountCell(id);
-    if (ids.delete(id) | removeDlgId(id)) saveIds();
-    const el = getCellEl(id);
-    if (el) window.selectMsg?.(window.$(el), {scroll: false});
-    const kid = document.getElementById('kid')?.value || '';
-    try {
-      await window.htmx.ajax('POST', '/set_mtyp_', {
-        source: '#kid',
-        swap: 'none',
-        values: {kid, id_: '_' + id, ids: '_' + id, mtyp},
-      });
-      if (window.craftMd) {
-        for (let i = 0; i < 60; i++) {
-          if (getCellEl(id)?.querySelector(':scope > .card-in')?.dataset.mtype === mtyp) {
-            window.craftMd.edit(id, selSpec);
-            break;
-          }
-          await new Promise(r => setTimeout(r, 40));
-        }
-      }
-    } catch (err) {
-      notifyErr('Could not change cell type.');
-      console.error('craftC2: set_mtyp failed', err);
-    }
+    await ed.switchCellType(id, v, mtyp, {
+      onMatch: window.craftMd ? (cid, selSpec) => window.craftMd.edit(cid, selSpec) : null,
+    });
   }
 
-  async function jumpToLastCell(id) {
-    await exitCell(id);
-    const all = [...document.querySelectorAll('#dialog-container > .editable')].filter(e => !e.hidden && getComputedStyle(e).display !== 'none');
-    const last = all[all.length - 1];
-    if (!last) return;
-    if (isC2El(last) && !getCardIn(last)?.classList.contains('collapsed')) {
-      last.scrollIntoView({block: 'nearest'});
-      openCell(last.id.replace(/^_/, ''), {toEnd: true});
-    } else if (window.craftMd?.manages?.(last.id)) {
-      last.scrollIntoView({block: 'nearest'});
-      window.craftMd.edit(last.id, {toEnd: true});
-    } else {
-      last.querySelector('div[hx-post^="/editor_"]')?.click();
-    }
-  }
+  const jumpToLastCell = id => CORE.jumpToLastCell(() => exitCell(id));
 
   const editorId = () => String(document.querySelector('#full_editor #id_')?.value || '').replace(/^_/, '');
   const model = () => window.editor?.getModel();
-  const choice = () => draft && draft.id === editorId() && draft.model === model() ? draft.c2 : (allMode || ids.has(editorId()));
-  const select = c2 => { draft = {id: editorId(), model: model(), c2}; };
   const getCellEl = id => document.getElementById('_' + id);
   const getCardIn = el => el?.querySelector('.card-in[data-mtype="code"]');
   const getCellText = el => el?.querySelector('form [name="content"]')?.value ?? '';
   const hasDiff = el => !!(el && (el.dataset.diff || el.querySelector('[data-diff]')));
   let nonCodeInsertion = null;
   const isNonCodeInsertion = id => nonCodeInsertion && !nonCodeInsertion.has(id);
-  const isC2El = el => !!el && !isNonCodeInsertion(el.id) && !!getCardIn(el) && !hasDiff(el) && (allMode || ids.has(el.id.replace(/^_/, '')));
-  const typingBlocked = () => !!document.activeElement?.closest('input,textarea,select,[contenteditable],.monaco-editor,#full_editor,.hk-overlay.open,#solveit-launcher.open,[role="dialog"],.uk-modal.uk-open');
+  const isC2El = el => !!el && !isNonCodeInsertion(el.id) && !!getCardIn(el) && !hasDiff(el);
+  const typingBlocked = () => CORE.typingBlocked();
 
   const hasTraceback = el => {
     const out = el?.querySelector('.card-out');
@@ -2310,33 +4222,112 @@
   };
   const setLineNums = on => {
     showLineNums = Boolean(on);
-    try { localStorage.setItem(LN_KEY, showLineNums ? '1' : '0'); } catch {}
+    store.set(LN_KEY, showLineNums ? '1' : '0');
     for (const [id, rec] of views) syncCellLineNumbers(id, rec);
   };
-  const setAllMode = on => {
-    allMode = Boolean(on);
-    try { localStorage.setItem(ALL_KEY, allMode ? '1' : '0'); } catch {}
-    if (!allMode) {
-      for (const id of [...views.keys()]) if (!ids.has(id) && !dirtyIds.has(id)) unmountCell(id);
-    }
-    schedule();
-  };
-  async function openInMonaco(id) {
-    autoEditGuard = null;
-    const k = String(id).replace(/^_/, '');
-    const rec = views.get(k);
-    if (rec) {
-      const ok = await saveCell(k, rec.view.state.doc.toString());
-      if (!ok) return;
-      unmountCell(k);
-    }
-    const btn = getCellEl(k)?.querySelector('.card-in [hx-post="/editor_"]');
-    if (!btn) return;
-    bypassMonacoId = k;
-    window.craftIdleComposer?.reveal();
-    btn.click();
-    setTimeout(() => { if (bypassMonacoId === k) bypassMonacoId = null; }, 500);
-  }
+  const ed = CORE.createInlineEditor({
+    tag: 'craftC2',
+    mountedCls: 'craft-c2-mounted',
+    getCard: el => getCardIn(el),
+    getText: el => getCellText(el),
+    getInput: el => el?.querySelector('form [name="content"]'),
+    applySaveState: (id, st) => {
+      const el = getCellEl(id);
+      if (!el) return;
+      if (st) el.dataset.c2Save = st;
+      else delete el.dataset.c2Save;
+    },
+    setEditing: (_id, on, el) => {
+      if (!el) return;
+      if (on) el.dataset.c2Editing = 'true';
+      else delete el.dataset.c2Editing;
+    },
+    beforeUnmount: (id, rec) => {
+      cancelGhost(id);
+      const ab = sigAborts.get(id);
+      if (ab) { ab.abort(); sigAborts.delete(id); }
+      if (!rec) return;
+      const docText = rec.view.state.doc.toString();
+      const codeEl = getCardIn(getCellEl(id))?.querySelector('.msg-body .msg-content pre code');
+      if (codeEl) {
+        if (cmCache && docText.trim()) {
+          const tree = cmCache.lang.ensureSyntaxTree(rec.view.state, docText.length, 200) || cmCache.lang.syntaxTree(rec.view.state);
+          renderStaticHighlight(codeEl, docText, tree, rec.langKey || detectLangKey(docText));
+        } else {
+          codeEl.textContent = docText;
+          staticHlText.delete(codeEl);
+        }
+      }
+    },
+    beforeBlur: id => cancelGhost(id),
+    beforeExit: id => cancelGhost(id),
+    beforeRun: id => cancelGhost(id),
+    beforeSplit: (id, v) => cancelGhost(id, v),
+    keepMounted: (_id, rec) => Boolean(cmCache && hasFolds(cmCache, rec.view.state)),
+    isViewValid: (_id, _rec, el) => !hasDiff(el) && isC2El(el),
+    onViewSynced: (id, rec) => syncCellLineNumbers(id, rec),
+    onSync: () => {
+      bindMonacoWatcher();
+      reconcileAutoEdits();
+      driveAutoEdit();
+      for (const card of document.querySelectorAll('#dialog-container .editable .card-in')) {
+        const el = card.closest('.editable');
+        const id = el.id.replace(/^_/, '');
+        el.classList.toggle('craft-c2', isC2El(el));
+        syncSaveState(id);
+        const outCard = el.querySelector(':scope > .card-out');
+        if (outCard) outCard.classList.toggle('craft-c2-traceback', card.dataset.mtype === 'code' && hasTraceback(el));
+        if (card.dataset.mtype === 'code' && !card.classList.contains('craft-c2-mounted') && !card.closest('[data-streaming]')) {
+          ensureStaticHighlighted(card);
+        }
+      }
+    },
+    onBeforeRequest: (ctx, pathname, body) => {
+      if (pathname === '/add_above_' || pathname === '/add_below_') {
+        if (nonCodeInsertion) return;
+        if (!pendingAutoEdits.some(r => r.forceCode && r.expires > Date.now())) queueAutoEdit({forceCode: false});
+        return;
+      }
+      if (pathname === '/add_runq_') {
+        if (body.get('cmd') === 'alt-run') queueAutoEdit({forceCode: false, ttl: 30000});
+        return;
+      }
+      if (pathname !== '/upsert_msg_') return;
+      const source = ctx.sourceElement, cmd = body.get('cmd');
+      const composerButton = source?.matches('#full_editor #submit_btn, #full_editor #cancel_btn');
+      const composerShortcut = source?.matches('#kid') && ['upsert-shift-run', 'upsert-alt-run'].includes(cmd);
+      if ((!composerButton && !composerShortcut) || body.get('is_input') !== '1') return;
+      if (cmd === 'upsert-alt-run') queueAutoEdit({forceCode: false, ttl: 30000});
+    },
+    openPrimaryOnEnter: (el, run) => {
+      if (!isC2El(el)) return false;
+      const card = getCardIn(el);
+      if (!card || card.classList.contains('collapsed')) return false;
+      if (run) openCell(el.id.replace(/^_/, ''));
+      return true;
+    },
+    onEditClick: (edit, e) => {
+      const cell = edit.closest('.editable'), cellId = cell?.id?.replace(/^_/, ''), codeCard = getCardIn(cell);
+      if (!cellId || !codeCard || hasDiff(cell) || isNonCodeInsertion(cell.id) || codeCard.classList.contains('collapsed')) return false;
+      e.preventDefault(); e.stopImmediatePropagation();
+      openCell(cellId);
+      return true;
+    },
+    onExtraClick: e => {
+      const tab = e.target.closest?.('#full_editor .tabh');
+      if (tab?.id === 'tabh-code' && shouldInterceptCodeTab()) {
+        e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+        newCodeCell();
+      }
+    },
+    getThemeExts: () => (cmCache ? themeExtensions(cmCache) : null),
+    beforeSwitch: (id, v) => cancelGhost(id, v),
+    failRenameMsg: 'Could not save code edit before reopening renamed dialog.',
+    domAttrs: ['value', 'data-diff'],
+    inDialog: false,
+  });
+  const {states, views, pendingSaves, dirtyIds, failedSaves, syncSaveState, saveCell, unmountCell, exitCell, saveAndRun, sync, schedule} = ed;
+  const splitCell = (id, v) => ed.splitCell(id, v, 'code');
 
   const pendingAutoEdits = [];
   let autoEditGuard = null, cancelRetryTimer = null, monacoBoundEditor = null, monacoModelSub = null;
@@ -2356,20 +4347,19 @@
     return getCellEl(id)?.dataset.editing === 'true';
   };
 
-  const queueAutoEdit = ({tagC2 = false, forceCode = false, ttl = 6000} = {}) => {
+  const queueAutoEdit = ({forceCode = false, ttl = 6000} = {}) => {
     clearAutoEditGuard();
     const existing = new Set([...document.querySelectorAll('#dialog-container .editable[id]')].map(el => el.id));
-    pendingAutoEdits.push({existing, tagC2, forceCode, expires: Date.now() + ttl});
+    pendingAutoEdits.push({existing, forceCode, expires: Date.now() + ttl});
   };
 
-  const claimNewCell = (nid, {tagC2 = false, forceCode = false} = {}) => {
+  const claimNewCell = (nid, {forceCode = false} = {}) => {
     clearAutoEditGuard();
     autoEditGuard = {
-      id: nid, tagC2, forceCode, wantOpen: true, canceling: false, cancelAt: 0, converted: false,
+      id: nid, forceCode, wantOpen: true, canceling: false, cancelAt: 0, converted: false,
       holdRelease: window.craftIdleComposer?.holdForInsertion?.() || null,
       expires: Date.now() + 4000,
     };
-    if (tagC2) { ids.add(nid); recordDlgId(nid); saveIds(); }
     driveAutoEdit();
   };
 
@@ -2430,7 +4420,7 @@
   };
 
   const checkMonacoHandover = () => {
-    if (destroyed) return;
+    if (ed.destroyed) return;
     const edId = editorId();
     if (edId) {
       if (isNonCodeInsertion('_' + edId)) return;
@@ -2466,7 +4456,7 @@
   };
 
   const onFullEditorSettle = e => {
-    if (destroyed) return;
+    if (ed.destroyed) return;
     const tgt = e.target;
     if (tgt?.id === 'full_editor' || e.detail?.target?.id === 'full_editor') checkMonacoHandover();
   };
@@ -2498,7 +4488,6 @@
   };
 
   function shouldInterceptCodeTab() {
-    if (!allMode) return false;
     if (editorId()) return false;
     const uri = model()?.uri?.path || '';
     if (uri && !uri.endsWith('/temp')) return false;
@@ -2508,8 +4497,8 @@
   }
 
   async function newCodeCell() {
-    if (destroyed) return false;
-    if (activeId) await exitCell(activeId);
+    if (ed.destroyed) return false;
+    if (ed.activeKey) await exitCell(ed.activeKey);
     const fullEd = document.getElementById('full_editor');
     if (fullEd?.contains(document.activeElement)) document.activeElement.blur();
     window.craftIdleComposer?.hide?.();
@@ -2517,21 +4506,15 @@
     if (!kid) return false;
     const allCells = [...document.querySelectorAll('#dialog-container > .editable[id]')];
     const last = allCells[allCells.length - 1];
-    queueAutoEdit({tagC2: !allMode, forceCode: true});
+    queueAutoEdit({forceCode: true});
     const unhide = window.craftIdleComposer?.holdForInsertion();
     try {
       if (last) {
         const lastId = last.id.replace(/^_/, '');
         const after = window.sectionTail ? window.sectionTail(last) : last.id;
-        await window.htmx.ajax('POST', '/add_below_', {
-          source: '#kid', swap: 'none',
-          values: {kid, id_: lastId, after},
-        });
+        await CORE.htmxPost('/add_below_', {id_: lastId, after});
       } else {
-        await window.htmx.ajax('POST', '/upsert_msg_', {
-          source: '#kid', swap: 'none',
-          values: {kid, id_: '', msg_type: 'code', is_input: '1', content: ''},
-        });
+        await CORE.htmxPost('/upsert_msg_', {id_: '', msg_type: 'code', is_input: '1', content: ''});
       }
       schedule();
       const existing = new Set(allCells.map(el => el.id)), deadline = Date.now() + 6000;
@@ -2554,38 +4537,11 @@
   function stepBoundary(id, v, up) {
     if (!cmCache || !cmExtras) return false;
     const {sigHelpField, aiEditField} = cmExtras;
-    if (v.state.selection.ranges.length !== 1 || !v.state.selection.main.empty) return false;
-    if (cmCache.ac.completionStatus(v.state) || v.state.field(sigHelpField, false) || v.state.field(aiEditField, false)) return false;
-    const head = v.state.selection.main.head;
-    const doc = v.state.doc;
-    const edgePos = up ? 0 : doc.length;
-    const cHead = v.coordsAtPos(head), cEdge = v.coordsAtPos(edgePos);
-    const atEdge = cHead && cEdge ? Math.abs(cHead.top - cEdge.top) <= 2 : doc.lineAt(head).number === (up ? 1 : doc.lines);
-    if (!atEdge) return false;
-    const el = getCellEl(id);
-    const next = el && window.adjacentMsg?.(window.$(el), up);
-    const nextEl = next?.[0];
-    if (!nextEl || nextEl === el) return false;
-    cancelGhost(id, v);
-    const content = doc.toString();
-    states.set(id, v.state);
-    delete el.dataset.c2Editing;
-    if (activeId === id) activeId = null;
-    v.contentDOM.blur();
-    saveCell(id, content).then(ok => {
-      const cur = views.get(id);
-      if (ok && cur && !cur.view.hasFocus && activeId !== id && !dirtyIds.has(id) && !(cmCache && hasFolds(cmCache, cur.view.state))) unmountCell(id);
+    return ed.stepBoundary(id, v, up, {
+      tol: 2,
+      canStep: view => !(cmCache.ac.completionStatus(view.state) || view.state.field(sigHelpField, false) || view.state.field(aiEditField, false)),
+      beforeStep: (cid, view) => cancelGhost(cid, view),
     });
-    if (isC2El(nextEl) && !getCardIn(nextEl)?.classList.contains('collapsed')) {
-      nextEl.scrollIntoView({block: 'nearest'});
-      openCell(nextEl.id.replace(/^_/, ''), up ? {toEnd: true} : {anchor: 0, head: 0});
-    } else if (window.craftMd?.manages?.(nextEl.id)) {
-      nextEl.scrollIntoView({block: 'nearest'});
-      window.craftMd.edit(nextEl.id, up ? {toEnd: true} : {anchor: 0, head: 0});
-    } else {
-      window.selectMsg?.(next);
-    }
-    return true;
   }
 
   const hasFolds = (cm, state) => {
@@ -2700,7 +4656,7 @@
   }
 
   async function requestGhost(id, v, explicit = false) {
-    if (destroyed || !cmCache || !fimEnabled()) return;
+    if (ed.destroyed || !cmCache || !fimEnabled()) return;
     const copts = window.svCopts;
     const kid = document.getElementById('kid')?.value;
     if (!kid || copts?.scon === false) return;
@@ -2846,9 +4802,7 @@
     if (!rec?.host) return;
     let sp = rec.host.querySelector('.craft-c2-spinner');
     if (on && !sp) {
-      sp = document.createElement('div');
-      sp.className = 'craft-c2-spinner';
-      sp.setAttribute('data-uk-spinner', 'ratio: 0.5');
+      sp = CORE.mountTpl('c2_spinner');
       rec.host.append(sp);
     } else if (!on && sp) sp.remove();
   }
@@ -2928,180 +4882,6 @@
     return true;
   }
 
-  async function splitCell(id, v) {
-    const kid = document.getElementById('kid')?.value || '';
-    const content = v.state.doc.toString();
-    const linenos = [...new Set(v.state.selection.ranges.map(r => v.state.doc.lineAt(r.from).number))];
-    cancelGhost(id, v);
-    try {
-      await window.htmx.ajax('POST', '/split_at_', {
-        source: '#kid',
-        swap: 'none',
-        values: {content, linenos: JSON.stringify(linenos), id_: id, kid, msg_type: 'code', is_input: '1'},
-      });
-      dirtyIds.delete(id);
-      failedSaves.delete(id);
-      syncSaveState(id);
-      unmountCell(id);
-    } catch (err) {
-      notifyErr('Could not split cell.');
-      console.error('craftC2: split failed', err);
-    }
-  }
-
-  async function saveCell(id, content) {
-    const el = getCellEl(id);
-    if (!el) return true;
-    const prev = getCellText(el);
-    if (content === prev) {
-      dirtyIds.delete(id);
-      failedSaves.delete(id);
-      syncSaveState(id);
-      return pendingSaves.get(id) ? await pendingSaves.get(id) : true;
-    }
-    dirtyIds.add(id);
-    failedSaves.delete(id);
-    syncSaveState(id);
-    const kid = document.getElementById('kid')?.value || '';
-    const p = (async () => {
-      let resolveReq;
-      const statusP = new Promise(r => { resolveReq = r; });
-      const waiters = saveWaiters.get(id) || [];
-      waiters.push(resolveReq);
-      saveWaiters.set(id, waiters);
-      let ok = false;
-      try {
-        const ajaxP = window.htmx.ajax('POST', '/set_contents_', {
-          source: '#kid',
-          swap: 'none',
-          values: {kid, id_: '_' + id, ids: id, contents: JSON.stringify({[id]: content})},
-        }).then(() => statusP).catch(() => false);
-        const timeoutP = new Promise(r => setTimeout(() => r(false), 8000));
-        ok = Boolean(await Promise.race([ajaxP, timeoutP]));
-      } catch (err) {
-        console.error('craftC2: save failed', err);
-        ok = false;
-      } finally {
-        const list = saveWaiters.get(id);
-        if (list) {
-          const i = list.indexOf(resolveReq);
-          if (i >= 0) list.splice(i, 1);
-          if (!list.length) saveWaiters.delete(id);
-        }
-        if (pendingSaves.get(id) === p) pendingSaves.delete(id);
-      }
-      if (ok) {
-        failedSaves.delete(id);
-        const curEl = getCellEl(id);
-        const inp = curEl?.querySelector('form [name="content"]');
-        if (inp && inp.value === prev) inp.value = content;
-        const curView = views.get(id)?.view;
-        if (!curView || curView.state.doc.toString() === content) dirtyIds.delete(id);
-      } else {
-        failedSaves.add(id);
-        notifyErr('Could not save cell edit — changes kept in editor.');
-      }
-      syncSaveState(id);
-      return ok;
-    })();
-    pendingSaves.set(id, p);
-    syncSaveState(id);
-    return await p;
-  }
-
-  function unmountCell(id) {
-    cancelGhost(id);
-    const ab = sigAborts.get(id);
-    if (ab) { ab.abort(); sigAborts.delete(id); }
-    const rec = views.get(id);
-    if (!rec) return;
-    const docText = rec.view.state.doc.toString();
-    states.set(id, rec.view.state);
-    const el = getCellEl(id);
-    const card = getCardIn(el);
-    const codeEl = card?.querySelector('.msg-body .msg-content pre code');
-    if (codeEl) {
-      if (cmCache && docText.trim()) {
-        const tree = cmCache.lang.ensureSyntaxTree(rec.view.state, docText.length, 200) || cmCache.lang.syntaxTree(rec.view.state);
-        renderStaticHighlight(codeEl, docText, tree, rec.langKey || detectLangKey(docText));
-      } else {
-        codeEl.textContent = docText;
-        staticHlText.delete(codeEl);
-      }
-    }
-    rec.view.destroy();
-    rec.host.remove();
-    views.delete(id);
-    card?.classList.remove('craft-c2-mounted');
-    if (el) delete el.dataset.c2Editing;
-    if (activeId === id) activeId = null;
-  }
-
-  async function onCellBlur(id) {
-    cancelGhost(id);
-    const rec = views.get(id);
-    if (!rec) return;
-    const el = getCellEl(id);
-    if (el) delete el.dataset.c2Editing;
-    if (activeId === id) activeId = null;
-    const content = rec.view.state.doc.toString();
-    states.set(id, rec.view.state);
-    const saved = await saveCell(id, content);
-    const cur = views.get(id);
-    if (!cur || cur.view.hasFocus || activeId === id) return;
-    if (!saved || dirtyIds.has(id)) return;
-    if (cmCache && hasFolds(cmCache, cur.view.state)) return;
-    unmountCell(id);
-  }
-
-  async function exitCell(id) {
-    cancelGhost(id);
-    const rec = views.get(id);
-    const el = getCellEl(id);
-    if (rec) {
-      rec.view.contentDOM.blur();
-      if (el) window.selectMsg?.(window.$(el), {scroll: false});
-      await onCellBlur(id);
-    }
-    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
-  }
-
-  async function saveAndRun(id, cmd) {
-    cancelGhost(id);
-    const rec = views.get(id);
-    const el = getCellEl(id);
-    if (!rec || !el) return;
-    const content = rec.view.state.doc.toString();
-    const next = cmd === 'shift-run' ? window.adjacentMsg?.(window.$(el), false) : null;
-    const after = cmd === 'alt-run' ? (window.sectionTail?.(el) || '') : '';
-    states.set(id, rec.view.state);
-    const saved = await saveCell(id, content);
-    if (!saved) return;
-    delete el.dataset.c2Editing;
-    if (activeId === id) activeId = null;
-    rec.view.contentDOM.blur();
-    if (cmd === 'shift-run' && next?.length) window.selectMsg?.(next);
-    else window.selectMsg?.(window.$(el), {scroll: false});
-    const cur = views.get(id);
-    if (cur && !cur.view.hasFocus && activeId !== id && !dirtyIds.has(id) && !(cmCache && hasFolds(cmCache, cur.view.state))) unmountCell(id);
-    const kid = document.getElementById('kid')?.value || '';
-    const runCmd = cmd === 'continue' ? 'run' : cmd;
-    try {
-      await window.htmx.ajax('POST', '/add_runq_', {
-        source: '#kid',
-        swap: 'none',
-        values: {kid, id_: '_' + id, ids: '_' + id, cmd: runCmd, after},
-      });
-      if (cmd === 'continue') {
-        await window.htmx.ajax('POST', '/continue_prompt_', {
-          source: '#kid',
-          swap: 'none',
-          values: {kid, id_: '_' + id, ids: '_' + id},
-        });
-      }
-      schedule();
-    } catch (err) { console.error('craftC2: run failed', err); }
-  }
 
   function buildExtensions(cm, id, comps) {
     const {state, view, lang, python, cmds, ac, search} = cm;
@@ -3296,119 +5076,48 @@
           clearTimeout(ghostTimers.get(id));
           ghostTimers.delete(id);
         }
-        if (!u.view.hasFocus && activeId !== id && !pendingSaves.has(id) && !dirtyIds.has(id) && !hasFolds(cm, u.state)) {
+        if (!u.view.hasFocus && ed.activeKey !== id && !pendingSaves.has(id) && !dirtyIds.has(id) && !hasFolds(cm, u.state)) {
           queueMicrotask(() => {
             const cur = views.get(id);
-            if (cur && !cur.view.hasFocus && activeId !== id && !pendingSaves.has(id) && !dirtyIds.has(id) && !hasFolds(cm, cur.view.state)) unmountCell(id);
+            if (cur && !cur.view.hasFocus && ed.activeKey !== id && !pendingSaves.has(id) && !dirtyIds.has(id) && !hasFolds(cm, cur.view.state)) unmountCell(id);
           });
         }
       }),
     ];
   }
 
-  function applySelection(v, selSpec) {
-    const len = v.state.doc.length;
-    const clamp = n => Math.max(0, Math.min(len, n));
-    if (selSpec?.anchor != null) {
-      const anchor = clamp(selSpec.anchor);
-      const head = clamp(selSpec.head ?? anchor);
-      v.dispatch({selection: {anchor, head}});
-    } else if (selSpec?.coords) {
-      const pos = v.posAtCoords(selSpec.coords);
-      v.dispatch({selection: {anchor: pos != null ? clamp(pos) : len}});
-    } else if (selSpec?.toEnd) {
-      v.dispatch({selection: {anchor: len}});
-    }
-  }
-
   async function openCell(id, selSpec = null) {
-    if (destroyed) return;
+    if (ed.destroyed) return;
     const cm = cmCache || await loadCM();
     cmCache = cm;
-    if (destroyed) return;
+    if (ed.destroyed) return;
     const el = getCellEl(id), card = getCardIn(el);
     if (!el || !card || hasDiff(el) || card.classList.contains('collapsed')) return;
-    const body = card.querySelector('.msg-body'), contentEl = body?.querySelector('.msg-content');
-    if (!body || !contentEl) return;
     if (autoEditGuard && autoEditGuard.id !== id) clearAutoEditGuard();
-    window.selectMsg?.(window.$(el), {scroll: false});
     const text = getCellText(el);
-    let rec = views.get(id);
-    if (rec) {
-      if (!body.contains(rec.host)) { contentEl.after(rec.host); card.classList.add('craft-c2-mounted'); }
-      if (rec.view.state.doc.toString() !== text && !pendingSaves.has(id) && !dirtyIds.has(id)) {
-        rec.view.dispatch({changes: {from: 0, to: rec.view.state.doc.length, insert: text}});
-      }
-      if (selSpec) applySelection(rec.view, selSpec);
-      activeId = id;
-      el.dataset.c2Editing = 'true';
-      syncFindBoxToView(rec.view);
-      rec.view.focus();
-      syncCellLanguage(id, rec.view);
-      return;
-    }
-    const langComp = new cm.state.Compartment();
-    const themeComp = new cm.state.Compartment();
-    const readOnlyComp = new cm.state.Compartment();
-    const lineNumComp = new cm.state.Compartment();
-    const comps = {langComp, themeComp, readOnlyComp, lineNumComp};
-    const prevState = states.get(id);
-    const reusePrev = prevState && prevState.doc.toString() === text && prevState._c2Comps && prevState._c2Comps.lineNumComp;
-    const edState = reusePrev
-      ? prevState
-      : cm.state.EditorState.create({doc: text, extensions: buildExtensions(cm, id, comps)});
-    const activeComps = reusePrev ? prevState._c2Comps : comps;
-    edState._c2Comps = activeComps;
-    const host = document.createElement('div');
-    host.className = 'craft-c2-host';
-    contentEl.after(host);
-    card.classList.add('craft-c2-mounted');
-    el.dataset.c2Editing = 'true';
-    const v = new cm.view.EditorView({state: edState, parent: host});
-    host.addEventListener('keydown', e => { e.stopPropagation(); });
-    host.addEventListener('focusin', () => {
-      activeId = id;
-      const curEl = getCellEl(id);
-      if (curEl) curEl.dataset.c2Editing = 'true';
+    ed.openView(id, {
+      el, card, text, cm, selSpec,
+      hostClass: 'craft-c2-host',
+      extraRec: {langKey: 'python', showLN: null},
+      themeExts: themeExtensions(cm),
+      prepareState: () => {
+        const comps = {
+          langComp: new cm.state.Compartment(), themeComp: new cm.state.Compartment(),
+          readOnlyComp: new cm.state.Compartment(), lineNumComp: new cm.state.Compartment(),
+        };
+        const prev = states.get(id);
+        const reusePrev = Boolean(prev && prev.doc.toString() === text && prev._c2Comps?.lineNumComp);
+        const edState = reusePrev ? prev : cm.state.EditorState.create({doc: text, extensions: buildExtensions(cm, id, comps)});
+        const activeComps = reusePrev ? prev._c2Comps : comps;
+        edState._c2Comps = activeComps;
+        return {edState, activeComps, reusePrev};
+      },
+      onExisting: rec => syncCellLanguage(id, rec.view),
+      onMounted: rec => { syncCellLineNumbers(id, rec); syncCellLanguage(id, rec.view); },
     });
-    host.addEventListener('focusout', () => {
-      const check = () => {
-        if (destroyed) return;
-        if (!host.isConnected) { sync(); return; }
-        const ae = document.activeElement;
-        if (host.contains(ae) || ae?.closest?.('.cm-tooltip')) return;
-        onCellBlur(id);
-      };
-      queueMicrotask(() => {
-        if (destroyed) return;
-        if (!host.isConnected) { sync(); return; }
-        requestAnimationFrame(check);
-      });
-    });
-    rec = {view: v, host, ...activeComps, langKey: 'python', showLN: null};
-    views.set(id, rec);
-    activeId = id;
-    el.dataset.c2Editing = 'true';
-    if (reusePrev) v.dispatch({effects: activeComps.themeComp.reconfigure(themeExtensions(cm))});
-    syncCellLineNumbers(id, rec);
-    applySelection(v, selSpec || (reusePrev ? null : {toEnd: true}));
-    syncFindBoxToView(v);
-    v.focus();
-    requestAnimationFrame(() => {
-      if (!destroyed && activeId === id && views.get(id)?.view === v && !v.hasFocus && document.activeElement === document.body) v.focus();
-    });
-    syncCellLanguage(id, v);
   }
 
-  const offsetIn = (root, node, offset) => {
-    if (!root || !node || !root.contains(node)) return null;
-    try {
-      const r = document.createRange();
-      r.selectNodeContents(root);
-      r.setEnd(node, offset);
-      return r.toString().length;
-    } catch { return null; }
-  };
+  const {offsetIn} = CORE;
 
   const onMouseDown = e => {
     if (e.button !== 0 || e.target.closest?.('button, a, .craft-c2-host')) return;
@@ -3435,1066 +5144,545 @@
     openCell(p.id, anchor != null ? {anchor, head: head ?? anchor} : {coords: {x: e.clientX, y: e.clientY}});
   };
 
-  const onKeyDown = e => {
-    if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
-    if (typingBlocked()) return;
-    const el = document.querySelector('#dialog-container .editable[data-sm="primary"]');
-    if (!isC2El(el)) return;
-    const card = getCardIn(el);
-    if (!card || card.classList.contains('collapsed')) return;
-    e.preventDefault();
-    e.stopPropagation();
-    e.stopImmediatePropagation();
-    openCell(el.id.replace(/^_/, ''));
-  };
-
-  const sync = () => {
-    frame = null;
-    const code = document.querySelector('#full_editor #tabh-code');
-    if (allMode) {
-      document.getElementById('tabh-craft-c2')?.remove();
-    } else if (code && !document.getElementById('tabh-craft-c2')) {
-      const tab = document.createElement('li');
-      tab.className = 'tabh'; tab.id = 'tabh-craft-c2';
-      const link = document.createElement('a');
-      link.href = '#'; link.role = 'tab'; link.textContent = 'C2';
-      tab.append(link); code.after(tab);
-    }
-    const c2 = document.getElementById('tabh-craft-c2');
-    if (c2) {
-      const active = document.querySelector('#full_editor #msg_type')?.value === 'code' && choice();
-      c2.classList.toggle('uk-active', active);
-      c2.firstElementChild.setAttribute('aria-selected', String(active));
-      if (active) code?.classList.remove('uk-active');
-    }
-    bindMonacoWatcher();
-    reconcileCreates();
-    reconcileAutoEdits();
-    driveAutoEdit();
-    const domIds = new Set();
-    let idsChanged = false;
-    for (const card of document.querySelectorAll('#dialog-container .editable .card-in')) {
-      const el = card.closest('.editable');
-      const id = el.id.replace(/^_/, '');
-      domIds.add(id);
-      if (card.dataset.mtype !== 'code' && ids.has(id)) {
-        ids.delete(id);
-        removeDlgId(id);
-        idsChanged = true;
-      }
-      const isC2 = isC2El(el);
-      if (ids.has(id) && recordDlgId(id)) idsChanged = true;
-      el.classList.toggle('craft-c2', isC2);
-      syncSaveState(id);
-      const outCard = el.querySelector(':scope > .card-out');
-      if (outCard) outCard.classList.toggle('craft-c2-traceback', card.dataset.mtype === 'code' && hasTraceback(el));
-      if (card.dataset.mtype === 'code' && !card.classList.contains('craft-c2-mounted') && !card.closest('[data-streaming]')) {
-        ensureStaticHighlighted(card);
-      }
-      const header = card.querySelector('.uk-card-header [data-tokens]');
-      const badge = header?.querySelector('.craft-c2-badge');
-      if (!isC2 || allMode) { badge?.remove(); continue; }
-      if (!header || badge) continue;
-      const label = document.createElement('span');
-      label.className = 'craft-c2-badge'; label.textContent = ' · C2'; header.append(label);
-    }
-    if (domIds.size && pruneCurrentDlgIds(domIds)) idsChanged = true;
-    if (idsChanged) saveIds();
-    for (const [id, rec] of [...views]) {
-      const el = getCellEl(id), card = getCardIn(el);
-      if (!el || !card || hasDiff(el) || !isC2El(el)) { rec.view.destroy(); views.delete(id); dirtyIds.delete(id); failedSaves.delete(id); syncSaveState(id); if (activeId === id) activeId = null; continue; }
-      const body = card.querySelector('.msg-body'), contentEl = body?.querySelector('.msg-content');
-      if (body && contentEl) {
-        if (!body.contains(rec.host)) contentEl.after(rec.host);
-        card.classList.add('craft-c2-mounted');
-        if (activeId === id) {
-          el.dataset.c2Editing = 'true';
-          if (!rec.view.hasFocus || document.activeElement !== rec.view.contentDOM) rec.view.focus();
-        }
-      }
-      syncCellLineNumbers(id, rec);
-    }
-  };
-  const schedule = () => { if (frame == null) frame = requestAnimationFrame(sync); };
-
-  const onClick = e => {
-    const edit = e.target.closest?.('.card-in [hx-post="/editor_"]');
-    const cell = edit?.closest('.editable');
-    const cellId = cell?.id?.replace(/^_/, '');
-    if (cellId && bypassMonacoId === cellId) { bypassMonacoId = null; return; }
-    const codeCard = getCardIn(cell);
-    if (cellId && codeCard && !hasDiff(cell) && !isNonCodeInsertion(cell.id) && !codeCard.classList.contains('collapsed')) {
-      if (!allMode && !ids.has(cellId)) { ids.add(cellId); recordDlgId(cellId); saveIds(); }
-      e.preventDefault(); e.stopImmediatePropagation();
-      openCell(cellId);
-      return;
-    }
-    const tab = e.target.closest?.('#full_editor .tabh');
-    if (!tab) return;
-    if (tab.id === 'tabh-code' && shouldInterceptCodeTab()) {
-      e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
-      newCodeCell();
-      return;
-    }
-    if (tab.id === 'tabh-craft-c2') {
-      e.preventDefault(); e.stopPropagation();
-      if (!model() || typeof window.clickEdTab !== 'function') return;
-      select(true); window.clickEdTab(tab.id, 'code'); schedule();
-    } else { select(false); schedule(); }
-  };
-
-  const before = ({detail:{ctx} = {}}) => {
-    const request = ctx?.request, body = request?.body;
-    if (!body?.get || request.method !== 'POST') return;
-    const pathname = new URL(request.action, location.href).pathname;
-    if (pathname === '/set_contents_') {
-      const id = String(body.get('ids') || '').replace(/^_/, '');
-      if (id && saveWaiters.has(id)) requests.set(ctx, {kind: 'save', id});
-      return;
-    }
-    if (pathname === '/rm_msg_') {
-      const raw = String(body.get('ids') || body.get('id_') || '');
-      let changed = false;
-      for (const tok of raw.split(',')) {
-        const rid = tok.trim().replace(/^_/, '');
-        if (!rid) continue;
-        if (ids.delete(rid)) changed = true;
-        if (removeDlgId(rid)) changed = true;
-      }
-      if (changed) saveIds();
-      return;
-    }
-    if (pathname === '/add_above_' || pathname === '/add_below_') {
-      if (nonCodeInsertion) return;
-      if (!pendingAutoEdits.some(r => r.forceCode && r.expires > Date.now())) {
-        const prim = document.querySelector('#dialog-container .editable[data-sm="primary"]');
-        if (allMode || isC2El(prim)) queueAutoEdit({tagC2: !allMode, forceCode: false});
-      }
-      return;
-    }
-    if (pathname === '/add_runq_') {
-      if (body.get('cmd') === 'alt-run') {
-        const rawId = String(body.get('id_') || '').replace(/^_/, '');
-        const el = (rawId && getCellEl(rawId)) || document.querySelector('#dialog-container .editable[data-sm="primary"]');
-        if (allMode || isC2El(el)) queueAutoEdit({tagC2: !allMode, forceCode: false, ttl: 30000});
-      }
-      return;
-    }
-    if (pathname !== '/upsert_msg_') return;
-    const source = ctx.sourceElement, cmd = body.get('cmd');
-    const composerButton = source?.matches('#full_editor #submit_btn, #full_editor #cancel_btn');
-    const composerShortcut = source?.matches('#kid') && ['upsert-shift-run', 'upsert-alt-run'].includes(cmd);
-    if ((!composerButton && !composerShortcut) || body.get('is_input') !== '1') return;
-    const id = String(body.get('id_') || '').replace(/^_/, '');
-    const c2 = body.get('msg_type') === 'code' && (allMode || choice());
-    if (cmd === 'upsert-alt-run' && (allMode || c2)) queueAutoEdit({tagC2: !allMode, forceCode: false, ttl: 30000});
-    if (!c2 && !ids.has(id)) return;
-    const existing = id ? null : new Set([...document.querySelectorAll('#dialog-container .editable[id]')].map(el => el.id));
-    const content = String(body.get('content') ?? '').replace(/\r\n/g, '\n');
-    requests.set(ctx, {kind: 'upsert', id, c2, existing, draft, content, type: body.get('msg_type')});
-  };
-
-  const pendingCreates = new Set();
-  const normalizeSource = text => text.replace(/\r\n/g, '\n').replace(/\n+$/, '');
-  const finishTag = (save, id, kind) => {
-    if (save.c2 && kind === 'code') ids.add(id); else ids.delete(id);
-    if (draft === save.draft) draft = null;
-    saveIds();
-    schedule();
-  };
-  const reconcileCreates = () => {
-    if (!pendingCreates.size) return;
-    const cells = [...document.querySelectorAll('#dialog-container .editable[id]')];
-    for (const save of pendingCreates) {
-      const candidates = cells.filter(el => !save.existing.has(el.id) && getCardIn(el) && normalizeSource(getCellText(el)) === normalizeSource(save.content));
-      if (candidates.length !== 1) continue;
-      pendingCreates.delete(save);
-      finishTag(save, candidates[0].id.replace(/^_/, ''), 'code');
-    }
-  };
-
-  const after = ({detail:{ctx} = {}}) => {
-    const save = ctx && requests.get(ctx);
-    if (!save) return;
-    const ok = Boolean(ctx.response && ctx.response.status >= 200 && ctx.response.status < 300);
-    if (save.kind === 'save') {
-      const waiters = saveWaiters.get(save.id);
-      const fn = waiters?.shift();
-      if (waiters && !waiters.length) saveWaiters.delete(save.id);
-      fn?.(ok);
-      return;
-    }
-    if (!ok) return;
-    const found = new Map();
-    const collect = root => {
-      for (const card of root.querySelectorAll('.editable[id] .card-in[data-mtype]')) {
-        const el = card.closest('.editable');
-        if (save.id ? el.id.replace(/^_/, '') !== save.id : save.existing.has(el.id) || card.dataset.mtype !== 'code') continue;
-        found.set(el.id.replace(/^_/, ''), {kind: card.dataset.mtype, content: el.querySelector('form [name="content"]')?.value});
-      }
-      for (const tpl of root.querySelectorAll('template')) collect(tpl.content);
-    };
-    if (ctx.text) collect(new DOMParser().parseFromString(ctx.text, 'text/html'));
-    if (save.id) {
-      const [[, {kind} = {}] = []] = [...found];
-      finishTag(save, save.id, kind || save.type);
-    } else if (!save.id) {
-      const matches = [...found].filter(([, cell]) => cell.content != null && normalizeSource(cell.content) === normalizeSource(save.content));
-      if (matches.length === 1) finishTag(save, matches[0][0], 'code');
-      else {
-        pendingCreates.add(save);
-        setTimeout(() => pendingCreates.delete(save), 10000);
-        schedule();
-      }
-    }
-  };
-
-  const onThemeChange = () => {
-    if (!cmCache) return;
-    const exts = themeExtensions(cmCache);
-    for (const rec of views.values()) rec.view.dispatch({effects: rec.themeComp.reconfigure(exts)});
-  };
   const onKernelConnected = () => {
     for (const [id, rec] of views) syncCellLanguage(id, rec.view);
   };
-  const onBeforeUnload = e => {
-    if (!dirtyIds.size) return;
-    e.preventDefault();
-    e.returnValue = '';
-  };
 
-  const origFollowRename = window.followRename;
-  if (typeof origFollowRename === 'function') {
-    window.followRename = async function(url) {
-      for (const id of [...dirtyIds]) {
-        const rec = views.get(id);
-        const content = rec ? rec.view.state.doc.toString() : states.get(id)?.doc.toString();
-        if (content != null && !(await saveCell(id, content))) {
-          notifyErr('Could not save C2 edit before reopening renamed dialog.');
-          return;
-        }
-      }
-      return origFollowRename.call(this, url);
-    };
-  }
-
-  const observer = new MutationObserver(schedule);
-  observer.observe(document.body, {childList: true, subtree: true, attributes: true, attributeFilter: ['value', 'data-diff']});
-  document.addEventListener('click', onClick, true);
-  document.addEventListener('mousedown', onMouseDown);
-  document.addEventListener('mouseup', onMouseUp);
-  document.addEventListener('keydown', onKeyDown, true);
-  document.addEventListener('uk-theme-switcher:change', onThemeChange);
-  document.body.addEventListener('kernel-connected', onKernelConnected);
-  window.addEventListener('beforeunload', onBeforeUnload);
+  const ac = new AbortController(), sig = {signal: ac.signal};
   const sep = window.htmx?.config.metaCharacter || ':';
-  const configEvent = ['htmx', 'config', 'request'].join(sep), afterEvent = ['htmx', 'after', 'request'].join(sep), settleEvent = ['htmx', 'after', 'settle'].join(sep);
-  document.addEventListener(configEvent, before);
-  document.addEventListener(afterEvent, after);
-  document.addEventListener(settleEvent, onFullEditorSettle);
+  const settleEvent = ['htmx', 'after', 'settle'].join(sep);
+  on(document, {mousedown: onMouseDown, mouseup: onMouseUp, [settleEvent]: onFullEditorSettle}, sig);
+  on(document.body, 'kernel-connected', onKernelConnected, sig);
 
   window.__hotkeyRegister?.({
-    id: 'c2-new-code', combo: 'Alt+Shift+N', label: 'C2: New code cell at bottom', group: 'C2',
+    id: 'c2-new-code', combo: 'Alt+Shift+N', label: 'New code cell at bottom', group: 'Code',
     handler: () => { newCodeCell(); return true; },
   });
   window.__hotkeyRegister?.({
-    id: 'c2-toggle-mode', combo: 'Alt+Shift+C', label: 'C2: Toggle inline CodeMirror for all code cells', group: 'C2',
-    handler: () => { setAllMode(!allMode); return true; },
-  });
-  window.__hotkeyRegister?.({
-    id: 'c2-line-numbers', combo: 'Alt+Shift+L', label: 'C2: Toggle line numbers', group: 'C2',
+    id: 'c2-line-numbers', combo: 'Alt+Shift+L', label: 'Toggle code line numbers', group: 'Code',
     handler: () => { setLineNums(!showLineNums); return true; },
   });
 
   window.craftC2 = {
-    ids: () => [...ids],
-    has: id => ids.has(String(id).replace(/^_/, '')),
-    manages: id => { const el = getCellEl(String(id).replace(/^_/, '')); return isC2El(el); },
-    add: id => { ids.add(String(id).replace(/^_/, '')); saveIds(); schedule(); },
-    remove: id => { const k = String(id).replace(/^_/, ''); if (autoEditGuard?.id === k) autoEditGuard = null; ids.delete(k); unmountCell(k); saveIds(); schedule(); },
-    edit: (id, opts) => openCell(String(id).replace(/^_/, ''), opts),
+    manages: id => isC2El(getCellEl(normId(id))),
+    edit: (id, opts) => openCell(normId(id), opts),
+    active: () => ed.activeKey,
+    view: id => views.get(normId(id ?? ed.activeKey))?.view || null,
+    exit: id => exitCell(normId(id ?? ed.activeKey)),
+    run: (id, cmd = 'run') => saveAndRun(normId(id ?? ed.activeKey), cmd),
     newCodeCell,
-    expectCodeInsertion: () => queueAutoEdit({tagC2: !allMode, forceCode: true}),
+    expectCodeInsertion: () => queueAutoEdit({forceCode: true}),
     guardNonCodeInsertion(existing) {
       nonCodeInsertion = existing;
       return () => { if (nonCodeInsertion === existing) { nonCodeInsertion = null; schedule(); } };
     },
     shouldInterceptCodeTab,
-    openInMonaco,
-    allMode: () => allMode,
-    setAllMode,
-    toggleAllMode: () => setAllMode(!allMode),
     lineNumbers: () => showLineNums,
     setLineNumbers: setLineNums,
     toggleLineNumbers: () => setLineNums(!showLineNums),
     dirty: () => [...dirtyIds],
     source: () => cmCache?._source || 'pending',
     disable() {
-      destroyed = true;
-      observer.disconnect(); cancelAnimationFrame(frame);
       monacoModelSub?.dispose?.();
       monacoModelSub = null;
       monacoBoundEditor = null;
       clearAutoEditGuard();
-      document.removeEventListener('click', onClick, true);
-      document.removeEventListener('mousedown', onMouseDown);
-      document.removeEventListener('mouseup', onMouseUp);
-      document.removeEventListener('keydown', onKeyDown, true);
-      document.removeEventListener('uk-theme-switcher:change', onThemeChange);
-      document.body.removeEventListener('kernel-connected', onKernelConnected);
-      window.removeEventListener('beforeunload', onBeforeUnload);
-      document.removeEventListener(configEvent, before);
-      document.removeEventListener(afterEvent, after);
-      document.removeEventListener(settleEvent, onFullEditorSettle);
-      if (typeof origFollowRename === 'function') window.followRename = origFollowRename;
-      pendingCreates.clear();
+      ac.abort();
       pendingAutoEdits.length = 0;
-      dirtyIds.clear();
-      failedSaves.clear();
-      saveWaiters.clear();
-      for (const id of [...views.keys()]) unmountCell(id);
-      document.querySelectorAll('.editable.craft-c2, .editable[data-c2-save]').forEach(el => {
-        el.classList.remove('craft-c2');
-        delete el.dataset.c2Editing;
-        delete el.dataset.c2Save;
-      });
-      document.querySelectorAll('.card-out.craft-c2-traceback').forEach(el => el.classList.remove('craft-c2-traceback'));
-      document.querySelectorAll('#tabh-craft-c2, .craft-c2-badge, #craft-c2-tooltips').forEach(el => el.remove());
+      ed.disable();
+      qsa('.editable.craft-c2, .editable[data-c2-save]').forEach(el => patch(el, {classes: {'craft-c2': false}, dataset: {c2Editing: null, c2Save: null}}));
+      qsa('.card-out.craft-c2-traceback').forEach(el => el.classList.remove('craft-c2-traceback'));
+      qsa('#craft-c2-tooltips').forEach(el => el.remove());
     },
   };
   sync();
 })();
 
+/* %% nbs/craft/06_mobile.ipynb #83f4bb08 */
+window.__craftTpl = Object.assign(window.__craftTpl || {}, {"mb_bar": "<nav id=\"craft-mbar\" aria-label=\"Mobile toolbar\" data-mode=\"idle\"><div class=\"craft-mbar-row\" data-row=\"idle\"><button type=\"button\" data-act=\"nav\" aria-label=\"Menu\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 6h16M4 12h16M4 18h16\"></path></svg><span>Menu</span></button><button type=\"button\" data-act=\"files\" aria-label=\"Files\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z\"></path></svg><span>Files</span></button></div><div class=\"craft-mbar-row\" data-row=\"edit\"><button type=\"button\" data-act=\"tab\" aria-label=\"Tab\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 12h13m-4-4 4 4-4 4M20 6v12\"></path></svg><span>Tab</span></button><span class=\"craft-mbar-spacer\"></span><button type=\"button\" data-act=\"run\" aria-label=\"Run\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M7 5v14l11-7z\"></path></svg><span>Run</span></button><button type=\"button\" data-act=\"done\" aria-label=\"Done\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 12.5l4.5 4.5L19 7.5\"></path></svg><span>Done</span></button></div></nav>", "mb_backdrop": "<div id=\"craft-mobile-backdrop\"></div>", "mb_jump_btn": "<button id=\"craft-scroll-bottom\" type=\"button\" aria-label=\"Jump to bottom\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 5v14m-6-6 6 6 6-6\"></path></svg></button>", "mb_picker": "<div id=\"craft-edge-picker\" role=\"menu\" aria-label=\"Insert cell\"><div class=\"craft-edge-picker-head\"></div><div class=\"craft-edge-picker-opts\"><button type=\"button\" role=\"menuitem\" data-type=\"Code\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 6l-6 6 6 6m8-12 6 6-6 6M14 4l-4 16\"></path></svg><span>Code</span></button><button type=\"button\" role=\"menuitem\" data-type=\"Note\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 3h10l4 4v14H5z M15 3v5h4M8 12h8m-8 4h8\"></path></svg><span>Note</span></button><button type=\"button\" role=\"menuitem\" data-type=\"Prompt\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 4h18v12H9l-6 4z M7 10h.01m5 0h.01m5 0h.01\"></path></svg><span>Prompt</span></button><button type=\"button\" role=\"menuitem\" data-type=\"Raw\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 5h18v14H3z M7 9v6\"></path></svg><span>Raw</span></button></div></div>", "mb_bulge_above": "<button type=\"button\" class=\"craft-edge-bulge\" data-edge=\"above\" aria-label=\"Insert cell above\"><svg aria-hidden=\"true\" viewbox=\"0 0 36 10\" width=\"36\" height=\"10\"><path class=\"craft-edge-stroke\" d=\"M0 9 C9 9 12 1.5 18 1.5 C24 1.5 27 9 36 9\"></path></svg></button>", "mb_bulge_below": "<button type=\"button\" class=\"craft-edge-bulge\" data-edge=\"below\" aria-label=\"Insert cell below\"><svg aria-hidden=\"true\" viewbox=\"0 0 36 10\" width=\"36\" height=\"10\"><path class=\"craft-edge-stroke\" d=\"M0 1 C9 1 12 8.5 18 8.5 C24 8.5 27 1 36 1\"></path></svg></button>", "mb_empty_add": "<div id=\"craft-empty-add\"><span class=\"craft-empty-add-label\">Add first cell</span><div class=\"craft-empty-add-btns\"><button type=\"button\" data-type=\"Code\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 6l-6 6 6 6m8-12 6 6-6 6M14 4l-4 16\"></path></svg><span>Code</span></button><button type=\"button\" data-type=\"Note\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 3h10l4 4v14H5z M15 3v5h4M8 12h8m-8 4h8\"></path></svg><span>Note</span></button><button type=\"button\" data-type=\"Prompt\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 4h18v12H9l-6 4z M7 10h.01m5 0h.01m5 0h.01\"></path></svg><span>Prompt</span></button><button type=\"button\" data-type=\"Raw\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 5h18v14H3z M7 9v6\"></path></svg><span>Raw</span></button></div></div>"});
+
+/* %% nbs/craft/06_mobile.ipynb #271473a5 */
+/* ── Mobile toolbar, edge-bulge cell insertion & scroll chrome ───────────
+   Only rendered under `html.craft-mobile` (see "Mobile mode detection").
+   Phones have no hover, no Escape, no Shift+Enter and no Tab, so this module
+   provides:
+     - idle:    floating pill dock (Menu · Files) that hides on scroll-down
+     - editing: full-width bar above the soft keyboard (Tab · Run/Send · Done)
+     - cell insertion: top/bottom brace-style bulges on the selected cell;
+       press-and-drag (or tap) into Code / Note / Prompt / Raw to prepend or
+       append relative to that cell (plus an inline starter row on empty dialogs)
+     - jump-to-bottom button when scrolled well above the end of a dialog. */
 (() => {
-  window.craftCellChains?.disable();
-  let frame;
-  const sync = () => {
-    frame = null;
-    const all = [...document.querySelectorAll('#dialog-container > .editable')];
-    const cells = all.filter(e => !e.hidden && getComputedStyle(e).display !== 'none');
-    const type = e => e?.querySelector(':scope > .card-in')?.dataset.mtype;
-    const joins = (a, b) => ['prompt', 'code', 'note'].includes(type(a)) && type(a) === type(b);
-    const prev = new Set(cells.filter((e, i) => i > 0 && joins(cells[i-1], e)));
-    const next = new Set(cells.filter((e, i) => i < cells.length-1 && joins(e, cells[i+1])));
-    for (const e of all) {
-      if (e.classList.contains('craft-chain-prev') !== prev.has(e)) e.classList.toggle('craft-chain-prev', prev.has(e));
-      if (e.classList.contains('craft-chain-next') !== next.has(e)) e.classList.toggle('craft-chain-next', next.has(e));
-    }
-  };
-  const schedule = () => { if (!frame) frame = requestAnimationFrame(sync); };
-  const observer = new MutationObserver(schedule);
-  observer.observe(document.body, {childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'hidden', 'data-mtype']});
-  window.craftCellChains = {
-    sync,
-    disable() {
-      observer.disconnect();
-      cancelAnimationFrame(frame);
-      document.querySelectorAll('.craft-chain-prev,.craft-chain-next').forEach(e => e.classList.remove('craft-chain-prev', 'craft-chain-next'));
-    }
-  };
-  sync();
-})();
+  window.craftMobileBar?.disable();
+  const root = document.documentElement;
+  const {mountTpl, qs, qsa, on, htmxPost, patch, rafOnce, onDomChange} = window.__craftCMCore;
+  const ac = new AbortController(), sig = {signal: ac.signal}, cap = {capture: true, signal: ac.signal}, pas = {passive: true, signal: ac.signal};
+  const bar = mountTpl('mb_bar'), backdrop = mountTpl('mb_backdrop'), jumpBtn = mountTpl('mb_jump_btn');
+  const picker = mountTpl('mb_picker'), bulgeAbove = mountTpl('mb_bulge_above'), bulgeBelow = mountTpl('mb_bulge_below');
+  const emptyAdd = mountTpl('mb_empty_add');
 
-(() => {
-  window.craftActionMenus?.disable();
-  if (window.CRAFT_ACTION_MENUS === false) return;
-  let current = null, frame = null;
-  const menu = document.createElement('div');
-  menu.className = 'craft-action-menu';
-  menu.id = 'craft-cell-action-menu';
-  menu.setAttribute('popover', 'auto');
-  menu.setAttribute('role', 'menu');
-  document.body.append(menu);
-  const close = (restore = false) => {
-    const trigger = current;
-    current = null;
-    trigger?.setAttribute('aria-expanded', 'false');
-    if (menu.matches(':popover-open')) menu.hidePopover();
-    if (restore && trigger?.isConnected) trigger.focus({preventScroll: true});
-  };
-  const open = trigger => {
-    if (current === trigger) return close(true);
-    close();
-    const card = trigger.closest('.msg-card');
-    const group = card.querySelector('.uk-card-header .uk-btn-group');
-    if (!group) return;
-    menu.replaceChildren();
-    for (const source of group.querySelectorAll('button,a')) {
-      if (source.hidden) continue;
-      const label = source.title || source.querySelector('[title]')?.getAttribute('title') || source.getAttribute('aria-label');
-      if (!label) continue;
-      const item = document.createElement('button');
-      item.type = 'button';
-      item.setAttribute('role', 'menuitem');
-      item.textContent = label;
-      item.disabled = source.disabled;
-      if (/^Delete/i.test(label)) item.dataset.danger = '';
-      item.addEventListener('click', e => {
-        e.stopPropagation();
-        close();
-        if (source.isConnected) source.click();
-        queueMicrotask(() => { if (document.activeElement === document.body && trigger.isConnected) trigger.focus({preventScroll: true}); });
-      });
-      menu.append(item);
-    }
-    if (card.matches('.card-in[data-mtype="code"]') && window.craftC2) {
-      const cellEl = card.closest('.editable');
-      const cid = cellEl?.id?.replace(/^_/, '');
-      if (cid) {
-        const sep = document.createElement('hr');
-        sep.className = 'craft-action-sep';
-        menu.append(sep);
-        const addAction = (text, fn) => {
-          const item = document.createElement('button');
-          item.type = 'button';
-          item.setAttribute('role', 'menuitem');
-          item.textContent = text;
-          item.addEventListener('click', e => { e.stopPropagation(); close(); fn(); });
-          menu.append(item);
-        };
-        if (window.craftC2.manages?.(cid)) addAction('Edit in Monaco', () => window.craftC2.openInMonaco(cid));
-        else addAction('Edit in C2 (inline)', () => { window.craftC2.add(cid); window.craftC2.edit(cid); });
-        addAction(`Line numbers (C2): ${window.craftC2.lineNumbers?.() ? 'On' : 'Off'}`, () => window.craftC2.toggleLineNumbers?.());
-        addAction(`C2 for all code cells: ${window.craftC2.allMode?.() ? 'On' : 'Off'}`, () => window.craftC2.toggleAllMode?.());
-      }
-    } else if (card.matches('.card-in:is([data-mtype="note"],[data-mtype="prompt"],[data-mtype="raw"]), .card-out[data-mtype="prompt"]') && window.craftMd) {
-      const cellEl = card.closest('.editable');
-      const cid = cellEl?.id?.replace(/^_/, '');
-      const part = card.classList.contains('card-out') ? 'out' : 'in';
-      if (cid) {
-        const sep = document.createElement('hr');
-        sep.className = 'craft-action-sep';
-        menu.append(sep);
-        const item = document.createElement('button');
-        item.type = 'button';
-        item.setAttribute('role', 'menuitem');
-        item.textContent = 'Edit in Monaco';
-        item.addEventListener('click', e => { e.stopPropagation(); close(); window.craftMd.openInMonaco(cid, part); });
-        menu.append(item);
-      }
-    }
-    current = trigger;
-    trigger.setAttribute('aria-expanded', 'true');
-    menu.setAttribute('aria-label', trigger.getAttribute('aria-label'));
-    menu.showPopover();
-    const r = trigger.getBoundingClientRect();
-    menu.style.left = Math.max(8, Math.min(r.right - menu.offsetWidth, innerWidth - menu.offsetWidth - 8)) + 'px';
-    menu.style.top = Math.max(8, Math.min(r.bottom + 4, innerHeight - menu.offsetHeight - 8)) + 'px';
-    menu.querySelector('button:not(:disabled)')?.focus({preventScroll: true});
-  };
-  const sync = () => {
-    frame = null;
-    if (current && !current.isConnected) close();
-    for (const group of document.querySelectorAll('#dialog-container .msg-card > .uk-card-header .uk-btn-group')) {
-      const nav = group.closest('nav');
-      if (!nav) continue;
-      let shell = group;
-      while (shell.parentElement !== nav && shell.parentElement) shell = shell.parentElement;
-      if (shell === group && shell.parentElement !== nav) continue;
-      shell.classList.add('craft-action-source');
-      for (const button of nav.querySelectorAll(':scope > button[data-uk-toggle]')) button.classList.add('craft-old-action-toggle');
-      if (nav.querySelector(':scope > .craft-action-trigger')) continue;
-      const trigger = document.createElement('button');
-      trigger.type = 'button';
-      trigger.className = 'craft-action-trigger';
-      trigger.textContent = '…';
-      trigger.setAttribute('aria-haspopup', 'menu');
-      trigger.setAttribute('aria-expanded', 'false');
-      trigger.setAttribute('aria-controls', menu.id);
-      const card = nav.closest('.msg-card');
-      trigger.setAttribute('aria-label', card.classList.contains('card-out') ? 'Output actions' : 'Input actions');
-      trigger.addEventListener('click', e => { e.stopPropagation(); open(trigger); });
-      trigger.addEventListener('keydown', e => { if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); open(trigger); } });
-      nav.append(trigger);
-    }
-  };
-  const schedule = () => { if (!frame) frame = requestAnimationFrame(sync); };
-  const keys = e => {
-    if (!current) return;
-    if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); close(true); return; }
-    if (!menu.contains(e.target)) return;
-    e.stopImmediatePropagation();
-    const items = [...menu.querySelectorAll('button:not(:disabled)')];
-    const i = items.indexOf(document.activeElement);
-    if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) {
-      e.preventDefault();
-      const j = e.key === 'Home' ? 0 : e.key === 'End' ? items.length-1 : (i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
-      items[j]?.focus();
-    }
-  };
-  const focus = e => { if (current && !menu.contains(e.target) && e.target !== current) close(); };
-  const toggled = () => { if (!menu.matches(':popover-open') && current) close(); };
-  const observer = new MutationObserver(schedule);
-  observer.observe(document.getElementById('dialog-container') || document.body, {childList: true, subtree: true});
-  document.addEventListener('keydown', keys, true);
-  document.addEventListener('focusin', focus);
-  document.addEventListener('htmx:beforeSwap', closeForSwap);
-  function closeForSwap() { close(); }
-  menu.addEventListener('toggle', toggled);
-  window.craftActionMenus = {
-    sync,
-    close,
-    disable() {
-      observer.disconnect();
-      cancelAnimationFrame(frame);
-      close();
-      document.removeEventListener('keydown', keys, true);
-      document.removeEventListener('focusin', focus);
-      document.removeEventListener('htmx:beforeSwap', closeForSwap);
-      document.querySelectorAll('.craft-action-trigger').forEach(e => e.remove());
-      document.querySelectorAll('.craft-action-source,.craft-old-action-toggle').forEach(e => e.classList.remove('craft-action-source', 'craft-old-action-toggle'));
-      menu.remove();
-    }
-  };
-  sync();
-})();
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const notify = message => window.UIkit?.notification?.({message, status: 'warning'});
+  const dialog = () => document.getElementById('dialog-container');
+  const navEl = () => qs('.uk-container > nav.monster-navbar');
 
-
-(() => {
-  const preserved = [...document.querySelectorAll('.editable.craft-omitted')].map(e => e.id);
-  window.craftOmit?.disable();
-  const omitted = new Set(preserved), markers = new Map();
-  let frame, approach = 1;
-  const root = () => document.getElementById('dialog-container');
-  const cells = () => [...(root()?.querySelectorAll(':scope > .editable') || [])];
-  const eligible = e => !e.hidden && !e.matches('.filter-hidden,.heading-hidden,.hidden');
-  const marker = () => document.activeElement?.closest('.craft-omit-marker');
-  const blocked = () => !!document.activeElement?.closest('input,textarea,select,[contenteditable],.monaco-editor,#full_editor,.hk-overlay.open,#solveit-launcher.open,[role="dialog"],.uk-modal.uk-open');
-  const selected = () => cells().filter(e => e.matches('[data-sm="primary"],[data-sm="secondary"]') && e.offsetParent !== null);
-  const clearSelection = () => document.querySelectorAll('[data-sm="primary"],[data-sm="secondary"]').forEach(e => e.setAttribute('data-sm', 'unselected'));
-  const choose = (e, direction = 1) => {
-    if (!e) return;
-    approach = direction;
-    if (e.matches('.craft-omit-marker')) {
-      clearSelection();
-      e.focus({preventScroll: true});
-      e.scrollIntoView({block: 'nearest'});
-    } else {
-      marker()?.blur();
-      window.selectMsg(window.$(e));
-      document.activeElement?.closest('.craft-omit-marker')?.blur();
-    }
-  };
-  const restore = button => {
-    const ids = JSON.parse(button.dataset.omitIds);
-    ids.forEach(id => { omitted.delete(id); window.craftParts?.restoreCell(id); });
-    const target = document.getElementById(approach < 0 ? ids.at(-1) : ids[0]);
-    sync();
-    if (target) choose(target);
-    return true;
-  };
-  const sync = () => {
-    frame = null;
-    const all = cells(), runs = [];
-    let run;
-    for (const e of all) {
-      const hide = omitted.has(e.id) || !!window.craftParts?.fullyHidden(e);
-      if (e.classList.contains('craft-omitted') !== hide) e.classList.toggle('craft-omitted', hide);
-      if (!eligible(e) || !hide) { run = null; continue; }
-      if (!run) { run = []; runs.push(run); }
-      run.push(e);
-    }
-    const keys = new Set();
-    for (const group of runs) {
-      const key = group[0].id, ids = group.map(e => e.id);
-      keys.add(key);
-      let button = markers.get(key);
-      if (!button) {
-        button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'craft-omit-marker';
-        button.addEventListener('click', () => restore(button));
-        button.addEventListener('focus', clearSelection);
-        markers.set(key, button);
-      }
-      const text = `▸ ${ids.length}`, label = `Expand ${ids.length} omitted ${ids.length === 1 ? 'cell' : 'cells'}`;
-      if (button.textContent !== text) button.textContent = text;
-      if (button.getAttribute('aria-label') !== label) {
-        button.setAttribute('aria-label', label);
-        button.title = label + ' · Right arrow, Enter, or Omit';
-      }
-      button.setAttribute('aria-expanded', 'false');
-      button.dataset.omitIds = JSON.stringify(ids);
-      if (button.nextElementSibling !== group[0]) group[0].before(button);
-    }
-    for (const [key, button] of markers) {
-      if (keys.has(key)) continue;
-      const focused = document.activeElement === button;
-      const ids = JSON.parse(button.dataset.omitIds);
-      button.remove();
-      markers.delete(key);
-      if (focused) {
-        const replacement = [...markers.values()].find(b => JSON.parse(b.dataset.omitIds).some(id => ids.includes(id)));
-        replacement?.focus();
-      }
-    }
-    window.craftCellChains?.sync();
-  };
-  const toggle = () => {
-    if (blocked()) return false;
-    if (marker()) return restore(marker());
-    const targets = selected();
-    if (!targets.length) return false;
-    const editing = document.getElementById('id_')?.value;
-    if (targets.some(e => e.dataset.editing === 'true' || e.id === '_' + editing)) {
-      window.UIkit?.notification('Finish editing the cell before omitting it.', {status: 'warning'});
-      return true;
-    }
-    targets.forEach(e => omitted.add(e.id));
-    sync();
-    const button = [...markers.values()].find(b => JSON.parse(b.dataset.omitIds).includes(targets[0].id));
-    choose(button);
-    return true;
-  };
-  const stop = e => { e.preventDefault(); e.stopImmediatePropagation(); };
-  const keys = e => {
-    if (blocked() || e.isComposing) return;
-    const current = marker();
-    if (!e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
-      if (current && ['ArrowRight', 'Enter', ' '].includes(e.key)) { stop(e); restore(current); return; }
-      const direction = ['ArrowDown','j'].includes(e.key) ? 1 : ['ArrowUp','k'].includes(e.key) ? -1 : 0;
-      if (direction) {
-        const visible = [...(root()?.children || [])].filter(n => n.matches('.editable,.craft-omit-marker') && n.offsetParent !== null);
-        const active = current || document.querySelector('#dialog-container > [data-sm="primary"]');
-        const index = visible.indexOf(active), next = visible[index + direction];
-        if (current || next?.matches('.craft-omit-marker')) { stop(e); choose(next, direction); return; }
-      }
-      if (current && ['Home','End'].includes(e.key)) {
-        const visible = [...root().children].filter(n => n.matches('.editable,.craft-omit-marker') && n.offsetParent !== null);
-        stop(e); choose(e.key === 'Home' ? visible[0] : visible.at(-1)); return;
-      }
-    }
-    if (current && e.key !== 'Tab') stop(e);
-  };
-  const schedule = records => {
-    if (records && !records.some(r => r.target === root() || r.target.closest?.('#dialog-container'))) return;
-    if (!frame) frame = requestAnimationFrame(sync);
-  };
-  const pointer = e => { if (marker() && !e.target.closest('.craft-omit-marker')) marker().blur(); };
-  const observer = new MutationObserver(schedule);
-  observer.observe(document.body, {subtree: true, childList: true, attributes: true, attributeFilter: ['class','hidden','data-sm-header']});
-  document.addEventListener('keydown', keys, true);
-  document.addEventListener('pointerdown', pointer, true);
-  window.__hotkeyRegister?.({id: 'cell-omit', label: 'Toggle omit cells', group: 'Dialog · Presentation', combo: 'u', handler: () => window.craftOmit?.toggle() === true});
-  window.craftOmit = {
-    toggle, sync,
-    disable() {
-      observer.disconnect();
-      cancelAnimationFrame(frame);
-      document.removeEventListener('keydown', keys, true);
-      document.removeEventListener('pointerdown', pointer, true);
-      markers.forEach(b => b.remove());
-      cells().forEach(e => e.classList.remove('craft-omitted'));
-      window.craftCellChains?.sync();
-    }
-  };
-  sync();
-})();
-
-
-(() => {
-  window.craftParts?.disable();
-  const states = new Map(), controls = new Map(), pending = new Map();
-  const originals = window.solveitHotkeys?.list().filter(s => ['si-i','si-o'].includes(s.id)) || [];
-  let bypass = false, frame;
-  const cells = () => [...document.querySelectorAll('#dialog-container > .editable')];
-  const card = (e, side) => e.querySelector(side === 'input' ? ':scope > .card-in' : ':scope > .card-out');
-  const button = (e, side) => card(e, side)?.querySelector('[hx-post="/collapse_"]');
-  const present = (e, side) => side === 'input' ? !!card(e, side) : !!card(e, side)?.querySelector('.msg-body');
-  const blocked = () => !!document.activeElement?.closest('input,textarea,select,[contenteditable],.monaco-editor,#full_editor,[role="dialog"],.uk-modal.uk-open');
-  const busy = e => e.dataset.editing === 'true' || e.id === '_' + document.getElementById('id_')?.value;
-  const waiting = (e, side) => {
-    const key = e.id + side, p = pending.get(key);
-    if (p && (p.collapsed !== !!card(e, side)?.classList.contains('collapsed') || performance.now() > p.until)) pending.delete(key);
-    return pending.has(key);
-  };
-  const native = (e, side) => {
-    const b = button(e, side);
-    if (!b || waiting(e, side)) return;
-    const selection = cells().map(n => [n, n.getAttribute('data-sm')]);
-    window.selectMsg($(e), {scroll: false});
-    pending.set(e.id + side, {collapsed: !!card(e, side)?.classList.contains('collapsed'), until: performance.now() + 5000});
-    bypass = true;
-    try { b.click(); }
-    finally {
-      bypass = false;
-      selection.forEach(([n, value]) => value === null ? n.removeAttribute('data-sm') : n.setAttribute('data-sm', value));
-    }
-  };
-  const restore = (id, side) => {
-    const state = states.get(id), e = document.getElementById(id);
-    if (!state || !e) return;
-    state.hidden.delete(side);
-    if (!state.hidden.size) states.delete(id);
-    sync();
-    if (card(e, side)?.classList.contains('collapsed')) native(e, side);
-    window.selectMsg($(e), {scroll: false});
-  };
-  const restoreCell = id => {
-    const state = states.get(id);
-    if (state) restore(id, state.last);
-  };
-  const fullyHidden = e => {
-    const state = states.get(e.id);
-    return !!state && ['input','output'].filter(s => present(e, s)).every(s => state.hidden.has(s));
-  };
-  const focusMarker = id => {
-    const b = [...document.querySelectorAll('.craft-omit-marker')].find(n => JSON.parse(n.dataset.omitIds).includes(id));
-    b?.focus({preventScroll: true});
-  };
-  const sync = () => {
-    frame = null;
-    const live = new Set();
-    for (const e of cells()) {
-      const state = states.get(e.id), full = fullyHidden(e);
-      for (const side of ['input','output']) {
-        const c = card(e, side), hidden = !!state?.hidden.has(side), key = e.id + ':' + side;
-        if (c && c.classList.contains('craft-part-hidden') !== hidden) c.classList.toggle('craft-part-hidden', hidden);
-        if (!hidden || !c || full) continue;
-        live.add(key);
-        let b = controls.get(key);
-        if (!b) {
-          b = document.createElement('button');
-          b.type = 'button';
-          b.className = 'craft-part-restore';
-          b.textContent = side === 'input' ? '⌃' : '⌄';
-          b.setAttribute('aria-label', `Restore ${side}`);
-          b.title = `Restore ${side}`;
-          b.addEventListener('click', () => restore(e.id, side));
-          controls.set(key, b);
-        }
-        if (side === 'input') {
-          const output = card(e, 'output');
-          if (output && b.nextElementSibling !== output) output.before(b);
-        } else if (b.previousElementSibling !== card(e, 'input')) card(e, 'input')?.after(b);
-      }
-    }
-    for (const [key, b] of controls) if (!live.has(key)) { b.remove(); controls.delete(key); }
-    window.craftOmit?.sync();
-  };
-  const cycleOne = (e, side) => {
-    if (!present(e, side) || waiting(e, side)) return;
-    if (busy(e)) {
-      window.UIkit?.notification('Finish editing before minimizing this cell.', {status: 'warning'});
-      return;
-    }
-    const state = states.get(e.id);
-    if (state?.hidden.has(side)) { restore(e.id, side); return; }
-    if (!card(e, side).classList.contains('collapsed')) { native(e, side); return; }
-    const next = state || {hidden: new Set(), last: side};
-    next.hidden.add(side);
-    next.last = side;
-    states.set(e.id, next);
-    sync();
-    if (fullyHidden(e)) focusMarker(e.id);
-  };
-  const cycle = side => {
-    if (blocked()) return false;
-    const marker = document.activeElement?.closest('.craft-omit-marker');
-    if (marker) {
-      for (const id of JSON.parse(marker.dataset.omitIds)) if (states.get(id)?.hidden.has(side)) restore(id, side);
-      return true;
-    }
-    const selected = cells().filter(e => e.matches('[data-sm="primary"],[data-sm="secondary"]') && e.offsetParent !== null);
-    selected.forEach(e => cycleOne(e, side));
-    return !!selected.length;
-  };
-  const click = event => {
-    if (bypass) return;
-    const b = event.target.closest('[hx-post="/collapse_"]');
-    const c = b?.closest('.msg-card'), e = c?.closest('.editable');
-    if (!e) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    cycleOne(e, c.classList.contains('card-in') ? 'input' : 'output');
-  };
-  const finished = event => {
-    const b = event.detail?.elt?.closest?.('[hx-post="/collapse_"]');
-    const c = b?.closest('.msg-card'), e = c?.closest('.editable');
-    if (e) pending.delete(e.id + (c.classList.contains('card-in') ? 'input' : 'output'));
-  };
-  const schedule = records => {
-    if (!records.some(r => r.target.id === 'dialog-container' || r.target.closest?.('#dialog-container'))) return;
-    if (!frame) frame = requestAnimationFrame(sync);
-  };
-  const observer = new MutationObserver(schedule);
-  observer.observe(document.body, {subtree: true, childList: true, attributes: true, attributeFilter: ['class']});
-  document.addEventListener('click', click, true);
-  document.addEventListener('htmx:afterRequest', finished);
-  window.__hotkeyRegister?.({id: 'si-i', label: 'Cycle input: expanded / collapsed / hidden', group: 'Solveit · Dialog (selection mode)', combo: 'i', handler: () => cycle('input')});
-  window.__hotkeyRegister?.({id: 'si-o', label: 'Cycle output: expanded / collapsed / hidden', group: 'Solveit · Dialog (selection mode)', combo: 'o', handler: () => cycle('output')});
-  window.craftParts = {
-    cycle, sync, fullyHidden, restoreCell,
-    disable() {
-      observer.disconnect();
-      cancelAnimationFrame(frame);
-      document.removeEventListener('click', click, true);
-      document.removeEventListener('htmx:afterRequest', finished);
-      controls.forEach(b => b.remove());
-      states.clear();
-      document.querySelectorAll('.craft-part-hidden').forEach(c => c.classList.remove('craft-part-hidden'));
-      originals.forEach(s => window.__hotkeyRegister?.({...s, handler: () => true}));
-      window.craftOmit?.sync();
-    }
-  };
-  sync();
-})();
-
-
-(() => {
-  window.craftInsertPreview?.disable();
-  if (!document.getElementById('dialog-container')) return;
-  const types = {
-    Code: 'M8 6l-6 6 6 6m8-12 6 6-6 6M14 4l-4 16',
-    Note: 'M5 3h10l4 4v14H5z M15 3v5h4M8 12h8m-8 4h8',
-    Raw: 'M3 5h18v14H3z M7 9v6',
-    Prompt: 'M3 4h18v12H9l-6 4z M7 10h.01m5 0h.01m5 0h.01',
-  };
-  const icon = name => `<svg aria-hidden="true" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="${types[name]}"/></svg>`;
-  const key = 'craft-insert-preview:v1:' + (new URLSearchParams(location.search).get('name') || location.pathname);
-  const style = document.createElement('style');
-  style.textContent = `
-    #dialog-container.craft-insert-preview {box-sizing:border-box; margin-right:28px!important; min-width:0}
-    #craft-insert-preview {position:fixed; z-index:20; width:28px; height:26px; display:grid; place-items:center; border:0; background:transparent; color:#9b9cab; padding:0; cursor:pointer}
-    #craft-insert-preview[hidden] {display:none}
-    #craft-insert-preview:hover,#craft-insert-preview:focus-visible {color:#e0e0e8}
-    #craft-insert-preview-menu {position:fixed; inset:auto; margin:0; padding:5px; border:1px solid #414251; border-radius:4px; background:#1f2030; color:#cfc9c2; font:12px system-ui}
-    #craft-insert-preview-menu button {display:flex; align-items:center; gap:8px; width:100%; padding:5px 10px; border:0; background:transparent; color:inherit; cursor:pointer}
-    #craft-insert-preview-menu button:hover,#craft-insert-preview-menu button[aria-pressed=true] {background:#343649}
-    #craft-insert-preview-menu small {display:block; padding:4px 10px; color:#9b9cab}`;
-  const trigger = document.createElement('button'), menu = document.createElement('div');
-  trigger.id = 'craft-insert-preview'; trigger.type = 'button'; trigger.hidden = true;
-  menu.id = 'craft-insert-preview-menu'; menu.setAttribute('popover', 'auto');
-  menu.innerHTML = `<small>New cell type</small>${Object.keys(types).map(name => `<button type="button" data-kind="${name}">${icon(name)}${name}</button>`).join('')}`;
-  trigger.setAttribute('popovertarget', menu.id);
-  let current;
-  const select = name => {
-    current = name;
-    trigger.innerHTML = icon(name);
-    trigger.title = `A/B inserts: ${name}`;
-    trigger.setAttribute('aria-label', trigger.title);
-    for (const option of menu.querySelectorAll('button')) option.setAttribute('aria-pressed', String(option.dataset.kind === name));
-  };
-  let saved;
-  try { saved = localStorage.getItem(key); } catch {}
-  select(Object.hasOwn(types, saved) ? saved : document.getElementById('default_code')?.checked ? 'Code' : 'Prompt');
-  let scroller;
-  const position = () => {
-    if (!scroller) return;
-    const width = document.documentElement.clientWidth;
-    const rect = scroller.getBoundingClientRect(), top = Math.max(0, rect.top) + 24;
-    trigger.hidden = !rect.width || !rect.height;
-    Object.assign(trigger.style, {left:`${rect.right}px`, top:`${top}px`});
-    Object.assign(menu.style, {right:`${Math.max(0, width - rect.right - 28)}px`, top:`${top + 28}px`});
-  };
-  const resize = new ResizeObserver(position);
-  const sync = () => {
-    const next = document.getElementById('dialog-container');
-    if (scroller === next) return;
-    if (scroller) {
-      resize.unobserve(scroller);
-      scroller.classList.remove('craft-insert-preview');
-    }
-    scroller = next;
-    if (!scroller) { trigger.hidden = true; return; }
-    scroller.classList.add('craft-insert-preview');
-    resize.observe(scroller); position();
-  };
-  const choose = name => {
-    select(name);
-    try { localStorage.setItem(key, name); } catch {}
-  };
-  const activeCells = () => [...(scroller?.querySelectorAll('.editable:is([data-sm="primary"],[data-sm="secondary"])') || [])].filter(el => el.getClientRects().length);
-  const cellType = el => el?.querySelector('.card-in[data-mtype]')?.dataset.mtype;
-  const editorCell = () => (document.querySelector('#full_editor #id_')?.value || '').replace(/^_/, '');
-  const notify = error => {
-    console.error('CRAFT insertion:', error);
-    window.UIkit?.notification?.({message: error.message, status: 'danger'});
-  };
-  const waitFor = async check => {
-    for (let i = 0; i < 100; i++) {
-      const result = check();
-      if (result) return result;
-      await new Promise(resolve => setTimeout(resolve, 50));
+  /* Which inline editor (if any) owns the keyboard right now. */
+  const editing = () => {
+    const c2 = window.craftC2?.active?.();
+    if (c2 && window.craftC2.view(c2)?.hasFocus) return {kind: 'code', id: c2, view: window.craftC2.view(c2)};
+    const key = window.craftMd?.active?.(), v = key && window.craftMd.view(key);
+    if (v?.hasFocus) {
+      const [id, part] = key.split(':');
+      return {kind: window.craftMd.kind(key), id, part, key, view: v};
     }
     return null;
   };
-  const setType = async (id, type) => {
-    if (cellType(document.getElementById(id)) !== type) {
-      const kid = document.getElementById('kid')?.value;
-      await window.htmx.ajax('POST', '/set_mtyp_', {source:'#kid', swap:'none', values:{kid, id_:id, ids:id, mtyp:type}});
-      if (!(await waitFor(() => cellType(document.getElementById(id)) === type))) throw new Error(`Could not switch cell to ${type}.`);
+  const setBarHidden = hidden => {
+    const hide = !!hidden && bar.dataset.mode === 'idle' &&
+      !root.classList.contains('craft-nav-open') &&
+      !window.solveitFileTree?.isOpen?.();
+    bar.toggleAttribute('data-hidden', hide);
+    jumpBtn.toggleAttribute('data-dock-hidden', hide);
+  };
+  const syncMode = () => {
+    const ed = editing();
+    bar.dataset.mode = ed ? 'edit' : 'idle';
+    root.classList.toggle('craft-mobile-editing', !!ed);
+    if (ed) setBarHidden(false);
+    scheduleBulges();
+    const run = qs('[data-act="run"]', bar);
+    const runnable = ed && (ed.kind === 'code' || (ed.kind === 'prompt' && ed.part !== 'out'));
+    run.hidden = !runnable;
+    if (runnable) {
+      const label = ed.kind === 'prompt' ? 'Send' : 'Run';
+      qs('span', run).textContent = label; run.setAttribute('aria-label', label);
     }
-    if (type === 'code') window.craftC2?.add(id);
-    else if (window.craftC2?.has(id)) window.craftC2.remove(id);
+    syncJump();
   };
-  const blocked = () => document.activeElement?.closest('input,textarea,select,[contenteditable],.monaco-editor,.cm-editor,#full_editor,.hk-overlay.open,#solveit-launcher.open,[role="dialog"],.uk-modal.uk-open,#craft-insert-preview-menu');
-  let busy = false;
-  const execute = action => {
-    if (!busy) {
-      busy = true;
-      Promise.resolve().then(action).catch(notify).finally(() => { busy = false; });
-    }
-    return true;
-  };
-  const mode = name => {
-    if (blocked()) return false;
-    const cells = activeCells();
-    if (!cells.length) { if (!busy) choose(name); return true; }
-    if (cells.length !== 1) return true;
-    return execute(async () => { await setType(cells[0].id, name.toLowerCase()); choose(name); });
-  };
-  const insert = where => {
-    if (blocked()) return false;
-    const primary = activeCells().find(el => el.dataset.sm === 'primary');
-    const button = primary?.querySelector(`[hx-post="/add_${where}_"]`);
-    if (!button) return true;
-    const name = current;
-    return execute(async () => {
-      const type = name.toLowerCase(), old = new Set([...scroller.querySelectorAll('.editable[id]')].map(el => el.id));
-      if (!window.craftC2?.guardNonCodeInsertion) throw new Error('Reload this dialog to enable typed insertion.');
-      if (type === 'code') {
-        if (!window.craftC2?.expectCodeInsertion) throw new Error('Reload this dialog to enable C2 insertion.');
-        window.craftC2.expectCodeInsertion();
-      }
-      const release = type !== 'code' ? window.craftC2.guardNonCodeInsertion(old) : null;
-      const unhide = window.craftIdleComposer?.holdForInsertion();
-      let id = null;
-      try {
-        button.dispatchEvent(new MouseEvent('click', {bubbles:false}));
-        id = await waitFor(() => {
-          const editing = editorCell(), id = '_' + editing;
-          if (editing && !old.has(id) && document.getElementById(id)) return id;
-          if (type === 'code') return [...scroller.querySelectorAll('.editable[id]')].find(el => !old.has(el.id) && window.craftC2?.manages(el.id))?.id;
-        });
-        if (!id) throw new Error(`Could not confirm ${name} insertion.`);
-        if (type === 'code') {
-          if (!(await waitFor(() => cellType(document.getElementById(id)) === 'code' && editorCell() !== id.slice(1) && Boolean(document.getElementById(id)?.querySelector('.craft-c2-host'))))) throw new Error('Could not confirm C2 handoff.');
-        } else {
-          await setType(id, type);
-          const cancel = await waitFor(() => {
-            if (editorCell() !== id.slice(1) || window.edValue?.()) return true;
-            const btn = document.getElementById('cancel_btn');
-            return btn && !btn.disabled ? btn : null;
-          });
-          if (!cancel) throw new Error('Could not close the insertion composer.');
-          if (cancel && cancel !== true) {
-            const field = document.querySelector('#full_editor #msg_type');
-            if (field) field.value = type;
-            cancel.click();
-            if (!(await waitFor(() => editorCell() !== id.slice(1)))) throw new Error('Could not close the insertion composer.');
-            if (cellType(document.getElementById(id)) !== type) throw new Error(`New cell did not retain type ${type}.`);
-          }
-        }
-      } finally { release?.(); unhide?.(); }
-      if (id) {
-        document.getElementById(id)?.scrollIntoView({block: 'nearest'});
-        if (type === 'code') {
-          if (!document.activeElement?.closest?.(`#${id} .craft-c2-host`)) window.craftC2?.edit?.(id, {anchor: 0, head: 0});
-        } else if (!document.activeElement?.closest?.(`#${id} .craft-md-host`)) {
-          window.craftMd?.edit?.(id, {toEnd: true});
-        }
-      }
-    });
-  };
-  const defs = [
-    ['si-a', 'a', 'Add message above', () => insert('above')],
-    ['si-b', 'b', 'Add message below', () => insert('below')],
-    ...['Code','Note','Prompt','Raw'].map((name,i) => [`si-mode-${name.toLowerCase()}`, `Mod+Shift+${'JKL;'[i]}`, `Switch message to ${name.toLowerCase()}`, () => mode(name)]),
-  ].map(([id,combo,label,handler]) => ({id,combo,label,handler,group:'Solveit · Dialog (selection mode)'}));
-  const registerBindings = () => defs.forEach(spec => window.__hotkeyRegister?.(spec));
-  const builtins = document.querySelector('script[data-solveit-hotkeys="builtins"]');
-  builtins?.addEventListener('load', registerBindings, {once:true});
-  registerBindings();
-  menu.addEventListener('click', e => {
-    const option = e.target.closest('button[data-kind]');
-    if (!option) return;
-    choose(option.dataset.kind);
-    menu.hidePopover(); trigger.focus();
-  });
-  document.head.append(style); document.body.append(trigger, menu);
-  const observer = new MutationObserver(sync);
-  observer.observe(document.body, {childList:true, subtree:true});
-  window.addEventListener('resize', position);
-  window.craftInsertPreview = {disable() {
-    observer.disconnect(); resize.disconnect(); window.removeEventListener('resize', position);
-    builtins?.removeEventListener('load', registerBindings);
-    defs.forEach(spec => window.__hotkeyRegister?.({...spec, builtin:true, handler:() => true}));
-    scroller?.classList.remove('craft-insert-preview');
-    trigger.remove(); menu.remove(); style.remove(); delete window.craftInsertPreview;
-  }};
-  sync();
-})();
+  let modeTimer = null;
+  const scheduleMode = () => { clearTimeout(modeTimer); modeTimer = setTimeout(syncMode, 60); };
 
-
-(() => {
-  window.craftInlineNote?.disable?.();
-  window.craftInlineText?.disable?.();
-  if (!document.getElementById('dialog-container')) return;
-  if (!document.querySelector('script[data-craft-md="1"]')) {
-    const s = document.createElement('script');
-    s.src = '/static/.craft-assets/craft_md.js';
-    s.dataset.craftMd = '1';
-    document.head.append(s);
+  async function closeEditors() {
+    if (window.craftC2?.active?.()) await window.craftC2.exit();
+    if (window.craftMd?.active?.()) await window.craftMd.exit();
   }
-})();
 
-(() => {
-  window.craftImageDrop?.disable();
-  const target = e => {
-    if (e.target.closest?.('.monaco-editor')) return;
-    return e.target.closest?.('#dialog-container > .editable > .card-in:is([data-mtype="code"],[data-mtype="note"],[data-mtype="prompt"])');
-  };
-  const field = id => document.querySelector(`#full_editor #${id}`)?.value;
-  const editorId = () => (field('id_') || '').replace(/^_/, '');
-  const model = () => window.editor?.getModel();
-  const notify = message => window.UIkit?.notification?.({message, status: 'warning'});
-  let busy = false, disabled = false;
-  const dragover = e => {
-    if (!target(e)) return;
-    const items = [...(e.dataTransfer?.items || [])];
-    if (!items.some(i => i.kind === 'file' && (!i.type || i.type.startsWith('image/'))) && (items.length || !e.dataTransfer?.types.includes('Files'))) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'copy';
-  };
-  const attach = async (e, card, file) => {
-    if (typeof window.handleBlob !== 'function') return;
-    e.preventDefault();
-    e.stopPropagation();
-    if (busy) return notify('Wait for the current image upload to finish.');
-    const cell = card.parentElement, id = cell.id.slice(1), kind = card.dataset.mtype;
-    const priorModel = model();
-    const ready = () => editorId() === id && field('is_input') === '1' && field('msg_type') === kind && model() && !model().uri.path.endsWith('/temp');
-    busy = true;
+  async function createFirst(type) {
+    if (type === 'Code') return window.craftC2?.newCodeCell?.();
+    const kid = document.getElementById('kid')?.value;
+    if (!kid || !window.htmx) return notify('Reload the dialog and try again.');
+    const before = new Set(qsa('.editable[id]', dialog()).map(el => el.id));
+    await htmxPost('/upsert_msg_', {id_: '', msg_type: type.toLowerCase(), is_input: '1', content: ''});
+    for (let i = 0; i < 100; i++) {
+      const el = qsa('.editable[id]', dialog()).find(x => !before.has(x.id));
+      if (el) { el.scrollIntoView({block: 'nearest'}); window.craftMd?.edit?.(el.id.slice(1), {toEnd: true}); return; }
+      await sleep(50);
+    }
+  }
+
+  let adding = false;
+  async function addCell(type, where = 'below', targetCell = null) {
+    const container = dialog();
+    if (!container || adding || window.craftInsertPreview?.isBusy?.()) return;
+    adding = true;
     try {
-      if (!ready()) {
-        if (editorId() || window.edValue?.()) return notify('Finish editing the open cell before attaching an image to another cell.');
-        if (kind === 'code' && window.craftC2?.manages(id)) await window.craftC2.openInMonaco(id);
-        else if (window.craftMd?.manages(id)) window.craftMd.openInMonaco(id);
-        else card.querySelector('[hx-post="/editor_"]')?.click();
-        for (let i = 0; i < 100 && !disabled && !(ready() && model() !== priorModel); i++) await new Promise(resolve => setTimeout(resolve, 50));
-        if (disabled) return;
-        if (!ready() || model() === priorModel) return notify('Could not open the cell to attach the image.');
-      }
-      window.craftIdleComposer?.reveal();
-      window.editor.focus();
-      const ext = file.name.match(/\.([^.]+)$/)?.[1] || file.type.split('/')[1] || 'png';
-      await window.handleBlob(file, ext, true, file.name);
+      const editingCell = document.activeElement?.closest?.('#dialog-container > .editable');
+      await closeEditors();
+      document.activeElement?.blur?.();
+      const cells = qsa(':scope > .editable[id]', container).filter(el => el.getClientRects().length);
+      const target = (targetCell?.isConnected && targetCell) || (editingCell?.isConnected && editingCell) || cells.find(el => el.dataset.sm === 'primary') || cells[cells.length - 1];
+      if (!target) { await createFirst(type); return; }
+      if (!window.craftInsertPreview?.insert) return notify('Reload this dialog to enable inserting cells.');
+      await sleep(0);
+      window.craftInsertPreview.insert(where === 'above' ? 'above' : 'below', {type, cell: target, force: true});
     } catch (err) {
-      console.error('CRAFT image attachment:', err);
-      notify('Could not attach the image.');
-    } finally { busy = false; }
+      console.error('craftMobileBar: add cell failed', err);
+      notify('Could not add the cell.');
+    } finally { adding = false; }
+  }
+
+  /* ── Cell-edge bulges: attach to the editing cell or primary selected cell ── */
+  let bulgeHost = null;
+  const detachBulges = () => {
+    bulgeHost?.classList.remove('craft-bulge-host');
+    bulgeAbove.remove(); bulgeBelow.remove();
+    bulgeHost = null;
   };
-  const drop = e => {
-    const card = target(e), file = e.dataTransfer?.files[0];
-    if (card && file?.type.startsWith('image/')) attach(e, card, file);
+  const activeEditingCell = cells => {
+    const c2 = window.craftC2?.active?.();
+    if (c2) {
+      const el = document.getElementById('_' + String(c2).replace(/^_/, ''));
+      if (el && cells.includes(el)) return el;
+    }
+    const mdKey = window.craftMd?.active?.();
+    if (mdKey) {
+      const el = document.getElementById('_' + String(mdKey).split(':')[0].replace(/^_/, ''));
+      if (el && cells.includes(el)) return el;
+    }
+    return cells.find(el => el.dataset.c2Editing === 'true' || el.dataset.mdEditing === 'true') || null;
   };
-  window.addEventListener('dragover', dragover, true);
-  window.addEventListener('drop', drop, true);
-  window.craftImageDrop = {disable() {
-    disabled = true;
-    window.removeEventListener('dragover', dragover, true);
-    window.removeEventListener('drop', drop, true);
-    delete window.craftImageDrop;
-  }};
+  const syncBulges = () => {
+    if (!mounted) return;
+    const container = dialog();
+    if (!container) { detachBulges(); emptyAdd.remove(); return; }
+    const cells = qsa(':scope > .editable[id]', container).filter(el => !el.hidden && el.getClientRects().length);
+    if (!cells.length) {
+      detachBulges();
+      if (!emptyAdd.isConnected) container.append(emptyAdd);
+      return;
+    }
+    emptyAdd.remove();
+    const target = activeEditingCell(cells) || cells.find(el => el.dataset.sm === 'primary') || null;
+    if (target !== bulgeHost) {
+      detachBulges();
+      if (target) {
+        target.classList.add('craft-bulge-host');
+        target.append(bulgeAbove, bulgeBelow);
+        bulgeHost = target;
+      }
+    }
+  };
+  const scheduleBulges = rafOnce(syncBulges);
+
+  /* ── Bulge drag-to-insert + tap-to-pick interaction ── */
+  let pickerState = null; // {edge, cell, pointerId, startX, startY, dragged, hotType, tapOpen}
+  const setHot = type => {
+    if (pickerState) pickerState.hotType = type;
+    for (const b of qsa('button[data-type]', picker)) {
+      b.toggleAttribute('data-hot', b.dataset.type === type);
+    }
+  };
+  const closePicker = () => {
+    bulgeAbove.removeAttribute('data-active');
+    bulgeBelow.removeAttribute('data-active');
+    picker.classList.remove('open');
+    setHot(null);
+    pickerState = null;
+  };
+  const positionPicker = (anchorRect, edge) => {
+    patch(picker, {dataset: {edge}, classes: {open: true}});
+    qs('.craft-edge-picker-head', picker).textContent = edge === 'above' ? 'Insert above' : 'Insert below';
+    const pw = picker.offsetWidth || 280;
+    const ph = picker.offsetHeight || 76;
+    const cx = anchorRect.left + anchorRect.width / 2;
+    const left = Math.max(8, Math.min(cx - pw / 2, innerWidth - pw - 8));
+    let top;
+    if (edge === 'above') {
+      const aboveTop = anchorRect.top - ph - 14;
+      top = aboveTop >= 12 ? aboveTop : Math.min(anchorRect.bottom + 14, innerHeight - ph - 12);
+    } else {
+      const belowTop = anchorRect.bottom + 14;
+      top = (belowTop + ph <= innerHeight - 12) ? belowTop : Math.max(12, anchorRect.top - ph - 14);
+    }
+    picker.style.left = Math.round(left) + 'px';
+    picker.style.top = Math.round(top) + 'px';
+  };
+  const hitOption = (x, y) => {
+    const PAD = 10;
+    for (const b of qsa('button[data-type]', picker)) {
+      const r = b.getBoundingClientRect();
+      if (x >= r.left - PAD && x <= r.right + PAD && y >= r.top - PAD && y <= r.bottom + PAD) {
+        return b.dataset.type;
+      }
+    }
+    return null;
+  };
+  const selectCell = cell => {
+    const container = dialog();
+    if (!container || !cell?.isConnected) return;
+    for (const el of qsa(':scope > .editable[data-sm="primary"], :scope > .editable[data-sm="secondary"]', container)) {
+      if (el !== cell) el.setAttribute('data-sm', 'unselected');
+    }
+    cell.setAttribute('data-sm', 'primary');
+  };
+  const onBulgePointerDown = e => {
+    const handle = e.currentTarget;
+    const cell = handle.closest('#dialog-container > .editable');
+    if (!cell) return;
+    e.preventDefault(); e.stopPropagation();
+    const edge = handle.dataset.edge;
+    if (pickerState?.tapOpen && pickerState.edge === edge && pickerState.cell === cell) {
+      closePicker();
+      return;
+    }
+    closePicker();
+    handle.dataset.active = 'true';
+    handle.setPointerCapture?.(e.pointerId);
+    pickerState = {edge, cell, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, dragged: false, hotType: null, tapOpen: false};
+    positionPicker(handle.getBoundingClientRect(), edge);
+    if (window.craftC2?.active?.() || window.craftMd?.active?.()) {
+      selectCell(cell);
+      closeEditors().then(() => {
+        if (cell.isConnected) selectCell(cell);
+        scheduleMode();
+      }).catch(err => console.error('craftMobileBar: commit on bulge failed', err));
+    }
+  };
+  const onBulgePointerMove = e => {
+    if (!pickerState || e.pointerId !== pickerState.pointerId || pickerState.tapOpen) return;
+    const dist = Math.hypot(e.clientX - pickerState.startX, e.clientY - pickerState.startY);
+    if (dist > 8) pickerState.dragged = true;
+    if (pickerState.dragged) setHot(hitOption(e.clientX, e.clientY));
+  };
+  const onBulgePointerUp = e => {
+    if (!pickerState || e.pointerId !== pickerState.pointerId || pickerState.tapOpen) return;
+    const {edge, cell, dragged, hotType} = pickerState;
+    if (dragged) {
+      closePicker();
+      if (hotType) addCell(hotType, edge, cell);
+    } else {
+      pickerState.tapOpen = true;
+      pickerState.pointerId = null;
+    }
+  };
+  const onBulgePointerCancel = e => {
+    if (pickerState && e.pointerId === pickerState.pointerId) closePicker();
+  };
+  const onBulgeClick = e => { e.preventDefault(); e.stopPropagation(); };
+  const bulgeEvs = {pointerdown: onBulgePointerDown, pointermove: onBulgePointerMove, pointerup: onBulgePointerUp, pointercancel: onBulgePointerCancel, click: onBulgeClick};
+  for (const b of [bulgeAbove, bulgeBelow]) on(b, bulgeEvs, sig);
+  const onPickerClick = e => {
+    const opt = e.target.closest('button[data-type]');
+    if (!opt || !pickerState) return;
+    e.preventDefault(); e.stopPropagation();
+    const {edge, cell} = pickerState;
+    closePicker();
+    addCell(opt.dataset.type, edge, cell);
+  };
+  on(picker, 'click', onPickerClick, sig);
+  on(emptyAdd, 'click', e => {
+    const opt = e.target.closest('button[data-type]');
+    if (!opt) return;
+    e.preventDefault(); e.stopPropagation();
+    addCell(opt.dataset.type, 'below', null);
+  }, sig);
+
+  /* After Run/Send the output lands below the fold: keep the cell in view while it grows,
+     until it has been still for ~10s or the user scrolls on their own. */
+  let stopFollow = null;
+  function followCell(id) {
+    stopFollow?.();
+    const elId = '_' + String(id).replace(/^_/, '');
+    let lastH = -1, quiet = 0;
+    let offStop = null;
+    const stop = () => {
+      clearInterval(timer); clearTimeout(cap);
+      offStop?.();
+      if (stopFollow === stop) stopFollow = null;
+    };
+    const tick = () => {
+      const el = document.getElementById(elId);
+      if (!el) return stop();
+      const h = Math.round(el.getBoundingClientRect().height);
+      if (h !== lastH) { lastH = h; quiet = 0; el.scrollIntoView({block: 'nearest'}); }
+      else if (++quiet > 40) stop();
+    };
+    const timer = setInterval(tick, 250), cap = setTimeout(stop, 120000);
+    offStop = on(window, 'touchstart wheel', stop, {capture: true, passive: true});
+    stopFollow = stop;
+  }
+
+  /* Run the editor's own Tab binding (accepts completions, indents); plain indent if nothing handled it. */
+  function pressTab({view, kind}) {
+    const ev = new KeyboardEvent('keydown', {key: 'Tab', code: 'Tab', keyCode: 9, bubbles: true, cancelable: true});
+    view.contentDOM.dispatchEvent(ev);
+    if (!ev.defaultPrevented) view.dispatch(view.state.replaceSelection(kind === 'code' ? '    ' : '  '));
+    view.focus();
+  }
+
+  const toggleNav = force => {
+    const open = root.classList.toggle('craft-nav-open', force);
+    qs('[data-act="nav"]', bar).setAttribute('aria-pressed', String(open));
+    if (open) setBarHidden(false);
+  };
+
+  const actions = {
+    nav: () => toggleNav(),
+    files: () => { toggleNav(false); setBarHidden(false); window.solveitFileTree?.toggle(false); },
+    tab: () => { const ed = editing(); if (ed) pressTab(ed); },
+    run: () => {
+      const ed = editing();
+      if (!ed) return;
+      if (ed.kind === 'code') window.craftC2.run(ed.id, 'run');
+      else if (ed.kind === 'prompt' && ed.part !== 'out') window.craftMd.run(ed.id, 'run');
+      else return;
+      followCell(ed.id);
+    },
+    done: () => {
+      const ed = editing();
+      if (!ed) return;
+      if (ed.kind === 'code') window.craftC2.exit(ed.id); else window.craftMd.exit(ed.key);
+    },
+  };
+  const onBarMouseDown = e => { if (e.target.closest('button')) e.preventDefault(); };  // keep the editor (and soft keyboard) focused
+  const onBarClick = e => {
+    const b = e.target.closest('button[data-act]');
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation();
+    Promise.resolve(actions[b.dataset.act]?.(b)).catch(err => console.error('craftMobileBar', err)).finally(scheduleMode);
+  };
+  on(bar, {mousedown: onBarMouseDown, click: onBarClick}, sig);
+  on(backdrop, 'click', () => window.solveitFileTree?.close?.(), sig);
+
+  /* ── Scroll-hiding floating dock & jump-to-bottom button ── */
+  let scrollerEl = null, lastScrollY = 0;
+  const scrollMetrics = () => {
+    const sc = dialog();
+    if (sc && sc.scrollHeight > sc.clientHeight + 4) {
+      return {el: sc, top: sc.scrollTop, height: sc.scrollHeight, client: sc.clientHeight};
+    }
+    const doc = document.scrollingElement || document.documentElement;
+    return {el: window, top: window.scrollY || doc.scrollTop, height: doc.scrollHeight, client: window.innerHeight};
+  };
+  const syncJump = () => {
+    if (!mounted || bar.dataset.mode === 'edit' || !dialog()) { jumpBtn.classList.remove('visible'); return; }
+    const m = scrollMetrics();
+    const distFromBottom = m.height - m.top - m.client;
+    jumpBtn.classList.toggle('visible', distFromBottom > 360);
+  };
+  const onScroll = () => {
+    if (!mounted) return;
+    if (pickerState?.tapOpen) closePicker();
+    const m = scrollMetrics();
+    const dy = m.top - lastScrollY;
+    lastScrollY = m.top;
+    const distFromBottom = m.height - m.top - m.client;
+    if (m.top < 40 || distFromBottom < 40) setBarHidden(false);
+    else if (dy > 14) setBarHidden(true);
+    else if (dy < -10) setBarHidden(false);
+    syncJump();
+  };
+  let offScroll = null;
+  const bindScroller = () => {
+    const next = dialog();
+    if (next === scrollerEl) return;
+    offScroll?.();
+    scrollerEl = next;
+    offScroll = on(scrollerEl, 'scroll', onScroll, {passive: true});
+    lastScrollY = scrollMetrics().top;
+    syncJump();
+  };
+  on(jumpBtn, 'click', e => {
+    e.preventDefault(); e.stopPropagation();
+    const m = scrollMetrics();
+    (m.el === window ? window : m.el).scrollTo({top: m.height, behavior: 'smooth'});
+  }, sig);
+
+  /* ── Tap-to-select first on mobile ──
+     Tapping an unselected cell (or a different cell while editing another) selects
+     it first instead of immediately opening the inline editor and soft keyboard.
+     A second tap into the already-selected cell opens the editor normally. */
+  let guardedTapCell = null, guardClearTimer = null;
+  const INTERACTIVE_SEL = 'button, a, input, textarea, select, summary, label, .craft-edge-bulge, .craft-action-trigger, .craft-table-copy, .craft-omit-marker, .craft-part-restore, .cm-editor';
+  const isEditingOther = cell => {
+    const c2 = window.craftC2?.active?.();
+    if (c2 && ('_' + String(c2).replace(/^_/, '')) !== cell.id) return true;
+    const md = window.craftMd?.active?.();
+    if (md && ('_' + String(md).split(':')[0].replace(/^_/, '')) !== cell.id) return true;
+    return false;
+  };
+  const onWinMouseDown = e => {
+    if (!mounted || e.button !== 0) return;
+    const t = e.target;
+    if (!(t instanceof Element) || t.closest(INTERACTIVE_SEL)) return;
+    const cell = t.closest('#dialog-container > .editable[id]');
+    if (!cell) return;
+    const editingOther = isEditingOther(cell);
+    if (cell.dataset.sm === 'primary' && !editingOther) return;
+    guardedTapCell = cell;
+    clearTimeout(guardClearTimer);
+    guardClearTimer = setTimeout(() => { guardedTapCell = null; }, 800);
+    e.stopPropagation();
+    selectCell(cell);
+    if (editingOther) {
+      closeEditors().then(() => {
+        if (cell.isConnected) selectCell(cell);
+        scheduleMode();
+      }).catch(err => console.error('craftMobileBar: close on cell switch failed', err));
+    }
+  };
+  const onWinTapFinish = e => {
+    if (!guardedTapCell) return;
+    const t = e.target;
+    if (t instanceof Element && guardedTapCell.contains(t) && !t.closest(INTERACTIVE_SEL)) {
+      e.stopPropagation();
+      if (e.type === 'click') {
+        e.preventDefault();
+        guardedTapCell = null;
+      }
+    } else if (e.type === 'click') {
+      guardedTapCell = null;
+    }
+  };
+
+  /* Tapping outside the revealed top nav (and outside its dropdowns) hides it again;
+     tapping outside a tap-opened edge picker dismisses it. */
+  const onDocPointerDown = e => {
+    const t = e.target;
+    if (pickerState?.tapOpen && !picker.contains(t) && !t.closest?.('.craft-edge-bulge')) closePicker();
+    if (!root.classList.contains('craft-nav-open')) return;
+    if (bar.contains(t) || navEl()?.contains(t) || t.closest?.('#craft-mobile-toggle, .uk-drop, .uk-dropdown, .uk-modal, [role="dialog"]')) return;
+    toggleNav(false);
+  };
+  on(document, 'pointerdown', onDocPointerDown, cap);
+
+  /* Observe DOM updates for: temp editor auto-close, selected cell changes, scroller changes. */
+  const onDomMut = () => {
+    if (!mounted) return;
+    if (window.craftMobile?.active() && qs('#solveit-temp-editor.open') && window.solveitFileTree?.isOpen?.()) window.solveitFileTree.close();
+    bindScroller();
+    scheduleBulges();
+  };
+
+  /* Soft keyboard: lift the bar above it when the browser only shrinks the visual viewport. */
+  /* Only while something editable has focus (the keyboard can't be up otherwise), so a zoomed or oddly sized
+     layout viewport never strands the bar mid-screen. With interactive-widget=resizes-content this stays 0. */
+  const vv = window.visualViewport;
+  const place = () => {
+    if (!vv) return;
+    const a = document.activeElement;
+    const typing = a && a !== document.body && (a.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName));
+    const kb = typing ? Math.max(0, Math.round(innerHeight - vv.height - vv.offsetTop)) : 0;
+    root.style.setProperty('--craft-kb', (kb > 120 ? kb : 0) + 'px');
+  };
+  on(vv, 'resize scroll', place, sig);
+  on(window, 'resize', place, sig);
+  on(window, 'scroll', onScroll, pas);
+  on(document, 'focusin focusout', place, cap);
+  on(document, 'focusin focusout', scheduleMode, cap);
+  const settleEvent = ['htmx', 'after', 'settle'].join(window.htmx?.config?.metaCharacter || ':');
+  on(document, settleEvent, () => { scheduleMode(); bindScroller(); scheduleBulges(); }, sig);
+
+  let mounted = false, offMount = null, offDom = null;
+  const mount = active => {
+    if (active && !mounted) {
+      document.body.append(backdrop, bar, jumpBtn, picker);
+      offMount = on(window, {mousedown: onWinMouseDown, mouseup: onWinTapFinish, click: onWinTapFinish}, true);
+      offDom = onDomChange(onDomMut, {attrs: ['class', 'data-sm', 'data-c2-editing', 'data-md-editing', 'hidden'], delay: 0});
+      mounted = true; bindScroller(); syncMode(); place(); syncBulges();
+    } else if (!active && mounted) {
+      guardedTapCell = null; clearTimeout(guardClearTimer);
+      offMount?.(); offMount = null;
+      offDom?.(); offDom = null;
+      closePicker(); detachBulges(); emptyAdd.remove();
+      bar.remove(); backdrop.remove(); jumpBtn.remove(); picker.remove();
+      toggleNav(false);
+      offScroll?.(); offScroll = null; scrollerEl = null;
+      root.classList.remove('craft-mobile-editing');
+      mounted = false;
+    }
+  };
+  const start = () => mount(!!window.craftMobile?.active());
+  const offChange = window.craftMobile?.onChange(mount);
+  if (document.body) start(); else on(document, 'DOMContentLoaded', start, {once: true, signal: ac.signal});
+
+  window.craftMobileBar = {
+    addCell,
+    disable() {
+      offChange?.(); mount(false); clearTimeout(modeTimer); scheduleBulges.cancel();
+      ac.abort();
+      root.style.removeProperty('--craft-kb');
+      delete window.craftMobileBar;
+    },
+  };
 })();

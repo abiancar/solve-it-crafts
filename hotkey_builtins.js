@@ -1,3 +1,4 @@
+/* %% nbs/craft/00_hotkey_builtins.ipynb #b3615b6f */
 /* ── Solveit built-in shortcuts (reference list) ──────────────────────
    Snapshot of the bindings documented in the Solveit reference manual:
    https://gist.github.com/jph00/9e7b444aba5ecf6d14295ba2cee890c3

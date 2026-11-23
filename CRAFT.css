@@ -1,3 +1,31 @@
+/* %% nbs/craft/00_hotkey_manager.ipynb #4ae55718 */
+/* ── Hotkey manager modal ──────────────────────────────────────────── */
+.hk-overlay { position: fixed; inset: 0; z-index: 10000; display: none; align-items: flex-start; justify-content: center; background: rgba(0,0,0,.55); padding-top: 12vh; }
+.hk-overlay.open { display: flex; }
+.hk-modal { width: min(560px, calc(100vw - 32px)); max-height: 74vh; display: flex; flex-direction: column; background: #1a1b26; color: #cfc9c2; border: 1px solid #2f3044; border-radius: 10px; box-shadow: 0 18px 48px rgba(0,0,0,.5); font-family: inherit; font-size: 13px; line-height: 1.4; }
+.hk-head { display: flex; align-items: baseline; gap: 8px; padding: 12px 16px; border-bottom: 1px solid #2f3044; }
+.hk-sub { font-size: 11px; opacity: .6; }
+.hk-close { margin-left: auto; }
+.hk-body { overflow: auto; padding: 4px 16px; }
+.hk-group { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; opacity: .55; margin: 12px 0 4px; }
+.hk-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid rgba(47,48,68,.4); }
+.hk-row:last-child { border-bottom: 0; }
+.hk-suppress { opacity: .55; }
+.hk-suppress.on { opacity: 1; background: #7aa2f7; border-color: #7aa2f7; color: #16161e; }
+.hk-label { flex: 1; }
+.hk-combo kbd { background: #222434; border: 1px solid #3a3b55; border-bottom-width: 2px; border-radius: 4px; padding: 1px 6px; font-family: inherit; font-size: 12px; margin-right: 3px; }
+.hk-combo.hk-capturing { font-style: italic; opacity: .75; }
+.hk-msg { color: #f7768e; font-size: 11.5px; max-width: 45%; }
+.hk-body button, .hk-foot button { background: #222434; color: #cfc9c2; border: 1px solid #3a3b55; border-radius: 6px; padding: 2px 10px; cursor: pointer; font-size: 12px; font-family: inherit; }
+.hk-body button:hover, .hk-foot button:hover { background: #2f3044; }
+.hk-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; border-top: 1px solid #2f3044; font-size: 11.5px; opacity: .85; }
+
+/* %% nbs/craft/02_core_ui.ipynb #5e777830 */
+/* Reserve top-right space inside desktop top nav so #craft-insert-preview and #craft-mobile-toggle never overlap navbar buttons. */
+html:not(.craft-mobile) .uk-container > nav.monster-navbar {
+  padding-right: 78px !important;
+  box-sizing: border-box;
+}
 /* ══ Solveit "borderless" restyle · Tokyo Night Pure ══════════════════
    Injected as a <style> tag for every dialog in this folder. RELOAD to apply.
    Intent: cells float on one continuous canvas, full width, minimal chrome,
@@ -76,7 +104,7 @@ div.editable[data-diff="added"] { background: transparent !important; }
 .msg-body { padding: 2px 6px !important; }
 .card-out .msg-body { padding-left: 14px !important; }  /* subliminal offset */
 /* Type scale in one place; CRAFT.js reads --craft-code for Monaco editors too. */
-:root { --craft-prose: 11px; --craft-prose-lh: 11px; --craft-code: 10px; }
+:root { --craft-prose: 11px; --craft-prose-lh: 13px; --craft-code: 10px; --craft-code-lh: 1.2; }
 .msg-content, .msg-content .prose { font-size: var(--craft-prose) !important; line-height: var(--craft-prose-lh) !important; }
 .msg-content pre, .msg-content code { font-size: var(--craft-code) !important; line-height: 1 !important; }
 .msg-content .prose p { margin: 0.15em 0 !important; }
@@ -92,25 +120,29 @@ div.editable[data-diff="added"] { background: transparent !important; }
 /* Metadata label ("Code:1,257") recedes from the body text */
 .msg-card > .uk-card-header nav > div.grow,
 .msg-card > .uk-card-header nav > div.grow * {
-  color: #cfc9c266 !important;
+  color: #cfc9c2a8 !important;
 }
 
 /* One tone per card: input code is a plain PRE that paints its own grey */
 .msg-card pre, .msg-card code { background: transparent !important; }
 
-/* Except in prompts, where fenced code sits in a recessed square well */
+/* Except in prompts and notes, where fenced code sits in a recessed square well.
+   Keep background & padding on <pre> only, and render pre > code as a clean block so
+   inline <code> padding/background never paints over the previous line. */
 .msg-card[data-mtype="prompt"] .msg-content pre,
-.msg-card[data-mtype="prompt"] .msg-content pre > code,
 .msg-card.card-in[data-mtype="note"] .msg-content pre,
-.msg-card.card-in[data-mtype="note"] .msg-content pre > code,
-.msg-card.card-in[data-mtype="prompt"] .msg-content pre,
-.msg-card.card-in[data-mtype="prompt"] .msg-content pre > code {
+.msg-card.card-in[data-mtype="prompt"] .msg-content pre {
   background: #16161e !important;
   border-radius: 0 !important;
-}
-.msg-card[data-mtype="prompt"] .msg-content pre {
   padding: 8px 10px !important;
   border: 0 !important;
+}
+.msg-content pre > code {
+  display: block !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  background: transparent !important;
+  line-height: var(--craft-code-lh) !important;
 }
 
 /* ── 4. Card edges: no frame or selection stripe ──────────────────── */
@@ -167,6 +199,7 @@ div.editable[data-diff="added"] { background: transparent !important; }
   z-index: 40;
   height: 31px !important;               /* 0.7 x original */
   min-height: 0 !important;
+  flex-wrap: nowrap !important;
   padding-block: 0 !important;
   background: transparent !important;
   border: 0 !important;
@@ -253,80 +286,6 @@ div.editable[data-diff="added"] { background: transparent !important; }
 .editable.dot-prompt .msg-card.card-in .msg-body {
   display: none !important;
 }
-/* ── Lightweight file tree prototype ─────────────────────────────────── */
-.solveit-tree-workspace {
-  display: flex;
-  flex: 1 1 0%;
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-}
-.solveit-tree-workspace > .overflow-y-auto { flex: 1 1 0%; min-width: 0; min-height: 0; }
-#solveit-file-tree-panel {
-  position: relative;
-  z-index: 50;
-  flex: 0 0 0;
-  width: 0;
-  min-width: 0;
-  max-width: 90vw;
-  height: 100%;
-  padding: 0;
-  box-sizing: border-box;
-  resize: horizontal;
-  overflow: auto;
-  visibility: hidden;
-  pointer-events: none;
-  background: #1a1b26;
-  color: #cfc9c2;
-  box-shadow: none;
-  transition: flex-basis .16s ease, padding .16s ease;
-}
-#solveit-file-tree-panel.open {
-  flex: 0 0 auto;
-  width: min(360px, 90vw);
-  min-width: 260px;
-  padding: 10px 10px 10px 6px;
-  visibility: visible;
-  pointer-events: auto;
-  box-shadow: 8px 0 24px #0008;
-}
-#solveit-file-tree-panel > header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-#solveit-file-tree-panel .solveit-tree-brand { display: flex; align-items: baseline; gap: 6px; margin-bottom: 6px; min-width: 0; }
-#solveit-file-tree-panel .solveit-tree-appname { flex: 0 0 auto; font-weight: 700; font-size: 13px; letter-spacing: .02em; color: #cfc9c2; }
-#solveit-file-tree-panel h2#dlg-name { flex: 1 1 0%; min-width: 0; font-size: 12.5px !important; line-height: 1.3 !important; font-weight: 400 !important; padding: 0 !important; color: #cfc9c2cc !important; }
-#solveit-file-tree-panel > header button { display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: inherit; font-size: 1.25rem; line-height: 1; padding: 2px; cursor: pointer; }
-#solveit-file-tree-panel .solveit-tree-shortcut { margin-left: auto; color: #cfc9c288; font: 11px monospace; }
-#solveit-file-tree-panel .solveit-tree-refresh { margin-left: 6px; }
-#solveit-file-tree-panel .treeview-node-content:focus-visible { outline: none; box-shadow: inset 0 0 0 2px #7aa2f7; background: #30364d; }
-#solveit-file-tree-panel .solveit-tree-close { margin-left: 6px; }
-#solveit-file-tree-panel .solveit-tree-back { margin-left: auto; }
-#solveit-file-tree-panel .solveit-tree-back:disabled { opacity: .35; cursor: default; }
-#solveit-file-tree-panel .solveit-tree-up { margin-left: 6px; }
-.solveit-file-tree-path { color: #cfc9c299; font: 12px monospace; margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; }
-#solveit-file-tree-panel .custom-treeview-wrapper { max-width: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
-#solveit-file-tree-panel .custom-treeview-wrapper > ul { padding-left: 0; }
-#solveit-file-tree-panel .custom-treeview-wrapper ul ul { padding-left: 14px; }
-#solveit-file-tree-panel .custom-treeview-wrapper li { margin: 2px 0; color: #cfc9c2; }
-#solveit-file-tree-panel .custom-treeview-wrapper .treeview-node-content { padding: 4px; border-radius: 4px; }
-#solveit-file-tree-panel .custom-treeview-wrapper .treeview-node-content:hover { background: #222434; }
-#solveit-file-tree-panel .treeview-expander,
-#solveit-file-tree-panel .treeview-expander-placeholder { width: 0; margin-right: 0; padding: 0; overflow: hidden; color: transparent; }
-#solveit-file-tree-panel img.solveit-tree-icon { width: 16px !important; height: 16px !important; max-width: 16px !important; max-height: 16px !important; flex: 0 0 16px; object-fit: contain; margin-right: 7px; }
-
-#solveit-file-tree-panel .solveit-tree-filter { box-sizing: border-box; width: 100%; margin: 8px 0; padding: 6px 8px; border: 1px solid #ffffff22; border-radius: 4px; background: #16161e; color: #cfc9c2; }
-#solveit-file-tree-panel .solveit-tree-status { color: #cfc9c299; font-size: 12px; }
-#solveit-temp-editor { position: fixed; inset: 0; z-index: 1000; display: none; flex-direction: column; background: #16161e; color: #cfc9c2; }
-#solveit-temp-editor.open { display: flex; }
-body:has(#solveit-temp-editor.open) #solveit-file-tree-panel.open {
-  position: fixed;
-  inset-block: 0;
-  left: 0;
-  height: auto;
-  z-index: 1010;
-}
-#solveit-temp-editor .solveit-temp-editor-bar { display: flex; flex: 0 0 36px; align-items: center; justify-content: space-between; padding: 0 12px; background: #1a1b26; border-bottom: 1px solid #ffffff22; }
-#solveit-temp-editor .solveit-temp-editor-bar button { border: 0; background: transparent; color: inherit; font-size: 1.4rem; cursor: pointer; }
-#solveit-temp-editor iframe { flex: 1; width: 100%; min-height: 0; border: 0; background: #16161e; }
 
 /* ── Compact disclosures: borderless, tight stacking ────────────── */
 /* Expandable boxes (tool calls, [data-panel] details) lose their frame
@@ -360,58 +319,20 @@ body:has(#solveit-temp-editor.open) #solveit-file-tree-panel.open {
 .msg-content .prose > * + * { margin-top: 0.15em !important; }
 .msg-content .prose h1, .msg-content .prose h2, .msg-content .prose h3,
 .msg-content .prose h4, .msg-content .prose h5, .msg-content .prose h6 {
-  margin: 0.45em 0 0.2em !important;
-  line-height: 1 !important;
+  margin: 0.3em 0 0.12em !important;
+  line-height: 1.08 !important;
 }
+.msg-content .prose h1 { font-size: 1.65em !important; }
+.msg-content .prose h2 { font-size: 1.32em !important; }
+.msg-content .prose h3 { font-size: 1.15em !important; }
+.msg-content .prose h4 { font-size: 1.05em !important; }
+.msg-content .prose h5, .msg-content .prose h6 { font-size: 1em !important; }
 .msg-content .prose ul, .msg-content .prose ol { margin: 0.125em 0 !important; padding-left: 1.35em !important; }
 .msg-content .prose li { margin: 0.05em 0 !important; }
 .msg-content .prose li > p { margin: 0.05em 0 !important; }
 .msg-content .prose hr { margin: 0.5em 0 !important; }
 .msg-content .prose blockquote, .msg-content .prose pre,
 .msg-content .prose table, .msg-content .prose figure { margin: 0.3em 0 !important; }
-
-/* ── File tree: header toggles, context menu ───────────────────────── */
-#solveit-file-tree-panel .solveit-tree-upload,
-#solveit-file-tree-panel .solveit-tree-collapse { margin-left: 6px; color: #cfc9c2aa; }
-#solveit-file-tree-panel .solveit-tree-upload:hover,
-#solveit-file-tree-panel .solveit-tree-collapse:hover { color: #cfc9c2; }
-#solveit-file-tree-panel .solveit-tree-dots { margin-left: 6px; font: 600 .95rem monospace; color: #cfc9c288; }
-#solveit-file-tree-panel .solveit-tree-dots[aria-pressed="true"] { color: #7aa2f7; filter: drop-shadow(0 0 4px #7aa2f7aa); }
-#solveit-file-tree-panel .solveit-tree-home { margin-left: 6px; }
-.solveit-tree-menu { position: fixed; z-index: 1100; min-width: 170px; padding: 4px; background: #1f2030; border: 1px solid #ffffff1a; border-radius: 6px; box-shadow: 0 8px 24px #000a; }
-.solveit-tree-menu button { display: block; width: 100%; text-align: left; padding: 5px 10px; border: 0; border-radius: 4px; background: transparent; color: #cfc9c2; font-size: 12px; cursor: pointer; }
-.solveit-tree-menu button:hover:not(:disabled), .solveit-tree-menu button:focus-visible { background: #2b2e43; outline: none; }
-.solveit-tree-menu button:disabled { color: #cfc9c255; cursor: default; }
-.solveit-tree-menu button.danger { color: #f7768e; }
-.solveit-tree-menu hr.solveit-tree-menu-sep { margin: 4px 2px; border: 0; border-top: 1px solid #ffffff16; }
-#solveit-file-tree-panel .solveit-tree-rootbar { display: flex; align-items: center; gap: 6px; padding: 4px; margin-bottom: 4px; border-radius: 4px; font: 11.5px monospace; color: #cfc9c299; background: #16161e88; border: 1px solid transparent; user-select: none; cursor: default; }
-#solveit-file-tree-panel .solveit-tree-rootbar:hover { background: #222434; color: #cfc9c2; }
-#solveit-file-tree-panel .solveit-tree-rootbar-hint { margin-left: auto; font-size: 10px; color: #cfc9c255; }
-#solveit-file-tree-panel .solveit-tree-row-upload { opacity: 0; pointer-events: none; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin-left: 4px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: #cfc9c299; cursor: pointer; }
-#solveit-file-tree-panel .treeview-node-content:is(:hover, :focus-within) .solveit-tree-row-upload,
-#solveit-file-tree-panel .solveit-tree-rootbar:is(:hover, :focus-within) .solveit-tree-row-upload { opacity: 1; pointer-events: auto; }
-#solveit-file-tree-panel .solveit-tree-row-upload:is(:hover, :focus-visible) { background: #30364d; color: #7aa2f7; outline: none; }
-@media (hover: none) { #solveit-file-tree-panel .solveit-tree-row-upload { opacity: 1; pointer-events: auto; } }
-.solveit-tree-upload-pop { position: fixed; z-index: 1100; width: 230px; padding: 8px; background: #1f2030; border: 1px solid #ffffff1a; border-radius: 6px; box-shadow: 0 8px 24px #000a; color: #cfc9c2; font-size: 12px; }
-.solveit-tree-upload-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
-.solveit-tree-upload-dest { flex: 1 1 0%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px monospace; color: #cfc9c2cc; }
-.solveit-tree-upload-x { flex: 0 0 auto; border: 0; background: transparent; color: #cfc9c299; font-size: 15px; line-height: 1; cursor: pointer; padding: 0 2px; }
-.solveit-tree-upload-x:hover { color: #cfc9c2; }
-.solveit-tree-upload-drop { padding: 12px 8px; margin-bottom: 8px; border: 1px dashed #ffffff2e; border-radius: 4px; background: #16161e; color: #cfc9c288; text-align: center; font-size: 11.5px; }
-.solveit-tree-upload-drop.dragover { border-color: #7aa2f7; background: #7aa2f71c; color: #cfc9c2; }
-.solveit-tree-upload-actions { display: flex; gap: 6px; }
-.solveit-tree-upload-actions button { flex: 1 1 0%; padding: 5px 8px; border: 1px solid #ffffff1f; border-radius: 4px; background: #242638; color: #cfc9c2; font-size: 12px; cursor: pointer; }
-.solveit-tree-upload-actions button:is(:hover, :focus-visible) { background: #30364d; border-color: #7aa2f7; outline: none; }
-#solveit-file-tree { min-height: 200px; padding-bottom: 56px; }
-#solveit-file-tree .treeview-node-content.solveit-tree-current { background: #7aa2f71c; box-shadow: inset 2px 0 0 #7aa2f7; }
-#solveit-file-tree li.solveit-tree-dragging { opacity: .4; }
-#solveit-file-tree-panel .solveit-tree-drop-target { background: #7aa2f728 !important; box-shadow: inset 0 0 0 1.5px #7aa2f7 !important; color: #cfc9c2 !important; }
-#solveit-file-tree .solveit-tree-create { margin: 3px 4px 5px; }
-#solveit-file-tree li > .solveit-tree-create { margin-left: 14px; }
-#solveit-file-tree .solveit-tree-create input { box-sizing: border-box; width: 100%; min-width: 0; padding: 4px 6px; border: 1px solid #7aa2f7; border-radius: 4px; background: #16161e; color: #cfc9c2; font: inherit; }
-#solveit-file-tree .solveit-tree-create input:focus-visible { outline: 1px solid #7aa2f7; outline-offset: 1px; }
-#solveit-file-tree .solveit-tree-create input[aria-invalid="true"] { border-color: #f7768e; }
-#solveit-tree-create-error:not(:empty) { margin-top: 4px; color: #f7768e; font-size: 11px; overflow-wrap: anywhere; }
 
 /* ── Launcher (⌘⇧P) ─────────────────────────────────────────────────── */
 #solveit-launcher { position: fixed; inset: 0; z-index: 1200; display: none; justify-content: center; align-items: flex-start; padding-top: 12vh; background: #0008; }
@@ -430,9 +351,9 @@ body:has(#solveit-temp-editor.open) #solveit-file-tree-panel.open {
 /* Encode Sans: all non-code UI and prose; remote Google Fonts variable TTF, with a system sans-serif fallback. */
 @font-face { font-family: 'Craft Encode Sans'; font-style: normal; font-weight: 100 900; font-stretch: 75% 125%; font-display: swap; src: url('https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/encodesans/EncodeSans%5Bwdth%2Cwght%5D.ttf') format('truetype'); }
 :root { --craft-prose-family: 'Craft Encode Sans', -apple-system, sans-serif; }
-html, body { font-family: var(--craft-prose-family) !important; font-weight: 360; font-stretch: 75%; font-feature-settings: "c2sc" 1, "onum" 1; }
+html, body { font-family: var(--craft-prose-family) !important; font-weight: 360; font-stretch: 75%; font-feature-settings: "onum" 1; }
 button, input, select, textarea { font-family: inherit; font-stretch: inherit; font-feature-settings: inherit; }
-.msg-content, .msg-content .prose { font-family: var(--craft-prose-family) !important; font-weight: 360 !important; font-stretch: 75% !important; font-feature-settings: "c2sc" 1, "onum" 1 !important; }
+.msg-content, .msg-content .prose { font-family: var(--craft-prose-family) !important; font-weight: 360 !important; font-stretch: 75% !important; font-feature-settings: "onum" 1 !important; }
 .msg-content .prose :is(strong, b, th, h1, h2, h3, h4, h5, h6) { font-weight: 650 !important; }
 
 /* Iosevka: code only; remote font files, with a system monospace fallback. */
@@ -555,7 +476,683 @@ html[data-craft-inserting] #full_editor, #full_editor.craft-composer-idle { disp
 .craft-part-restore:hover { color: #cfc9c2; }
 .craft-part-restore:focus-visible { outline: 1px solid #7aa2f7; }
 
+/* ── 13. Tokyo Night cohesion for Solveit-native overlays & panels ───── */
+body:has(.uk-modal.uk-open, .hk-overlay.open, #solveit-launcher.open) :is(#craft-insert-preview, #craft-mobile-toggle) {
+  pointer-events: none;
+  opacity: 0.2;
+}
 
+/* Find / Replace floating bar */
+#find-box {
+  background: #16161e !important;
+  border: 1px solid #292e42 !important;
+  border-radius: 8px !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55) !important;
+  color: #cfc9c2 !important;
+  font-feature-settings: normal !important;
+}
+#find-box .uk-btn,
+#find-box button,
+#find-box label.uk-btn {
+  background: #1f2030 !important;
+  border-color: #292e42 !important;
+  color: #a9b1d6 !important;
+}
+#find-box .uk-btn:hover,
+#find-box button:hover,
+#find-box label.uk-btn:hover {
+  background: #292e42 !important;
+  color: #e0e0e8 !important;
+}
+#find-box label.uk-btn:has(input:checked) {
+  background: rgba(122, 162, 247, 0.22) !important;
+  border-color: rgba(122, 162, 247, 0.65) !important;
+  color: #7aa2f7 !important;
+}
+#find-box input[type="text"],
+#find-box input[type="search"],
+#find-box input.uk-input {
+  background: #1f2030 !important;
+  border: 1px solid #292e42 !important;
+  color: #cfc9c2 !important;
+  border-radius: 5px !important;
+}
+#find-box input:focus {
+  border-color: #7aa2f7 !important;
+  outline: none !important;
+  box-shadow: 0 0 0 1px rgba(122, 162, 247, 0.35) !important;
+}
+
+/* Settings & Solveit UIkit modals */
+.uk-modal .uk-modal-dialog {
+  background: #16161e !important;
+  border: 1px solid #292e42 !important;
+  border-radius: 10px !important;
+  box-shadow: 0 20px 56px rgba(0, 0, 0, 0.65) !important;
+  color: #cfc9c2 !important;
+  font-feature-settings: normal !important;
+}
+.uk-modal .uk-modal-dialog :is(h1, h2, h3, h4, button, a, label, th, td, p) {
+  font-feature-settings: normal !important;
+}
+.uk-modal .uk-modal-title {
+  color: #e0e0e8 !important;
+}
+.uk-modal .uk-tab-alt {
+  background: #1f2030 !important;
+  border: 1px solid #292e42 !important;
+  border-radius: 6px !important;
+}
+.uk-modal .uk-tab-alt > li > a {
+  color: #9a9eb5 !important;
+}
+.uk-modal .uk-tab-alt > li.uk-active > a {
+  background: #292e42 !important;
+  color: #e0e0e8 !important;
+  border-radius: 4px !important;
+}
+.uk-modal .uk-modal-dialog .uk-btn-primary,
+.uk-modal .uk-modal-dialog a.uk-btn-primary {
+  background: rgba(122, 162, 247, 0.16) !important;
+  border: 1px solid rgba(122, 162, 247, 0.45) !important;
+  color: #c0caf5 !important;
+}
+.uk-modal .uk-modal-dialog .uk-btn-primary:hover,
+.uk-modal .uk-modal-dialog a.uk-btn-primary:hover {
+  background: rgba(122, 162, 247, 0.28) !important;
+  border-color: #7aa2f7 !important;
+  color: #ffffff !important;
+}
+.uk-modal .uk-modal-dialog .uk-btn-default,
+.uk-modal .uk-modal-dialog .uk-modal-close {
+  background: #1f2030 !important;
+  border: 1px solid #292e42 !important;
+  color: #a9b1d6 !important;
+}
+.uk-modal .uk-modal-dialog .uk-btn-default:hover,
+.uk-modal .uk-modal-dialog .uk-modal-close:hover {
+  background: #292e42 !important;
+  color: #e0e0e8 !important;
+}
+.uk-modal .uk-modal-dialog hr,
+.uk-modal .uk-modal-dialog .border-b,
+.uk-modal .uk-modal-dialog .border-t {
+  border-color: #292e42 !important;
+}
+
+/* Variable / TOC sidebar (#vars-sb) */
+aside#vars-sb {
+  background: #16161e !important;
+  border-left: 1px solid #292e42 !important;
+  padding-left: 12px !important;
+  color: #cfc9c2 !important;
+  font-feature-settings: normal !important;
+}
+aside#vars-sb * {
+  font-feature-settings: normal !important;
+}
+aside#vars-sb .uk-card,
+aside#vars-sb .border,
+aside#vars-sb .border-b,
+aside#vars-sb hr {
+  background: transparent !important;
+  border-color: #292e42 !important;
+}
+aside#vars-sb a:hover,
+aside#vars-sb button:hover {
+  color: #7aa2f7 !important;
+}
+aside#vars-sb .uk-close,
+aside#vars-sb button[aria-label="Close"] {
+  background: #1f2030 !important;
+  border: 1px solid #292e42 !important;
+  color: #a9b1d6 !important;
+}
+
+/* Minimalist empty-dialog cue (only when no cells exist) */
+#dialog-container:not(:has(> .editable)) {
+  position: relative;
+}
+#dialog-container:not(:has(> .editable))::before {
+  content: "Empty dialog — type below or press Shift+I to compose";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: rgba(207, 201, 194, 0.45);
+  font-size: 12px;
+  font-feature-settings: normal;
+  pointer-events: none;
+}
+
+
+/* ── 14. Minimalist cell state indicators (Pinned, Exported, Hidden) ── */
+/* Pinned: quiet Tokyo Night gold 2px left accent */
+.editable:has(button[hx-post="/toggle_pin_"] use[href="#lc-pin"]) > .card-in {
+  box-shadow: inset 2px 0 0 #e0af68 !important;
+}
+/* Exported: quiet Tokyo Night cyan 2px left accent */
+.editable:has(button[hx-post="/toggle_export_"] use[href="#lc-bookmark-check"]) > .card-in {
+  box-shadow: inset 2px 0 0 #7dcfff !important;
+}
+/* Both Pinned and Exported: dual 2px+2px left accent */
+.editable:has(button[hx-post="/toggle_pin_"] use[href="#lc-pin"]):has(button[hx-post="/toggle_export_"] use[href="#lc-bookmark-check"]) > .card-in {
+  box-shadow: inset 2px 0 0 #e0af68, inset 4px 0 0 #7dcfff !important;
+}
+/* Hidden from AI (skipped): dimmed at rest, recovers on hover/focus, dashed left bar */
+.editable:has(button[hx-post="/toggle_skip_"] use[href="#lc-eye-off"]) {
+  opacity: 0.52;
+  transition: opacity 0.15s ease;
+}
+.editable:has(button[hx-post="/toggle_skip_"] use[href="#lc-eye-off"]):is(:hover, :focus-within, [data-sm="primary"], [data-sm="secondary"]) {
+  opacity: 0.9;
+}
+.editable:has(button[hx-post="/toggle_skip_"] use[href="#lc-eye-off"]) > .card-in {
+  border-left: 2px dashed rgba(154, 158, 181, 0.5) !important;
+}
+
+
+/* ── 15. Markdown task lists & Raw cell polish ──────────────────────── */
+.msg-content ul.task-list {
+  list-style: none !important;
+  padding-left: 0.15em !important;
+}
+.msg-content ul.task-list > li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5em;
+  list-style: none !important;
+}
+.msg-content ul.task-list > li::marker {
+  content: none !important;
+}
+.msg-content ul.task-list input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: none;
+  width: 11px;
+  height: 11px;
+  margin: 0;
+  transform: translateY(1.5px);
+  border: 1px solid #565f89;
+  border-radius: 2.5px;
+  background: #16161e;
+  opacity: 1 !important;
+  position: relative;
+}
+.msg-content ul.task-list input[type="checkbox"]:checked {
+  background: rgba(122, 162, 247, 0.22);
+  border-color: #7aa2f7;
+}
+.msg-content ul.task-list input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 0.5px;
+  width: 3.5px;
+  height: 6.5px;
+  border: solid #7aa2f7;
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
+}
+
+/* Raw cells: subtle recessed dashed frame, disable ligatures so YAML `---` stays literal */
+.editable > .card-in[data-mtype="raw"] {
+  background: #1a1b2a !important;
+  border: 1px dashed #292e42 !important;
+  border-radius: 4px !important;
+}
+.editable > .card-in[data-mtype="raw"] .msg-content :is(pre, code) {
+  font-variant-ligatures: none;
+}
+
+/* ── 16. Cohesive Tabular Output (Markdown, pandas, polars, DuckDB) ─── */
+.editable > .msg-card,
+.editable > .msg-card > .msg-body,
+.editable > .msg-card .msg-content,
+.editable > .msg-card .msg-content .prose { min-width: 0; max-width: 100%; }
+.craft-table-wrap {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+  max-height: 480px;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 0.4em 0 !important;
+  border: 1px solid #292e42;
+  border-radius: 5px;
+  background: #1a1b2a;
+}
+.craft-table-wrap:focus-visible {
+  outline: 1.5px solid #7aa2f7;
+  outline-offset: 1px;
+}
+.msg-content table {
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+  width: auto !important;
+  margin: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  font-family: var(--craft-prose-family) !important;
+  font-size: 11px !important;
+  line-height: 1.4 !important;
+  font-feature-settings: "tnum" 1, "lnum" 1, "onum" 0, "c2sc" 0 !important;
+  font-variant-numeric: tabular-nums lining-nums !important;
+  color: #cfc9c2 !important;
+}
+.msg-content table :is(th, td) {
+  font-feature-settings: "tnum" 1, "lnum" 1, "onum" 0, "c2sc" 0 !important;
+  font-variant-numeric: tabular-nums lining-nums !important;
+  border-top: 0 !important;
+  border-left: 0 !important;
+  border-right: 0 !important;
+}
+.msg-content table thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.msg-content table thead tr {
+  text-align: left !important;
+}
+.msg-content table thead th {
+  background: #16161e !important;
+  color: #c0caf5 !important;
+  font-weight: 600 !important;
+  padding: 5px 10px !important;
+  border-bottom: 1px solid #3b4261 !important;
+  text-align: left !important;
+  vertical-align: bottom !important;
+  white-space: nowrap;
+}
+.msg-content table thead tr:not(:last-child) th {
+  border-bottom-color: #292e42 !important;
+}
+.msg-content table tbody th {
+  background: #181926 !important;
+  color: #9aa5ce !important;
+  font-weight: 500 !important;
+  padding: 4px 10px !important;
+  border-bottom: 1px solid #24283b !important;
+  border-right: 1px solid #292e42 !important;
+  text-align: left !important;
+  vertical-align: top !important;
+  white-space: nowrap;
+}
+.msg-content table tbody td {
+  padding: 4px 10px !important;
+  border-bottom: 1px solid #24283b !important;
+  color: #cfc9c2 !important;
+  text-align: left !important;
+  vertical-align: top !important;
+}
+.msg-content table tbody tr:last-child > :is(th, td) {
+  border-bottom: 0 !important;
+}
+.msg-content table tbody tr:hover > td {
+  background: rgba(122, 162, 247, 0.06) !important;
+}
+.msg-content table :is(th, td).craft-num {
+  text-align: right !important;
+  white-space: nowrap;
+}
+.msg-content table thead th.craft-sort {
+  cursor: pointer;
+  user-select: none;
+  padding-right: 18px !important;
+  position: relative;
+}
+.msg-content table thead th.craft-sort:hover {
+  background: #1d1f2e !important;
+  color: #e1e4e8 !important;
+}
+.msg-content table thead th.craft-sort:focus-visible {
+  outline: 1.5px solid #7aa2f7;
+  outline-offset: -1.5px;
+}
+.msg-content table thead th.craft-sort::after {
+  content: "";
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 8px;
+  color: #7aa2f7;
+  opacity: 0;
+}
+.msg-content table thead th.craft-sort[aria-sort="ascending"]::after {
+  content: "\25B2";
+  opacity: 1;
+}
+.msg-content table thead th.craft-sort[aria-sort="descending"]::after {
+  content: "\25BC";
+  opacity: 1;
+}
+.craft-table-copy {
+  position: sticky;
+  float: right;
+  top: 3px;
+  right: 4px;
+  z-index: 4;
+  margin-left: -60px;
+  padding: 1px 6px;
+  border: 1px solid #292e42;
+  border-radius: 3px;
+  background: #16161ee6;
+  color: #9aa5ce;
+  font-family: var(--craft-prose-family);
+  font-size: 9.5px;
+  line-height: 16px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.craft-table-wrap:hover .craft-table-copy,
+.craft-table-wrap:focus-within .craft-table-copy,
+.craft-table-copy.is-copied {
+  opacity: 1;
+}
+.craft-table-copy:hover {
+  color: #e1e4e8;
+  border-color: #7aa2f788;
+}
+.craft-table-copy.is-copied {
+  color: #9ece6a;
+  border-color: #9ece6a66;
+}
+/* Light theme table overrides */
+html:not(.dark) .craft-table-wrap { border-color: #d0d7de; background: #ffffff; }
+html:not(.dark) .msg-content table { color: #24292e !important; }
+html:not(.dark) .msg-content table thead th { background: #f6f8fa !important; color: #24292e !important; border-bottom-color: #d0d7de !important; }
+html:not(.dark) .msg-content table tbody th { background: #f6f8fa !important; color: #57606a !important; border-bottom-color: #eaeef2 !important; border-right-color: #d0d7de !important; }
+html:not(.dark) .msg-content table tbody td { color: #24292e !important; border-bottom-color: #eaeef2 !important; }
+html:not(.dark) .msg-content table tbody tr:hover > td { background: rgba(9, 105, 218, 0.05) !important; }
+html:not(.dark) .msg-content table thead th.craft-sort:hover { background: #eaeef2 !important; }
+html:not(.dark) .craft-table-copy { background: #f6f8fae6; border-color: #d0d7de; color: #57606a; }
+
+/* ── 17. Accessibility: High-Contrast ANSI Traceback Remapping (dark) ─ */
+html.dark .card-out pre span[style*="rgb(187,0,0)"],
+html.dark .card-out pre span[style*="rgb(187, 0, 0)"],
+html.dark .card-out pre span[style*="rgb(175,0,0)"],
+html.dark .card-out pre span[style*="rgb(135,0,0)"] { color: #f7768e !important; }
+html.dark .card-out pre span[style*="rgb(0,0,187)"],
+html.dark .card-out pre span[style*="rgb(0, 0, 187)"],
+html.dark .card-out pre span[style*="rgb(0,0,135)"],
+html.dark .card-out pre span[style*="rgb(0, 0, 135)"] { color: #7aa2f7 !important; }
+html.dark .card-out pre span[style*="rgb(0,135,0)"],
+html.dark .card-out pre span[style*="rgb(0, 135, 0)"],
+html.dark .card-out pre span[style*="rgb(0,187,0)"],
+html.dark .card-out pre span[style*="rgb(0, 187, 0)"] { color: #9ece6a !important; }
+html.dark .card-out pre span[style*="rgb(0,187,187)"],
+html.dark .card-out pre span[style*="rgb(0, 187, 187)"],
+html.dark .card-out pre span[style*="rgb(0,135,135)"],
+html.dark .card-out pre span[style*="rgb(0, 135, 135)"] { color: #7dcfff !important; }
+html.dark .card-out pre span[style*="rgb(187,187,0)"],
+html.dark .card-out pre span[style*="rgb(187, 187, 0)"],
+html.dark .card-out pre span[style*="rgb(135,95,0)"] { color: #e0af68 !important; }
+html.dark .card-out pre span[style*="rgb(187,0,187)"],
+html.dark .card-out pre span[style*="rgb(187, 0, 187)"] { color: #bb9af7 !important; }
+html.dark .card-out pre span[style*="rgb(102,102,102)"],
+html.dark .card-out pre span[style*="rgb(102, 102, 102)"] { color: #9aa5ce !important; }
+
+/* ── Desktop border refinement, hover outlines & hover-edge drag-to-insert ── */
+@media (hover: hover) {
+  html:not(.craft-mobile) #dialog-container > .editable {
+    border-radius: 6px !important;
+    outline: 1px solid transparent;
+    transition: outline-color .12s ease;
+  }
+  html:not(.craft-mobile) #dialog-container > .editable[data-sm="unselected"]:hover {
+    outline-color: #ffffff14;
+  }
+}
+html:not(.craft-mobile) #dialog-container > .editable[data-sm]:not([data-sm="unselected"])::after {
+  border: 1.5px solid #7aa2f7c4;
+  border-radius: 6px !important;
+  box-shadow: 0 0 0 3px #7aa2f714;
+}
+html:not(.craft-mobile) #dialog-container > .editable:is([data-c2-editing="true"], [data-md-editing="true"], [data-editing="true"]) {
+  position: relative; z-index: 3;
+}
+html:not(.craft-mobile) #dialog-container > .editable:is([data-c2-editing="true"], [data-md-editing="true"], [data-editing="true"])::after {
+  content: ""; position: absolute; inset: 0;
+  border: 1.5px solid #9ece6acc; border-radius: 6px !important;
+  box-shadow: 0 0 0 3px #9ece6a18;
+  pointer-events: none; z-index: 100;
+}
+html:not(.craft-mobile) #dialog-container > .editable.craft-desk-host {
+  position: relative;
+  overflow: visible !important; content-visibility: visible !important; contain: none !important;
+}
+html:not(.craft-mobile) #dialog-container > .editable.craft-desk-host:has(> .craft-desk-edge:is([data-near], :hover, :focus-visible, [data-active="true"]))::after {
+  mask-image: linear-gradient(#000, #000), linear-gradient(#000, #000);
+  mask-position: 0 0, center bottom;
+  mask-size: 100% 100%, 48px 6px;
+  mask-repeat: no-repeat;
+  mask-composite: exclude;
+  -webkit-mask-image: linear-gradient(#000, #000), linear-gradient(#000, #000);
+  -webkit-mask-position: 0 0, center bottom;
+  -webkit-mask-size: 100% 100%, 48px 6px;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-composite: xor;
+}
+.craft-desk-edge, #craft-desk-picker { display: none; }
+html:not(.craft-mobile) .craft-desk-edge {
+  display: flex; align-items: center; justify-content: center;
+  position: absolute; left: 50%; z-index: 110;
+  width: 64px; height: 22px; padding: 0; border: 0; background: transparent;
+  transform: translateX(-50%);
+  opacity: 0; pointer-events: none; transition: opacity .12s ease;
+  user-select: none; cursor: grab;
+}
+html:not(.craft-mobile) .craft-desk-edge[data-edge="below"] { bottom: -11px; }
+html:not(.craft-mobile) .craft-desk-edge:is([data-near], :hover, :focus-visible, [data-active="true"]) {
+  opacity: 1; pointer-events: auto;
+}
+html:not(.craft-mobile) .craft-desk-edge-pill {
+  display: inline-flex; align-items: center; gap: 3px;
+  height: 18px; padding: 0 7px; border-radius: 999px;
+  background: #1a1b26; border: 1px solid #7aa2f766; color: #7aa2f7;
+  box-shadow: 0 2px 8px #0008;
+  transition: transform .1s ease, background .1s ease, border-color .1s ease, color .1s ease;
+}
+html:not(.craft-mobile) .craft-desk-edge-kind { display: inline-flex; align-items: center; opacity: .75; }
+html:not(.craft-mobile) .craft-desk-edge:hover .craft-desk-edge-pill,
+html:not(.craft-mobile) .craft-desk-edge[data-active="true"] .craft-desk-edge-pill {
+  background: #24283b; border-color: #7aa2f7; color: #c0caf5; transform: scale(1.06);
+}
+html:not(.craft-mobile) #craft-desk-picker {
+  display: none; position: fixed; z-index: 1250;
+  padding: 6px 8px 8px;
+  background: #16161ef2; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  border: 1px solid #7aa2f755; border-radius: 10px;
+  box-shadow: 0 12px 32px #000c; user-select: none;
+}
+html:not(.craft-mobile) #craft-desk-picker.open { display: block; }
+html:not(.craft-mobile) #craft-desk-picker .craft-desk-picker-head {
+  font: 500 10px/1 var(--craft-prose-family); color: #9aa5ce;
+  text-align: center; margin-bottom: 6px; letter-spacing: .03em; text-transform: uppercase;
+}
+html:not(.craft-mobile) #craft-desk-picker .craft-desk-picker-opts { display: flex; gap: 5px; }
+html:not(.craft-mobile) #craft-desk-picker button {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 9px; border: 1px solid #ffffff16; border-radius: 7px;
+  background: #242638; color: #cfc9c2; font: 500 11.5px/1 var(--craft-prose-family);
+  cursor: pointer; transition: transform .08s ease, background .08s ease, border-color .08s ease;
+}
+html:not(.craft-mobile) #craft-desk-picker button svg { color: #7aa2f7; }
+html:not(.craft-mobile) #craft-desk-picker button kbd {
+  font: 600 9.5px/1 var(--craft-code-family); color: #9aa5ce; opacity: .75;
+  padding: 1px 4px; border-radius: 3px; background: #16161e;
+}
+html:not(.craft-mobile) #craft-desk-picker button:is(:hover, [data-hot]) {
+  background: #7aa2f733; border-color: #7aa2f7; color: #ffffff; transform: translateY(-1px);
+}
+
+/* ── Mobile view toggle & Insert preview controls (moved from inline JS <style>) ── */
+#craft-mobile-toggle { position: fixed; z-index: 955; width: 28px; height: 26px; display: grid; place-items: center; border: 0; border-radius: 4px; background: transparent; color: #9b9cab; opacity: .4; padding: 0; cursor: pointer; transition: opacity .15s ease, color .15s ease; }
+#craft-mobile-toggle:hover, #craft-mobile-toggle:focus-visible, body:has(nav.monster-navbar.nav-shown) #craft-mobile-toggle { opacity: 1; }
+#craft-mobile-toggle:hover, #craft-mobile-toggle:focus-visible { color: #e0e0e8; }
+#craft-mobile-toggle:focus-visible { outline: 1px solid #7aa2f7; outline-offset: 2px; }
+html.craft-mobile #craft-mobile-toggle { top: 8px !important; left: auto !important; right: 10px !important; z-index: 950; background: #16161ecc; border: 1px solid #ffffff1a; }
+
+#dialog-container.craft-insert-preview { box-sizing: border-box; margin-right: 0 !important; min-width: 0; }
+#craft-insert-preview { position: fixed; z-index: 955; width: 28px; height: 26px; display: grid; place-items: center; border: 0; border-radius: 4px; background: transparent; color: #9b9cab; opacity: .4; padding: 0; cursor: pointer; transition: opacity .15s ease, color .15s ease; }
+#craft-insert-preview[hidden] { display: none; }
+#craft-insert-preview:hover, #craft-insert-preview:focus-visible, body:has(nav.monster-navbar.nav-shown) #craft-insert-preview { opacity: 1; color: #e0e0e8; }
+.craft-insert-placeholder { height: 3px; margin: 4px 0; border-radius: 999px; background: linear-gradient(90deg, #7aa2f722, #7aa2f7, #7dcfff, #7aa2f722); background-size: 200% 100%; animation: craft-ins-shimmer 1s linear infinite; pointer-events: none; }
+@keyframes craft-ins-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+#craft-insert-preview-menu { position: fixed; inset: auto; margin: 0; padding: 5px; border: 1px solid #414251; border-radius: 4px; background: #1f2030; color: #cfc9c2; font: 12px system-ui; }
+#craft-insert-preview-menu button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 10px; border: 0; background: transparent; color: inherit; cursor: pointer; }
+#craft-insert-preview-menu button:hover, #craft-insert-preview-menu button[aria-pressed=true] { background: #343649; }
+#craft-insert-preview-menu small { display: block; padding: 4px 10px; color: #9b9cab; }
+
+/* %% nbs/craft/03_file_tree.ipynb #445de251 */
+/* ── Lightweight file tree prototype ─────────────────────────────────── */
+.solveit-tree-workspace {
+  display: flex;
+  flex: 1 1 0%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.solveit-tree-workspace > .overflow-y-auto { flex: 1 1 0%; min-width: 0; min-height: 0; }
+#solveit-file-tree-panel {
+  position: relative;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 0;
+  width: 0;
+  min-width: 0;
+  max-width: 90vw;
+  height: 100%;
+  padding: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+  background: #1a1b26;
+  color: #cfc9c2;
+  box-shadow: none;
+  transition: flex-basis .16s ease, padding .16s ease;
+}
+#solveit-file-tree-panel.open {
+  flex: 0 0 auto;
+  width: var(--solveit-tree-w, min(320px, 90vw));
+  min-width: 200px;
+  padding: 10px 10px 0 8px;
+  visibility: visible;
+  pointer-events: auto;
+  border-right: 1px solid #ffffff10;
+  box-shadow: 8px 0 24px #0008;
+}
+#solveit-file-tree-panel.resizing { transition: none; user-select: none; }
+#solveit-file-tree-panel > :not(#solveit-file-tree):not(.solveit-tree-resizer) { flex: 0 0 auto; }
+#solveit-file-tree-panel .solveit-tree-resizer {
+  position: absolute; top: 0; right: -2px; bottom: 0; width: 6px; z-index: 60;
+  cursor: col-resize; background: transparent; transition: background .12s ease;
+}
+#solveit-file-tree-panel .solveit-tree-resizer:hover,
+#solveit-file-tree-panel.resizing .solveit-tree-resizer { background: #7aa2f788; }
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-resizer { display: none; }
+#solveit-file-tree-panel > header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+#solveit-file-tree-panel .solveit-tree-brand { display: flex; align-items: baseline; gap: 6px; margin-bottom: 6px; min-width: 0; }
+#solveit-file-tree-panel .solveit-tree-appname { flex: 0 0 auto; font-weight: 700; font-size: 13px; letter-spacing: .02em; color: #cfc9c2; }
+#solveit-file-tree-panel h2#dlg-name { flex: 1 1 0%; min-width: 0; font-size: 12.5px !important; line-height: 1.3 !important; font-weight: 400 !important; padding: 0 !important; color: #cfc9c2cc !important; }
+#solveit-file-tree-panel > header button { display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: inherit; font-size: 1.25rem; line-height: 1; padding: 2px; cursor: pointer; }
+#solveit-file-tree-panel .solveit-tree-shortcut { margin-left: auto; color: #cfc9c288; font: 11px monospace; }
+#solveit-file-tree-panel .solveit-tree-refresh { margin-left: 6px; }
+#solveit-file-tree-panel .treeview-node-content:focus-visible { outline: none; box-shadow: inset 0 0 0 2px #7aa2f7; background: #30364d; }
+#solveit-file-tree-panel .solveit-tree-close { margin-left: 6px; }
+#solveit-file-tree-panel .solveit-tree-back { margin-left: auto; }
+#solveit-file-tree-panel .solveit-tree-back:disabled { opacity: .35; cursor: default; }
+#solveit-file-tree-panel .solveit-tree-up { margin-left: 6px; }
+.solveit-file-tree-path { color: #cfc9c299; font: 12px monospace; margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; }
+#solveit-file-tree-panel .custom-treeview-wrapper { max-width: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+#solveit-file-tree-panel .custom-treeview-wrapper > ul { padding-left: 0; }
+#solveit-file-tree-panel .custom-treeview-wrapper ul ul {
+  padding-left: 13px;
+  margin-left: 7px;
+  border-left: 1px solid #ffffff12;
+}
+#solveit-file-tree-panel .custom-treeview-wrapper li { margin: 2px 0; color: #cfc9c2; }
+#solveit-file-tree-panel .custom-treeview-wrapper .treeview-node-content { padding: 4px; border-radius: 4px; }
+#solveit-file-tree-panel .custom-treeview-wrapper .treeview-node-content:hover { background: #222434; }
+#solveit-file-tree-panel .treeview-expander {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 14px; flex: 0 0 14px; margin-right: 2px; padding: 0;
+  color: #787c99; font-size: 10px; line-height: 1;
+  transition: transform .12s ease, color .12s ease;
+}
+#solveit-file-tree-panel .treeview-expander::before { content: "▸"; }
+#solveit-file-tree-panel .treeview-expander > * { display: none; }
+#solveit-file-tree-panel li.expanded > .treeview-node-content > .treeview-expander { transform: rotate(90deg); color: #a9b1d6; }
+#solveit-file-tree-panel .treeview-expander-placeholder { width: 14px; flex: 0 0 14px; margin-right: 2px; padding: 0; }
+#solveit-file-tree-panel .solveit-tree-new { margin-left: 6px; font-weight: 600; color: #7aa2f7; }
+#solveit-file-tree-panel .solveit-tree-new:hover { color: #c0caf5; }
+#solveit-file-tree-panel img.solveit-tree-icon { width: 16px !important; height: 16px !important; max-width: 16px !important; max-height: 16px !important; flex: 0 0 16px; object-fit: contain; margin-right: 7px; }
+
+#solveit-file-tree-panel .solveit-tree-filter { box-sizing: border-box; width: 100%; margin: 8px 0; padding: 6px 8px; border: 1px solid #ffffff22; border-radius: 4px; background: #16161e; color: #cfc9c2; }
+#solveit-file-tree-panel .solveit-tree-status { color: #cfc9c299; font-size: 12px; }
+#solveit-temp-editor { position: fixed; inset: 0; z-index: 1000; display: none; flex-direction: column; background: #16161e; color: #cfc9c2; }
+#solveit-temp-editor.open { display: flex; }
+body:has(#solveit-temp-editor.open) #solveit-file-tree-panel.open {
+  position: fixed;
+  inset-block: 0;
+  left: 0;
+  height: auto;
+  z-index: 1010;
+}
+#solveit-temp-editor .solveit-temp-editor-bar { display: flex; flex: 0 0 36px; align-items: center; justify-content: space-between; padding: 0 12px; background: #1a1b26; border-bottom: 1px solid #ffffff22; }
+#solveit-temp-editor .solveit-temp-editor-bar button { border: 0; background: transparent; color: inherit; font-size: 1.4rem; cursor: pointer; }
+#solveit-temp-editor iframe { flex: 1; width: 100%; min-height: 0; border: 0; background: #16161e; }
+
+/* ── File tree: header toggles, context menu ───────────────────────── */
+#solveit-file-tree-panel .solveit-tree-upload,
+#solveit-file-tree-panel .solveit-tree-collapse { margin-left: 6px; color: #cfc9c2aa; }
+#solveit-file-tree-panel .solveit-tree-upload:hover,
+#solveit-file-tree-panel .solveit-tree-collapse:hover { color: #cfc9c2; }
+#solveit-file-tree-panel .solveit-tree-dots { margin-left: 6px; font: 600 .95rem monospace; color: #cfc9c288; }
+#solveit-file-tree-panel .solveit-tree-dots[aria-pressed="true"] { color: #7aa2f7; filter: drop-shadow(0 0 4px #7aa2f7aa); }
+#solveit-file-tree-panel .solveit-tree-home { margin-left: 6px; }
+.solveit-tree-menu { position: fixed; z-index: 1100; min-width: 170px; padding: 4px; background: #1f2030; border: 1px solid #ffffff1a; border-radius: 6px; box-shadow: 0 8px 24px #000a; }
+.solveit-tree-menu button { display: block; width: 100%; text-align: left; padding: 5px 10px; border: 0; border-radius: 4px; background: transparent; color: #cfc9c2; font-size: 12px; cursor: pointer; }
+.solveit-tree-menu button:hover:not(:disabled), .solveit-tree-menu button:focus-visible { background: #2b2e43; outline: none; }
+.solveit-tree-menu button:disabled { color: #cfc9c255; cursor: default; }
+.solveit-tree-menu button.danger { color: #f7768e; }
+.solveit-tree-menu hr.solveit-tree-menu-sep { margin: 4px 2px; border: 0; border-top: 1px solid #ffffff16; }
+#solveit-file-tree-panel .solveit-tree-rootbar { display: flex; align-items: center; gap: 6px; padding: 4px; margin-bottom: 4px; border-radius: 4px; font: 11.5px monospace; color: #cfc9c299; background: #16161e88; border: 1px solid transparent; user-select: none; cursor: default; }
+#solveit-file-tree-panel .solveit-tree-rootbar:hover { background: #222434; color: #cfc9c2; }
+#solveit-file-tree-panel .solveit-tree-rootbar-hint { margin-left: auto; font-size: 10px; color: #cfc9c255; }
+#solveit-file-tree-panel .solveit-tree-row-upload { opacity: 0; pointer-events: none; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin-left: 4px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: #cfc9c299; cursor: pointer; }
+#solveit-file-tree-panel .treeview-node-content:is(:hover, :focus-within) .solveit-tree-row-upload,
+#solveit-file-tree-panel .solveit-tree-rootbar:is(:hover, :focus-within) .solveit-tree-row-upload { opacity: 1; pointer-events: auto; }
+#solveit-file-tree-panel .solveit-tree-row-upload:is(:hover, :focus-visible) { background: #30364d; color: #7aa2f7; outline: none; }
+@media (hover: none) { #solveit-file-tree-panel .solveit-tree-row-upload { opacity: 1; pointer-events: auto; } }
+.solveit-tree-upload-pop { position: fixed; z-index: 1100; width: 230px; padding: 8px; background: #1f2030; border: 1px solid #ffffff1a; border-radius: 6px; box-shadow: 0 8px 24px #000a; color: #cfc9c2; font-size: 12px; }
+.solveit-tree-upload-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.solveit-tree-upload-dest { flex: 1 1 0%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px monospace; color: #cfc9c2cc; }
+.solveit-tree-upload-x { flex: 0 0 auto; border: 0; background: transparent; color: #cfc9c299; font-size: 15px; line-height: 1; cursor: pointer; padding: 0 2px; }
+.solveit-tree-upload-x:hover { color: #cfc9c2; }
+.solveit-tree-upload-drop { padding: 12px 8px; margin-bottom: 8px; border: 1px dashed #ffffff2e; border-radius: 4px; background: #16161e; color: #cfc9c288; text-align: center; font-size: 11.5px; }
+.solveit-tree-upload-drop.dragover { border-color: #7aa2f7; background: #7aa2f71c; color: #cfc9c2; }
+.solveit-tree-upload-actions { display: flex; gap: 6px; }
+.solveit-tree-upload-actions button { flex: 1 1 0%; padding: 5px 8px; border: 1px solid #ffffff1f; border-radius: 4px; background: #242638; color: #cfc9c2; font-size: 12px; cursor: pointer; }
+.solveit-tree-upload-actions button:is(:hover, :focus-visible) { background: #30364d; border-color: #7aa2f7; outline: none; }
+#solveit-file-tree { flex: 1 1 0%; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 40px; }
+#solveit-file-tree .treeview-node-content.solveit-tree-current { background: #7aa2f71c; box-shadow: inset 2px 0 0 #7aa2f7; }
+#solveit-file-tree li.solveit-tree-dragging { opacity: .4; }
+#solveit-file-tree-panel .solveit-tree-drop-target { background: #7aa2f728 !important; box-shadow: inset 0 0 0 1.5px #7aa2f7 !important; color: #cfc9c2 !important; }
+#solveit-file-tree .solveit-tree-create { margin: 3px 4px 5px; }
+#solveit-file-tree li > .solveit-tree-create { margin-left: 14px; }
+#solveit-file-tree .solveit-tree-create input { box-sizing: border-box; width: 100%; min-width: 0; padding: 4px 6px; border: 1px solid #7aa2f7; border-radius: 4px; background: #16161e; color: #cfc9c2; font: inherit; }
+#solveit-file-tree .solveit-tree-create input:focus-visible { outline: 1px solid #7aa2f7; outline-offset: 1px; }
+#solveit-file-tree .solveit-tree-create input[aria-invalid="true"] { border-color: #f7768e; }
+#solveit-tree-create-error:not(:empty) { margin-top: 4px; color: #f7768e; font-size: 11px; overflow-wrap: anywhere; }
+
+/* %% nbs/craft/04_craft_c2.ipynb #95488b8b */
 /* ── C2 inline CodeMirror 6 cells ──────────────────────────────────── */
 .editable.craft-c2 .card-in[data-mtype="code"] .msg-content pre {
   padding: 4px 15px 4px 4px !important;
@@ -569,7 +1166,7 @@ html[data-craft-inserting] #full_editor, #full_editor.craft-composer-idle { disp
   color: #cfc9c2;
   font-family: var(--craft-code-family) !important;
   font-size: var(--craft-code) !important;
-  line-height: 1 !important;
+  line-height: var(--craft-code-lh) !important;
   font-weight: 400 !important;
   font-stretch: normal !important;
   font-feature-settings: normal !important;
@@ -579,7 +1176,7 @@ html[data-craft-inserting] #full_editor, #full_editor.craft-composer-idle { disp
 .craft-c2-host .cm-scroller {
   font-family: inherit !important;
   font-size: inherit !important;
-  line-height: 1 !important;
+  line-height: var(--craft-code-lh) !important;
   overflow: visible !important;
 }
 .craft-c2-host .cm-content {
@@ -588,7 +1185,7 @@ html[data-craft-inserting] #full_editor, #full_editor.craft-composer-idle { disp
   tab-size: 4;
   min-height: 18px;
 }
-.craft-c2-host .cm-line { padding: 0 0 0 4px !important; line-height: 1 !important; }
+.craft-c2-host .cm-line { padding: 0 0 0 4px !important; line-height: var(--craft-code-lh) !important; }
 .craft-c2-host .cm-activeLine, .craft-c2-host .cm-activeLineGutter { background: transparent !important; }
 .craft-c2-host .cm-editor.cm-focused .cm-activeLine { background: #7aa2f712 !important; }
 .craft-c2-host .cm-cursor, .craft-c2-host .cm-dropCursor { border-left: 1.5px solid #cfc9c2 !important; }
@@ -657,11 +1254,11 @@ html:not(.dark) .craft-c2-ai-input { background: #ffffff; color: #24292e; border
 
 .craft-action-sep { margin: 4px 0; border: 0; border-top: 1px solid #ffffff1a; }
 .craft-c2-host .cm-gutters { background: transparent !important; border: 0 !important; color: #cfc9c255 !important; padding: 4px 4px 4px 2px; }
-.craft-c2-host .cm-lineNumbers .cm-gutterElement { min-width: 22px; padding: 0 4px 0 2px; font-size: var(--craft-code); line-height: 1; text-align: right; }
+.craft-c2-host .cm-lineNumbers .cm-gutterElement { min-width: 22px; padding: 0 4px 0 2px; font-size: var(--craft-code); line-height: var(--craft-code-lh); text-align: right; }
 .craft-c2-host:not(.craft-c2-has-ln) .cm-gutters { position: absolute !important; left: -6px; top: 0; bottom: 0; width: 10px; padding: 4px 0 !important; z-index: 4; pointer-events: none; }
 .craft-c2-host .cm-foldGutter { width: 10px; min-width: 10px; }
 .craft-c2-host .cm-foldGutter .cm-gutterElement { padding: 0 !important; display: flex; align-items: center; justify-content: center; }
-.craft-c2-fold { opacity: 0; pointer-events: auto; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; width: 10px; font-size: 9px; line-height: 1; color: #7aa2f799; transition: opacity .12s ease, color .12s ease; user-select: none; }
+.craft-c2-fold { opacity: 0; pointer-events: auto; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; width: 10px; font-size: 9px; line-height: var(--craft-code-lh); color: #7aa2f799; transition: opacity .12s ease, color .12s ease; user-select: none; }
 .craft-c2-host:hover .craft-c2-fold, .craft-c2-fold.is-closed, .craft-c2-fold:hover { opacity: 1; }
 .craft-c2-fold:hover { color: #7aa2f7; }
 .craft-c2-host .cm-foldPlaceholder { display: inline-block; padding: 0 4px; margin: 0 2px; border: 1px solid #7aa2f744 !important; border-radius: 3px; background: #292e42 !important; color: #7aa2f7 !important; font-size: 9px; line-height: 1; cursor: pointer; }
@@ -698,6 +1295,7 @@ html:not(.dark) .craft-c2-br-1 { color: #8250df !important; }
 html:not(.dark) .craft-c2-br-2 { color: #0550ae !important; }
 html:not(.dark) .craft-c2-br-err { color: #cf222e !important; }
 
+/* %% nbs/craft/05_craft_md.ipynb #4bbf1253 */
 /* ── Inline Markdown & Raw CM6 cells (craft_md.js) ─────────────────── */
 .editable > .card-in:is([data-mtype="note"], [data-mtype="prompt"], [data-mtype="raw"]),
 .editable > .card-out[data-mtype="prompt"] { position: relative; }
@@ -746,10 +1344,10 @@ html:not(.dark) .craft-c2-br-err { color: #cf222e !important; }
   color: #cfc9c2;
   font-family: var(--craft-prose-family) !important;
   font-size: var(--craft-prose) !important;
-  line-height: 1.35 !important;
+  line-height: var(--craft-prose-lh) !important;
   font-weight: 360;
   font-stretch: 75%;
-  font-feature-settings: "c2sc" 1, "onum" 1;
+  font-feature-settings: "onum" 1;
 }
 .craft-md-host.craft-md-prompt .cm-editor { color: #e0dcd5; }
 .craft-md-host.craft-md-output .cm-editor { color: #cfc9c2; }
@@ -760,10 +1358,10 @@ html:not(.dark) .craft-c2-br-err { color: #cf222e !important; }
 .craft-md-syntax { color: #7aa2f777 !important; font-family: var(--craft-code-family); font-weight: 400; font-style: normal; font-stretch: normal; font-feature-settings: normal; }
 .craft-md-url { color: #7dcfff88 !important; font-family: var(--craft-code-family); font-size: 0.92em; font-stretch: normal; font-feature-settings: normal; }
 .craft-md-h { color: #ffffff !important; font-weight: 650 !important; }
-.craft-md-h1 { font-size: 2.25em !important; line-height: 1.12 !important; padding-top: 6px !important; padding-bottom: 3px !important; }
-.craft-md-h2 { font-size: 1.5em !important; line-height: 1.18 !important; padding-top: 5px !important; padding-bottom: 2px !important; }
-.craft-md-h3 { font-size: 1.25em !important; line-height: 1.22 !important; padding-top: 4px !important; padding-bottom: 1px !important; }
-.craft-md-h4 { font-size: 1.1em !important; line-height: 1.25 !important; }
+.craft-md-h1 { font-size: 1.65em !important; line-height: 1.08 !important; padding-top: 3px !important; padding-bottom: 1px !important; }
+.craft-md-h2 { font-size: 1.32em !important; line-height: 1.08 !important; padding-top: 2px !important; padding-bottom: 1px !important; }
+.craft-md-h3 { font-size: 1.15em !important; line-height: 1.1 !important; padding-top: 2px !important; padding-bottom: 1px !important; }
+.craft-md-h4 { font-size: 1.05em !important; line-height: 1.12 !important; }
 .craft-md-h5, .craft-md-h6 { font-size: 1em !important; color: #a9b1d6 !important; }
 .craft-md-strong { font-weight: 650 !important; color: #ffffff; }
 .craft-md-em { font-style: italic; }
@@ -869,3 +1467,378 @@ html:not(.dark) .craft-md-codeblock-line { background: #f6f8fa !important; }
 html:not(.dark) .craft-md-quote-line { border-left-color: #0969da66 !important; color: #57606a; }
 html:not(.dark) .craft-md-hr { background: #d0d7de; }
 html:not(.dark) .editable > .msg-card[data-md-save="error"] { box-shadow: inset 2px 0 0 #9a6700 !important; }
+
+/* %% nbs/craft/06_mobile.ipynb #f1cee8d4 */
+/* ══ Mobile ══════════════════════════════════════════════════════════════
+   Everything below is scoped to `html.craft-mobile`, which CRAFT.js sets for
+   touch-only devices (or when toggled manually). Desktop never matches these rules.
+   Pieces: readable type scale, floating scroll-hiding pill dock (#craft-mbar),
+   top/bottom cell-edge drag-to-insert bulges, bottom-sheet menus, slide-in file
+   drawer, tap-to-open top nav (housing the view toggle), and reading ergonomics.
+   ──────────────────────────────────────────────────────────────────────── */
+#craft-mbar, #craft-mobile-backdrop, #craft-edge-picker, #craft-scroll-bottom, #craft-empty-add,
+.craft-edge-bulge, .solveit-tree-row-more { display: none; }
+
+html.craft-mobile {
+  --craft-prose: 14px;
+  --craft-prose-lh: 1.45;
+  --craft-code: 12.5px;
+  --craft-mbar-h: 50px;
+  --craft-mbar-space: calc(var(--craft-mbar-h) + env(safe-area-inset-bottom, 0px));
+  -webkit-text-size-adjust: 100%;
+}
+/* Nothing may widen the layout viewport (Android would zoom the whole page out to fit it). */
+html.craft-mobile, html.craft-mobile body { overflow-x: clip; max-width: 100%; }
+html.craft-mobile .h-screen { height: 100dvh !important; }
+/* Reclaim bottom space while reading; reserve full bar height only while editing. */
+html.craft-mobile .uk-container { padding-bottom: env(safe-area-inset-bottom, 0px) !important; box-sizing: border-box; }
+html.craft-mobile.craft-mobile-editing .uk-container { padding-bottom: var(--craft-mbar-space) !important; }
+
+/* ── Type & spacing ── */
+html.craft-mobile .msg-content pre, html.craft-mobile .msg-content code { line-height: 1.4 !important; }
+html.craft-mobile .msg-body { padding: 4px 8px !important; }
+html.craft-mobile .card-out .msg-body { padding-left: 12px !important; }
+html.craft-mobile #dialog-container { padding-top: 12px !important; padding-bottom: 68px !important; }
+html.craft-mobile .editable:not(.craft-chain-next) { margin-bottom: 18px !important; }
+html.craft-mobile .msg-card[data-mtype="prompt"] > .uk-card-header nav > div.grow > p::before,
+html.craft-mobile .msg-card[data-mtype="prompt"] > .uk-card-header [data-tokens]::after { font-size: 12px; }
+/* Wide content scrolls inside its cell instead of widening the page. */
+html.craft-mobile #dialog-container .editable > .msg-card:not(.collapsed) .msg-content table { display: block; max-width: 100%; overflow-x: auto !important; }
+html.craft-mobile #dialog-container .editable > .msg-card:not(.collapsed) .msg-content .craft-table-wrap > table { display: table !important; max-width: none !important; overflow: visible !important; }
+html.craft-mobile .craft-table-wrap {
+  width: fit-content; max-width: 100%; max-height: 60dvh;
+  background-image:
+    linear-gradient(to right, #1f2030 30%, #1f203000),
+    linear-gradient(to left, #1f2030 30%, #1f203000),
+    radial-gradient(farthest-side at 0 50%, #0008, #0000),
+    radial-gradient(farthest-side at 100% 50%, #0008, #0000);
+  background-position: left center, right center, left center, right center;
+  background-repeat: no-repeat;
+  background-size: 20px 100%, 20px 100%, 12px 100%, 12px 100%;
+  background-attachment: local, local, scroll, scroll;
+}
+html.craft-mobile .msg-content table { font-size: 12.5px !important; }
+html.craft-mobile .craft-table-copy { padding: 2px 7px; font-size: 10.5px; }
+html.craft-mobile #dialog-container .msg-content :is(img, video, canvas, svg:not([width])) { max-width: 100%; height: auto; }
+html.craft-mobile #dialog-container .msg-content :is(iframe, .jp-OutputArea, .output_html) { max-width: 100%; }
+html.craft-mobile #dialog-container .editable { min-width: 0; max-width: 100%; }
+
+/* Insert picker on the right edge: replaced by cell-edge bulges, so give the width back. */
+html.craft-mobile #craft-insert-preview { display: none !important; }
+html.craft-mobile #dialog-container.craft-insert-preview { margin-right: 0 !important; padding-right: 0 !important; }
+
+/* ── Cell controls: quiet until selected, finger-sized bottom-sheet menu ── */
+html.craft-mobile .msg-card .craft-action-trigger {
+  opacity: .32; pointer-events: auto; width: 40px; height: 30px; flex-basis: 40px; font-size: 22px;
+  transition: opacity .15s ease;
+}
+html.craft-mobile .editable:is([data-sm="primary"], [data-sm="secondary"], :focus-within) .craft-action-trigger,
+html.craft-mobile .msg-card .craft-action-trigger[aria-expanded="true"] { opacity: 1; }
+html.craft-mobile .craft-action-menu {
+  position: fixed !important;
+  left: 0 !important; right: 0 !important; bottom: 0 !important; top: auto !important;
+  width: 100% !important; max-width: 100% !important; max-height: 70dvh;
+  margin: 0 !important;
+  padding: 10px 12px calc(14px + env(safe-area-inset-bottom, 0px)) !important;
+  border: 0 !important; border-top: 1px solid #ffffff1c !important;
+  border-radius: 16px 16px 0 0 !important;
+  box-shadow: 0 -12px 36px #000b !important;
+  box-sizing: border-box;
+}
+html.craft-mobile .craft-action-menu::before {
+  content: ""; display: block; width: 36px; height: 4px; margin: 0 auto 10px;
+  border-radius: 999px; background: #ffffff30;
+}
+html.craft-mobile .craft-action-menu::backdrop { background: #0009; }
+html.craft-mobile .craft-action-menu button { padding: 12px 14px; font-size: 15px; border-radius: 8px; }
+html.craft-mobile .msg-card > .uk-card-header nav > div.grow > p,
+html.craft-mobile .msg-card[data-mtype="prompt"] > .uk-card-header nav > div.grow > p > span { opacity: 1; }
+html.craft-mobile .craft-omit-marker, html.craft-mobile .craft-part-restore { padding: 6px 10px; font-size: 13px; }
+html.craft-mobile .msg-card .uk-card-header :is(button, .uk-btn, a) { min-height: 28px; }
+
+/* ── Top/bottom brace-style cell-edge bulges & drag-to-insert picker ── */
+html.craft-mobile #dialog-container > .editable.craft-bulge-host {
+  position: relative; z-index: 2;
+  overflow: visible !important; content-visibility: visible !important; contain: none !important;
+}
+/* Ensure editing cells also carry the selection border, and punch 34px gaps at
+   top-center and bottom-center so the SVG brace curves become part of the border. */
+html.craft-mobile #dialog-container > .editable.craft-bulge-host::after {
+  content: ""; position: absolute; inset: 0;
+  border: 2px solid oklch(62.3% 0.214 259.815); border-radius: 0 !important;
+  pointer-events: none; z-index: 100;
+  mask-image: linear-gradient(#000, #000), linear-gradient(#000, #000), linear-gradient(#000, #000);
+  mask-position: 0 0, center top, center bottom;
+  mask-size: 100% 100%, 34px 4px, 34px 4px;
+  mask-repeat: no-repeat;
+  mask-composite: exclude;
+  -webkit-mask-image: linear-gradient(#000, #000), linear-gradient(#000, #000), linear-gradient(#000, #000);
+  -webkit-mask-position: 0 0, center top, center bottom;
+  -webkit-mask-size: 100% 100%, 34px 4px, 34px 4px;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-composite: xor;
+}
+html.craft-mobile .craft-edge-bulge {
+  display: flex; align-items: center; justify-content: center;
+  position: absolute; left: 50%; z-index: 110;
+  width: 56px; height: 28px; padding: 0; border: 0; background: transparent;
+  box-sizing: border-box;
+  transform: translateX(-50%);
+  touch-action: none; user-select: none; -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent; cursor: grab;
+}
+html.craft-mobile .craft-edge-bulge[data-edge="above"] { top: -14px; align-items: flex-end; padding-bottom: 12px; }
+html.craft-mobile .craft-edge-bulge[data-edge="below"] { bottom: -14px; align-items: flex-start; padding-top: 12px; }
+html.craft-mobile .craft-edge-bulge svg { display: block; overflow: visible; transition: transform .12s ease; }
+html.craft-mobile .craft-edge-bulge .craft-edge-stroke {
+  fill: none; stroke: oklch(62.3% 0.214 259.815); stroke-width: 2; stroke-linecap: round;
+}
+html.craft-mobile .craft-edge-bulge[data-active="true"] .craft-edge-stroke { stroke: #9ece6a; stroke-width: 2.5; }
+
+html.craft-mobile #craft-edge-picker {
+  display: none; position: fixed; z-index: 1050;
+  padding: 6px 8px 8px;
+  background: #16161ef2; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  border: 1px solid #7aa2f755; border-radius: 14px;
+  box-shadow: 0 12px 32px #000c;
+  user-select: none; -webkit-user-select: none;
+}
+html.craft-mobile #craft-edge-picker.open { display: block; }
+html.craft-mobile #craft-edge-picker .craft-edge-picker-head {
+  font: 500 10.5px/1 var(--craft-prose-family); color: #9aa5ce;
+  text-align: center; margin-bottom: 6px; letter-spacing: .03em; text-transform: uppercase;
+}
+html.craft-mobile #craft-edge-picker .craft-edge-picker-opts {
+  display: flex; align-items: stretch; gap: 6px;
+}
+html.craft-mobile #craft-edge-picker button {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  min-width: 60px; padding: 8px 6px; border: 1px solid #ffffff16; border-radius: 10px;
+  background: #242638; color: #cfc9c2;
+  font: 500 11.5px/1 var(--craft-prose-family); font-stretch: 100%;
+  -webkit-tap-highlight-color: transparent; cursor: pointer;
+  transition: transform .1s ease, background .1s ease, border-color .1s ease, color .1s ease;
+}
+html.craft-mobile #craft-edge-picker button svg { color: #7aa2f7; }
+html.craft-mobile #craft-edge-picker button[data-hot],
+html.craft-mobile #craft-edge-picker button:active {
+  background: #7aa2f733; border-color: #7aa2f7; color: #ffffff; transform: scale(1.06);
+}
+
+/* Empty dialog starter row */
+html.craft-mobile #craft-empty-add {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  margin: 32px auto; padding: 14px; max-width: 340px;
+  background: #16161e99; border: 1px dashed #ffffff24; border-radius: 12px;
+}
+html.craft-mobile #craft-empty-add .craft-empty-add-label { font-size: 12px; color: #9aa5ce; }
+html.craft-mobile #craft-empty-add .craft-empty-add-btns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+html.craft-mobile #craft-empty-add button {
+  display: inline-flex; align-items: center; gap: 5px; padding: 8px 12px;
+  border: 1px solid #ffffff1a; border-radius: 8px; background: #242638; color: #cfc9c2;
+  font: 500 13px/1 var(--craft-prose-family); cursor: pointer;
+}
+html.craft-mobile #craft-empty-add button svg { color: #7aa2f7; }
+
+/* ── Inline editors (C2 code, notes, prompts, raw) ── */
+html.craft-mobile .craft-c2-host .cm-editor,
+html.craft-mobile .craft-c2-host .cm-scroller,
+html.craft-mobile .craft-c2-host .cm-line,
+html.craft-mobile .craft-c2-host .cm-lineNumbers .cm-gutterElement,
+html.craft-mobile .craft-md-host.craft-md-mono .cm-editor,
+html.craft-mobile .craft-md-host.craft-md-mono .cm-line { line-height: 1.4 !important; }
+/* Soft-wrap long lines (CM6 reads white-space from the DOM, so this is a real wrap, not a clip). */
+html.craft-mobile :is(.craft-c2-host, .craft-md-host) .cm-content { white-space: pre-wrap !important; overflow-wrap: anywhere; word-break: normal; flex-shrink: 1 !important; min-width: 0; }
+html.craft-mobile .craft-c2-host .cm-content, html.craft-mobile .craft-md-host.craft-md-mono .cm-content { padding-block: 6px !important; }
+html.craft-mobile :is(.craft-c2-host, .craft-c2-tooltips) .cm-tooltip { font-size: 13px; }
+html.craft-mobile :is(.craft-c2-host, .craft-c2-tooltips) .cm-tooltip-autocomplete > ul > li { padding: 6px 10px; }
+html.craft-mobile :is(.craft-c2-host, .craft-c2-tooltips) .cm-completionDetail { max-width: 40vw; }
+html.craft-mobile :is(.craft-c2-host, .craft-md-host) .cm-search :is(input, button) { font-size: 14px; padding: 6px 8px; }
+html.craft-mobile .craft-c2-ai-input { font-size: 16px; padding: 8px; }
+
+/* ── Bottom toolbar: floating scroll-hiding pill when idle, full-width bar when editing ── */
+html.craft-mobile #craft-mbar {
+  display: block; position: fixed; z-index: 990;
+  box-sizing: border-box;
+  user-select: none; -webkit-user-select: none;
+  touch-action: manipulation;
+}
+html.craft-mobile #craft-mbar[data-mode="idle"] {
+  left: 50%; right: auto; bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  width: fit-content; height: auto; padding: 4px 6px;
+  border-radius: 999px;
+  background: #16161ee6; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  border: 1px solid #ffffff1c; box-shadow: 0 8px 28px #000a;
+  transform: translateX(-50%);
+  transition: transform .2s ease, opacity .18s ease;
+}
+html.craft-mobile #craft-mbar[data-mode="idle"][data-hidden] {
+  transform: translate(-50%, calc(100% + 28px));
+  opacity: 0; pointer-events: none;
+}
+html.craft-mobile #craft-mbar[data-mode="edit"] {
+  left: 0; right: 0; bottom: 0;
+  height: var(--craft-mbar-space);
+  padding: 0 4px env(safe-area-inset-bottom, 0px);
+  background: #16161e; border-top: 1px solid #ffffff14;
+  transform: translateY(calc(-1 * var(--craft-kb, 0px)));
+}
+html.craft-mobile #craft-mbar .craft-mbar-row { display: none; align-items: stretch; gap: 4px; }
+html.craft-mobile #craft-mbar[data-mode="idle"] .craft-mbar-row[data-row="idle"] { display: flex; }
+html.craft-mobile #craft-mbar[data-mode="edit"] .craft-mbar-row[data-row="edit"] { display: flex; height: var(--craft-mbar-h); gap: 2px; }
+html.craft-mobile #craft-mbar .craft-mbar-spacer { flex: 1 1 auto; }
+html.craft-mobile #craft-mbar button {
+  display: flex; align-items: center; justify-content: center;
+  border: 0; background: transparent; color: #a9b1d6;
+  font: 500 11.5px/1 var(--craft-prose-family); font-stretch: 100%; letter-spacing: .01em;
+  -webkit-tap-highlight-color: transparent; cursor: pointer;
+}
+html.craft-mobile #craft-mbar .craft-mbar-row[data-row="idle"] button {
+  flex: 0 0 auto; flex-direction: row; gap: 6px;
+  height: 38px; padding: 0 14px; border-radius: 999px;
+}
+html.craft-mobile #craft-mbar .craft-mbar-row[data-row="edit"] button {
+  flex: 0 0 76px; flex-direction: column; gap: 2px;
+  margin: 4px 0; padding: 0; border-radius: 8px; font-size: 10.5px;
+}
+html.craft-mobile #craft-mbar button[hidden] { display: none; }
+html.craft-mobile #craft-mbar button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+html.craft-mobile #craft-mbar button:active { background: #2b2e43; color: #ffffff; }
+html.craft-mobile #craft-mbar button[aria-pressed="true"],
+html.craft-mobile body:has(#solveit-file-tree-panel.open) #craft-mbar button[data-act="files"] { color: #7aa2f7; background: #7aa2f71c; }
+html.craft-mobile #craft-mbar button[data-act="run"] { background: #7aa2f726; color: #7aa2f7; }
+html.craft-mobile #craft-mbar button[data-act="done"] { color: #9ece6a; }
+
+/* ── Jump-to-bottom floating button ── */
+html.craft-mobile #craft-scroll-bottom {
+  display: grid; place-items: center;
+  position: fixed; right: 14px; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); z-index: 985;
+  width: 40px; height: 40px; padding: 0; border-radius: 999px;
+  background: #16161ee6; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  border: 1px solid #ffffff22; color: #cfc9c2; box-shadow: 0 6px 20px #000a;
+  opacity: 0; pointer-events: none; transform: translateY(12px) scale(.92);
+  transition: opacity .18s ease, transform .18s ease;
+  -webkit-tap-highlight-color: transparent; cursor: pointer;
+}
+html.craft-mobile #craft-scroll-bottom.visible { opacity: 1; pointer-events: auto; transform: none; }
+html.craft-mobile #craft-scroll-bottom:active { background: #2b2e43; color: #7aa2f7; }
+
+/* ── Top nav: hidden until Menu, then a solid wrapping bar housing the view toggle ── */
+html.craft-mobile .uk-container > nav.monster-navbar {
+  position: fixed !important; top: 0; left: 0; right: 0; z-index: 960;
+  height: auto !important; min-height: 48px !important;
+  display: flex !important; flex-wrap: wrap !important; align-items: center; gap: 6px 14px;
+  padding: calc(6px + env(safe-area-inset-top, 0px)) 54px 6px 12px !important;
+  background: #16161e !important; border-bottom: 1px solid #ffffff14 !important;
+  box-shadow: 0 8px 24px #0009;
+  opacity: 0; pointer-events: none; transform: translateY(-100%);
+  transition: opacity .16s ease, transform .16s ease;
+}
+html.craft-mobile.craft-nav-open .uk-container > nav.monster-navbar,
+html.craft-mobile .uk-container > nav.monster-navbar:focus-within { opacity: 1; pointer-events: auto; transform: none; }
+html.craft-mobile.craft-nav-open .uk-container > nav.monster-navbar > * { pointer-events: auto; }
+/* The title block is already hidden and Solveit's own ☰ duplicates ours: drop both so the controls start on row one. */
+html.craft-mobile .uk-container > nav.monster-navbar > div.min-w-0,
+html.craft-mobile .uk-container > nav.monster-navbar > button { display: none !important; }
+html.craft-mobile .uk-container > nav.monster-navbar > div.ml-auto { display: flex !important; flex-wrap: wrap; align-items: center; gap: 6px 12px; width: 100%; margin: 0 !important; padding: 0 !important; }
+html.craft-mobile .uk-container > nav.monster-navbar > div.ml-auto > div { flex: 1 1 100%; min-width: 0; justify-content: flex-start !important; gap: 6px 8px !important; }
+html.craft-mobile .uk-container > nav.monster-navbar .uk-btn-group { flex-wrap: wrap !important; max-width: 100%; }
+html.craft-mobile .uk-container > nav.monster-navbar :is(.uk-btn, label, button, select) { min-height: 36px; min-width: 36px; font-size: 14px !important; }
+html.craft-mobile .uk-container > nav.monster-navbar svg,
+html.craft-mobile .uk-container > nav.monster-navbar select,
+html.craft-mobile .uk-container > nav.monster-navbar h2 { filter: none; }
+
+/* Move the desktop/mobile toggle into the revealed top nav instead of floating over cells. */
+html.craft-mobile #craft-mobile-toggle {
+  top: calc(8px + env(safe-area-inset-top, 0px)) !important;
+  left: auto !important; right: 10px !important; z-index: 970 !important;
+  width: 36px !important; height: 36px !important; border-radius: 8px !important;
+  background: #242638 !important; border: 1px solid #ffffff28 !important;
+  color: #cfc9c2 !important;
+  opacity: 0 !important; pointer-events: none !important; transform: translateY(-100%);
+  transition: opacity .16s ease, transform .16s ease;
+}
+html.craft-mobile.craft-nav-open #craft-mobile-toggle {
+  opacity: 1 !important; pointer-events: auto !important; transform: none;
+}
+
+/* ── File tree as a drawer ── */
+html.craft-mobile #solveit-file-tree-panel {
+  position: fixed !important; top: 0; left: 0; bottom: 0;
+  z-index: 980;
+  flex: none !important; height: auto !important;
+  width: min(86vw, 380px) !important; min-width: 0 !important; max-width: none !important;
+  padding: calc(12px + env(safe-area-inset-top, 0px)) 10px calc(72px + env(safe-area-inset-bottom, 0px)) 10px !important;
+  resize: none; overflow-y: auto; overscroll-behavior: contain;
+  transform: translateX(-105%); transition: transform .2s ease, visibility .2s;
+  box-shadow: none;
+}
+html.craft-mobile #solveit-file-tree-panel.open { transform: none; box-shadow: 8px 0 32px #000a; }
+html.craft-mobile body:has(#solveit-file-tree-panel.open) #craft-mobile-backdrop {
+  display: block; position: fixed; inset: 0; z-index: 970; background: #0009;
+}
+html.craft-mobile #solveit-file-tree-panel > header { flex-wrap: wrap; gap: 2px; }
+html.craft-mobile #solveit-file-tree-panel > header strong { font-size: 15px; margin-right: auto; }
+html.craft-mobile #solveit-file-tree-panel > header button { min-width: 40px; min-height: 40px; margin-left: 0; font-size: 1.35rem; border-radius: 6px; }
+html.craft-mobile #solveit-file-tree-panel > header button:active { background: #2b2e43; }
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-shortcut,
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-rootbar-hint { display: none; }
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-appname { font-size: 15px; }
+html.craft-mobile #solveit-file-tree-panel h2#dlg-name { font-size: 14px !important; }
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-filter { font-size: 16px; padding: 10px 12px; }
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-status { font-size: 13px; }
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-rootbar { min-height: 40px; padding: 4px 4px 4px 10px; font-size: 14px; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+html.craft-mobile #solveit-file-tree-panel .custom-treeview-wrapper li { margin: 0; font-size: 15px; }
+html.craft-mobile #solveit-file-tree-panel .custom-treeview-wrapper ul ul { padding-left: 16px; }
+html.craft-mobile #solveit-file-tree-panel .custom-treeview-wrapper .treeview-node-content {
+  min-height: 42px; padding: 2px 2px 2px 6px; box-sizing: border-box;
+  -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent;
+}
+html.craft-mobile #solveit-file-tree-panel .custom-treeview-wrapper .treeview-node-content:hover { background: transparent; }
+html.craft-mobile #solveit-file-tree-panel .custom-treeview-wrapper .treeview-node-content:active { background: #222434; }
+html.craft-mobile #solveit-file-tree-panel img.solveit-tree-icon { width: 20px !important; height: 20px !important; max-width: 20px !important; max-height: 20px !important; flex-basis: 20px; margin-right: 10px; }
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-row-upload { width: 36px; height: 36px; opacity: 1; pointer-events: auto; }
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-row-more {
+  display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center;
+  width: 40px; height: 36px; margin-left: 2px; padding: 0; border: 0; border-radius: 6px;
+  background: transparent; color: #cfc9c2aa; font-size: 20px; line-height: 1; cursor: pointer;
+}
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-rootbar .solveit-tree-row-upload { margin-left: auto; }
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-row-more:active,
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-row-upload:active { background: #30364d; color: #7aa2f7; }
+html.craft-mobile #solveit-file-tree { padding-bottom: 24px; }
+html.craft-mobile #solveit-file-tree .solveit-tree-create input { font-size: 16px; padding: 8px 10px; }
+html.craft-mobile #solveit-tree-create-error:not(:empty) { font-size: 13px; }
+html.craft-mobile .solveit-tree-menu {
+  position: fixed !important;
+  left: 0 !important; right: 0 !important; bottom: 0 !important; top: auto !important;
+  width: 100% !important; min-width: 0 !important; max-width: 100% !important; max-height: 70dvh;
+  overflow-y: auto; box-sizing: border-box;
+  padding: 10px 12px calc(14px + env(safe-area-inset-bottom, 0px)) !important;
+  border: 0 !important; border-top: 1px solid #ffffff1c !important;
+  border-radius: 16px 16px 0 0 !important;
+  box-shadow: 0 -12px 36px #000b !important;
+}
+html.craft-mobile .solveit-tree-menu::before {
+  content: ""; display: block; width: 36px; height: 4px; margin: 0 auto 10px;
+  border-radius: 999px; background: #ffffff30;
+}
+html.craft-mobile .solveit-tree-menu button { padding: 12px 14px; font-size: 15px; border-radius: 8px; }
+html.craft-mobile .solveit-tree-upload-pop { width: min(320px, calc(100vw - 24px)); padding: 12px; font-size: 14px; }
+html.craft-mobile .solveit-tree-upload-dest { font-size: 13px; }
+html.craft-mobile .solveit-tree-upload-x { font-size: 22px; padding: 4px 8px; }
+html.craft-mobile .solveit-tree-upload-drop { padding: 16px 10px; font-size: 13px; }
+html.craft-mobile .solveit-tree-upload-actions button { padding: 11px 8px; font-size: 14px; }
+
+/* ── Overlays: file editor, launcher, shortcuts ── */
+html.craft-mobile #solveit-temp-editor { padding-top: env(safe-area-inset-top, 0px); }
+html.craft-mobile #solveit-temp-editor .solveit-temp-editor-bar { flex-basis: 48px; }
+html.craft-mobile #solveit-temp-editor .solveit-temp-editor-bar strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+html.craft-mobile #solveit-temp-editor .solveit-temp-editor-bar button { min-width: 44px; min-height: 44px; font-size: 1.8rem; }
+html.craft-mobile #solveit-launcher { padding-top: calc(10px + env(safe-area-inset-top, 0px)); }
+html.craft-mobile #solveit-launcher .solveit-launcher-card { width: calc(100vw - 16px); }
+html.craft-mobile #solveit-launcher input { font-size: 16px; padding: 14px; }
+html.craft-mobile #solveit-launcher ul { max-height: 60dvh; }
+html.craft-mobile #solveit-launcher li { padding: 11px 12px; font-size: 14px; }
+html.craft-mobile #solveit-launcher li .hint { display: none; }
+html.craft-mobile .hk-overlay { padding: 8px; }

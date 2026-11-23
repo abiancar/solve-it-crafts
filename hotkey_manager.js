@@ -1,3 +1,7 @@
+/* %% nbs/craft/00_hotkey_manager.ipynb #ea005e0d */
+window.__craftTpl = Object.assign(window.__craftTpl || {}, {"hk_overlay": "<div class=\"hk-overlay\"><div class=\"hk-modal\" role=\"dialog\" aria-modal=\"true\" aria-label=\"Keyboard shortcuts\" tabindex=\"-1\"><header class=\"hk-head\"><strong>Keyboard shortcuts</strong><span class=\"hk-sub\">Click Change to rebind · Esc cancels · ⊘ also disables a Solveit row's original key</span><button class=\"hk-close\" type=\"button\" aria-label=\"Close\">×</button></header><div class=\"hk-body\"></div><footer class=\"hk-foot\"><span>Overrides are saved in this browser.</span><button class=\"hk-reset-all\" type=\"button\">Reset all</button></footer></div></div>"});
+
+/* %% nbs/craft/00_hotkey_manager.ipynb #8b08b80e */
 /* ── Hotkey manager ───────────────────────────────────────────────────
    Shared registry for page-level shortcuts, plus a settings modal that
    lists them all and lets you rebind them (press '?', or solveit's own
@@ -22,14 +26,14 @@
      original combo. Plain keys are never intercepted inside editors. */
 (() => {
   if (window.solveitHotkeys) return;
+  const {el: mkEl, mountTpl, qs, qsa, on, store} = window.__craftCMCore;
   const STORAGE_KEY = 'solveit-hotkeys:v1';
   const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
 
-  let overrides = {};
-  try { overrides = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch {}
+  let overrides = store.json(STORAGE_KEY, {});
 
   const actions = new Map(), order = [];
-  let overlay = null, menuOpen = false, capturing = null;  // capturing: id being rebound
+  let overlay = null, menuRefs = null, menuOpen = false, capturing = null;  // capturing: id being rebound
   let redispatching = false;  // true while a redispatched synthetic event propagates
 
   function parseCombo(combo) {
@@ -148,92 +152,52 @@
     return parts.join('+');
   }
 
-  function save() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(overrides)); } catch {} }
+  const save = () => store.setJson(STORAGE_KEY, overrides);
 
   function refreshChips() {
-    document.querySelectorAll('[data-hotkey]').forEach(el => { el.textContent = formatCombo(effective(el.dataset.hotkey)) || ''; });
+    qsa('[data-hotkey]').forEach(el => { el.textContent = formatCombo(effective(el.dataset.hotkey)) || ''; });
   }
 
   /* ── settings modal ── */
 
-  const styles = document.createElement('style');
-  styles.textContent = `
-.hk-overlay { position: fixed; inset: 0; z-index: 10000; display: none; align-items: flex-start; justify-content: center; background: rgba(0,0,0,.55); padding-top: 12vh; }
-.hk-overlay.open { display: flex; }
-.hk-modal { width: min(560px, calc(100vw - 32px)); max-height: 74vh; display: flex; flex-direction: column; background: #1a1b26; color: #cfc9c2; border: 1px solid #2f3044; border-radius: 10px; box-shadow: 0 18px 48px rgba(0,0,0,.5); font-family: inherit; font-size: 13px; line-height: 1.4; }
-.hk-head { display: flex; align-items: baseline; gap: 8px; padding: 12px 16px; border-bottom: 1px solid #2f3044; }
-.hk-sub { font-size: 11px; opacity: .6; }
-.hk-close { margin-left: auto; }
-.hk-body { overflow: auto; padding: 4px 16px; }
-.hk-group { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; opacity: .55; margin: 12px 0 4px; }
-.hk-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid rgba(47,48,68,.4); }
-.hk-row:last-child { border-bottom: 0; }
-.hk-suppress { opacity: .55; }
-.hk-suppress.on { opacity: 1; background: #7aa2f7; border-color: #7aa2f7; color: #16161e; }
-.hk-label { flex: 1; }
-.hk-combo kbd { background: #222434; border: 1px solid #3a3b55; border-bottom-width: 2px; border-radius: 4px; padding: 1px 6px; font-family: inherit; font-size: 12px; margin-right: 3px; }
-.hk-combo.hk-capturing { font-style: italic; opacity: .75; }
-.hk-msg { color: #f7768e; font-size: 11.5px; max-width: 45%; }
-.hk-body button, .hk-foot button { background: #222434; color: #cfc9c2; border: 1px solid #3a3b55; border-radius: 6px; padding: 2px 10px; cursor: pointer; font-size: 12px; font-family: inherit; }
-.hk-body button:hover, .hk-foot button:hover { background: #2f3044; }
-.hk-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; border-top: 1px solid #2f3044; font-size: 11.5px; opacity: .85; }
-`;
-  document.head.append(styles);
-
   function buildMenu() {
-    overlay = document.createElement('div');
-    overlay.className = 'hk-overlay';
-    overlay.innerHTML = `
-      <div class="hk-modal" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts" tabindex="-1">
-        <header class="hk-head"><strong>Keyboard shortcuts</strong><span class="hk-sub">Click Change to rebind · Esc cancels · ⊘ also disables a Solveit row's original key</span><button class="hk-close" type="button" aria-label="Close">×</button></header>
-        <div class="hk-body"></div>
-        <footer class="hk-foot"><span>Overrides are saved in this browser.</span><button class="hk-reset-all" type="button">Reset all</button></footer>
-      </div>`;
-    overlay.addEventListener('click', e => { if (e.target === overlay || e.target.closest('.hk-close')) closeMenu(); });
-    overlay.querySelector('.hk-reset-all').onclick = () => { overrides = {}; save(); refreshChips(); renderRows(); };
+    menuRefs = mountTpl('hk_overlay', {refs: {reset: '.hk-reset-all', body: '.hk-body', modal: '.hk-modal'}});
+    overlay = menuRefs.root;
+    on(overlay, 'click', e => { if (e.target === overlay || e.target.closest('.hk-close')) closeMenu(); });
+    menuRefs.reset.onclick = () => { overrides = {}; save(); refreshChips(); renderRows(); };
     return overlay;
   }
 
   function rowFor(id) {
-    const spec = actions.get(id);
-    const row = document.createElement('div');
-    row.className = 'hk-row'; row.dataset.id = id;
-    const label = document.createElement('span');
-    label.className = 'hk-label'; label.textContent = spec.label;
-    const combo = document.createElement('span');
-    combo.className = 'hk-combo';
-    if (capturing === id) { combo.classList.add('hk-capturing'); combo.textContent = 'Press keys…'; }
-    else comboParts(effective(id)).forEach(p => { const k = document.createElement('kbd'); k.textContent = p; combo.append(k); });
-    const msg = document.createElement('span'); msg.className = 'hk-msg';
-    const change = document.createElement('button');
-    change.type = 'button'; change.className = 'hk-change'; change.textContent = capturing === id ? 'Cancel' : 'Change';
-    change.onclick = () => { capturing = capturing === id ? null : id; renderRows(); };
-    row.append(label, combo, msg, change);
-    if (overrides[id]) {
-      const reset = document.createElement('button');
-      reset.type = 'button'; reset.className = 'hk-reset'; reset.title = 'Reset to default'; reset.textContent = '↺';
-      reset.onclick = () => { delete overrides[id]; save(); refreshChips(); renderRows(); };
-      row.append(reset);
-    }
-    if (spec.builtin && overrides[id]) {
-      const sup = document.createElement('button');
-      sup.type = 'button'; sup.className = 'hk-suppress' + (isSuppressed(id) ? ' on' : '');
-      sup.textContent = '⊘'; sup.setAttribute('aria-pressed', String(isSuppressed(id)));
-      sup.title = isSuppressed(id) ? `Original ${formatCombo(spec.combo)} disabled — click to re-enable` : `Also disable original ${formatCombo(spec.combo)}`;
-      sup.onclick = () => { const o = norm(overrides[id]); o.suppress = !o.suppress; overrides[id] = o; save(); renderRows(); };
-      row.append(sup);
-    }
-    return row;
+    const spec = actions.get(id), isCap = capturing === id;
+    const combo = isCap
+      ? mkEl('span', {cls: 'hk-combo hk-capturing'}, 'Press keys…')
+      : mkEl('span', {cls: 'hk-combo'}, comboParts(effective(id)).map(p => mkEl('kbd', {}, p)));
+    const reset = overrides[id] && mkEl('button', {
+      type: 'button', cls: 'hk-reset', title: 'Reset to default',
+      onclick: () => { delete overrides[id]; save(); refreshChips(); renderRows(); },
+    }, '↺');
+    const sup = spec.builtin && overrides[id] && mkEl('button', {
+      type: 'button', cls: 'hk-suppress' + (isSuppressed(id) ? ' on' : ''),
+      'aria-pressed': String(isSuppressed(id)),
+      title: isSuppressed(id) ? `Original ${formatCombo(spec.combo)} disabled — click to re-enable` : `Also disable original ${formatCombo(spec.combo)}`,
+      onclick: () => { const o = norm(overrides[id]); o.suppress = !o.suppress; overrides[id] = o; save(); renderRows(); },
+    }, '⊘');
+    return mkEl('div', {cls: 'hk-row', dataset: {id}},
+      mkEl('span', {cls: 'hk-label'}, spec.label),
+      combo,
+      mkEl('span', {cls: 'hk-msg'}),
+      mkEl('button', {type: 'button', cls: 'hk-change', onclick: () => { capturing = isCap ? null : id; renderRows(); }}, isCap ? 'Cancel' : 'Change'),
+      reset, sup);
   }
 
   function renderRows() {
     if (!overlay || !menuOpen) return;
-    const body = overlay.querySelector('.hk-body');
-    body.innerHTML = '';
+    const body = menuRefs.body;
+    body.replaceChildren();
     const groups = [...new Set(order.map(id => actions.get(id).group || 'Other'))];
     for (const g of groups) {
-      const h = document.createElement('div');
-      h.className = 'hk-group'; h.textContent = g; body.append(h);
+      body.append(mkEl('div', {cls: 'hk-group'}, g));
       for (const id of order) if ((actions.get(id).group || 'Other') === g) body.append(rowFor(id));
     }
   }
@@ -244,12 +208,12 @@
     (overlay ?? buildMenu()).classList.add('open');
     document.body.append(overlay);
     renderRows();
-    overlay.querySelector('.hk-modal').focus();
+    menuRefs.modal.focus();
     return true;
   }
   function closeMenu() { menuOpen = false; capturing = null; overlay?.classList.remove('open'); }
 
-  window.addEventListener('keydown', e => {
+  on(window, 'keydown', e => {
     if (e.repeat) return;
     if (capturing) {
       e.preventDefault(); e.stopImmediatePropagation();
@@ -258,7 +222,7 @@
       if (!c) return;  // bare modifier press: keep listening
       const conflict = order.find(other => other !== capturing && sameCombo(c, parseCombo(effective(other))));
       if (conflict) {
-        const msg = overlay?.querySelector(`.hk-row[data-id="${capturing}"] .hk-msg`);
+        const msg = qs(`.hk-row[data-id="${capturing}"] .hk-msg`, overlay);
         if (msg) msg.textContent = `In use by “${actions.get(conflict).label}”`;
         return;  // stay in capture mode so they can try another key
       }
@@ -283,7 +247,7 @@
      selector if a specific button misses. The tree header's own ⌨ button
      and everything inside this modal are excluded. */
   const HELP_SEL = '[aria-label*="shortcut" i], [title*="shortcut" i], [uk-tooltip*="shortcut" i], [aria-label*="keyboard" i], [title*="keyboard" i], [uk-tooltip*="keyboard" i], .lucide-keyboard';
-  document.addEventListener('click', e => {
+  on(document, 'click', e => {
     const el = e.target.closest?.(HELP_SEL);
     if (!el || el.closest('.hk-overlay, .solveit-tree-hotkeys')) return;
     e.preventDefault(); e.stopImmediatePropagation();
@@ -291,7 +255,7 @@
   }, true);
 
   function register(spec) {
-    if (!spec?.id || !spec.combo || typeof spec.handler !== 'function') { console.warn('hotkey_manager: bad registration', spec); return; }
+    if (!spec?.id || typeof spec.combo !== 'string' || typeof spec.handler !== 'function') { console.warn('hotkey_manager: bad registration', spec); return; }
     if (!actions.has(spec.id)) order.push(spec.id);
     actions.set(spec.id, spec);
     renderRows();
