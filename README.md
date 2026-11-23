@@ -1,6 +1,6 @@
 # solve-it-crafts
 
-Personal [Solveit](https://solve.it.com) customizations: inline CodeMirror editors, a compact Tokyo Night theme, a file tree and command launcher, rebindable shortcuts, and cell presentation controls.
+Personal [Solveit](https://solve.it.com) customizations: inline CodeMirror editors, a compact Tokyo Night theme, desktop and mobile cell-insertion controls, a resizable file tree and command launcher, progressive tables, rebindable shortcuts, and cell presentation controls.
 
 ## Install on a new instance
 
@@ -9,7 +9,7 @@ git clone https://github.com/abiancar/solve-it-crafts.git ~/.craft
 bash ~/.craft/setup.sh
 ```
 
-Reload the browser page. `setup.sh` places `CRAFT.css` and `CRAFT.js` at the data root and all supporting scripts, styles, and icons inside `.craft-assets/` to keep the root directory uncluttered. Solveit loads CRAFT CSS/JS at page load and discovers them by walking up from the dialog's folder. Installing at the data root (`$HOME`, normally `/app/data`) applies the customizations to dialogs below it; folder-specific CRAFTs can layer on top.
+Reload the browser page. `setup.sh` installs only the runtime UI assets: it places `CRAFT.css` and `CRAFT.js` at the data root and all supporting scripts, styles, and icons inside `.craft-assets/` to keep the root directory uncluttered (none of the development notebooks or debugging tools in `nbs/`, `craft_dev/`, or `dev/` are copied into Solveit). Solveit loads CRAFT CSS/JS at page load and discovers them by walking up from the dialog's folder. Installing at the data root (`$HOME`, normally `/app/data`) applies the customizations to dialogs below it; folder-specific CRAFTs can layer on top.
 
 For the optional shell installer, see [Optional terminal setup](#optional-terminal-setup).
 
@@ -30,8 +30,8 @@ Use `--dest DIR` to install into a different data root or a disposable test dire
 
 | File | Purpose |
 |---|---|
-| `CRAFT.css` | Theme, dialog layout, and styles for both inline editors |
-| `CRAFT.js` | C2 code editor, insertion picker, file tree, launcher, navigation and composer controls, cell presentation, and image drop |
+| `CRAFT.css` | Theme, dialog layout, desktop/mobile responsive styles, tables, and styles for both inline editors |
+| `CRAFT.js` | Shared `__craftCMCore` helpers, C2 code editor, insertion picker, desktop/mobile controls, progressive tables, file tree, launcher, navigation and composer controls, cell presentation, and image drop |
 | `craft_md.js` | Inline note, prompt, prompt-response, and raw editors |
 | `hotkey_manager.js` | Rebindable action registry, shortcut dispatcher, and settings menu; overrides stored per browser |
 | `hotkey_builtins.js` | Snapshot of Solveit's built-in shortcuts; update it when upstream bindings change |
@@ -90,11 +90,29 @@ Normal collapse uses Solveit's existing server-backed behavior. The fully hidden
 - C2 is enabled for all code cells by default. Toggle it with **Alt+Shift+C** or the action menu. **Alt+Shift+L** toggles line numbers; tracebacks also show line numbers automatically. Empty code and raw cells hide their placeholder while focused, keeping the caret visible.
 - Paste an image directly into an inline note or prompt. Dropping an image onto a code, note, or prompt input instead uses Solveit's native Monaco attachment flow.
 
-Both editors share CodeMirror 6. The installer does not ship the optional local bundle in `~/.craft-assets/cm6/`; without it the editors load modules from `esm.sh`, which requires browser network access.
+- Both editors share CodeMirror 6. The installer does not ship the optional local bundle in `~/.craft-assets/cm6/`; without it the editors load modules from `esm.sh`, which requires browser network access.
+
+## Desktop quick-insert, slash-morph, and tables
+
+- **Hover-edge drag-to-insert:** Hover near the bottom center of a cell to reveal an insertion handle. Click it to insert the active picker type below, or press and drag into the four-option fan picker (**Code**, **Note**, **Prompt**, **Raw**).
+- **Seam quick-picker (`Shift+A` / `Shift+B`):** In cell-selection mode, press `Shift+A` or `Shift+B` to open the inline seam picker above or below the selected cell, then press `C`, `N`, `P`, or `R` to insert.
+- **Slash-morph on empty cells:** Typing `/c` (`/code`), `/n` (`/note`), `/p` (`/prompt`), or `/r` (`/raw`) followed by Space or Enter in an empty inline cell switches its type in place.
+- **Click-margin escape:** Clicking blank dialog margin or non-control card header space commits and exits active inline editors.
+- **Progressive tables:** Markdown, pandas, polars, and DuckDB tables receive a horizontal scroll wrapper, automatic right-aligned numeric columns, click-to-sort flat headers, and a **Copy TSV** button.
+
+## Mobile layout and bottom toolbar
+
+Mobile mode (`html.craft-mobile`) activates automatically on touch devices (`(hover: none) and (pointer: coarse)`). Switch explicitly at any time with the navbar view-toggle button, the **Toggle mobile / desktop view** launcher action, or `window.craftMobile.setMode('auto' | 'mobile' | 'desktop')`.
+
+- **Idle dock & jump button:** When not editing, a floating pill dock (**Menu · Files**) hides on scroll-down and reappears on scroll-up; a floating jump-to-bottom button appears when scrolled well above the end of a dialog.
+- **Editing toolbar:** While an inline editor has focus, a full-width bar sits above the soft keyboard with **Tab**, **Run / Send**, and **Done** controls.
+- **Tap-to-select first:** Tapping an unselected cell selects it without opening the soft keyboard; a second tap enters edit mode.
+- **Edge-bulge insertion:** Selected cells show top/bottom brace-style bulges for drag-to-insert or tap-to-pick cell creation; empty dialogs show an inline starter row.
+- **Responsive drawers & sheets:** The file tree opens as a slide-over drawer and cell action menus open as bottom sheets.
 
 ## File tree, dashboard access, and launcher
 
-- **Mod+B** (rebindable as `file-tree-toggle`) opens or hides the explorer. It stays open on outside clicks and Escape, and its state is restored on reload or dialog navigation in the same tab via `sessionStorage['solveit-file-tree:open']`.
+- **Mod+B** (rebindable as `file-tree-toggle`) opens or hides the explorer. It stays open on outside clicks and Escape, and its state is restored on reload or dialog navigation in the same tab via `sessionStorage['solveit-file-tree:open']`. Drag the right edge on desktop to resize the panel (persisted in `localStorage`); double-click the edge to reset.
 - The tree stays rooted at `~/` and expands the active dialog's folder. Dotfiles are hidden by default; the `.*` toggle remembers your preference in `localStorage`.
 - Right-click a folder or the root bar for **New Dialog**, **New File**, and **New Folder**. Double-click blank explorer space to create in the current folder, or double-click the `~/` bar to create at root. In this quick-create flow, `notes` and `notes.ipynb` create dialogs; `notes.txt` creates a plain file.
 - The inline name field submits on Enter and cancels on Escape or a click outside it. Canceling clears the draft, not the explorer. Errors stay inline; successful creation refreshes the folder without opening the new item.
@@ -120,27 +138,24 @@ All non-code UI and prose use Encode Sans variable webfonts from jsDelivr (`goog
 
 ## Working on it
 
-The deployed files and git checkout are separate. Copy only reviewed changes back before committing; avoid staging dialog notebooks, personal settings, or unrelated files.
+Source notebooks live in `nbs/craft/` and compile into `dist/` via `craft_dev` (`uv run craft-cdp build`). The top-level shipped files (`CRAFT.css`, `CRAFT.js`, `craft_md.js`, `hotkey_manager.js`, `hotkey_builtins.js`) are kept in sync with `dist/` so `setup.sh` works on any Solveit instance without requiring Python, `uv`, or Node.
 
 ```bash
-cp ~/CRAFT.css ~/CRAFT.js ~/.craft/
-git -C ~/.craft diff --check
-git -C ~/.craft diff --stat
+uv run craft-cdp build                                              # compile nbs/craft/*.ipynb -> dist/ + node --check
+uv run nbdev-test nbs/craft                                         # offline notebook tests
+uv run craft-cdp smoke                                              # live CDP UI smoke checks against local assets
+uv run craft-cdp deploy                                             # build dist/ and deploy to your live Solveit instance
 ```
 
-Copy reviewed support assets back from `~/.craft-assets/` to the repo (for example, `craft_md.js` goes to `~/.craft/craft_md.js`). Update `setup.sh` when the shipped asset list or installation behavior changes. The local `CRAFT.ipynb` documents the DOM, editor lifecycle, and focus rules; it is not shipped by the repo.
-
-Suggested checks before publishing:
+Before committing shipped UI changes, copy the rebuilt runtime files from `dist/` to the repo root (and never commit `.auth/`, `.craft-debug/`, or personal dialog notebooks):
 
 ```bash
-node --check ~/.craft/CRAFT.js
-node --check ~/.craft/craft_md.js
-bash -n ~/.craft/setup.sh
-bash -n ~/.craft/zsh-setup.sh
-git -C ~/.craft diff --check
+cp dist/CRAFT.css dist/CRAFT.js dist/craft_md.js dist/hotkey_manager.js dist/hotkey_builtins.js .
+bash -n setup.sh && bash -n zsh-setup.sh
+git diff --check
 ```
 
-Test the installer with `--dest` pointing at a temporary directory: fresh install, repeat install, a locally modified file preserved under default mode, then `--replace` with the original file retained in backups. Never test replacement against an unbacked-up personal installation.
+For full `craft_dev` CLI and authentication setup, see [`dev/README.md`](dev/README.md) and [`nbs/index.ipynb`](nbs/index.ipynb). Test the installer with `--dest` pointing at a temporary directory: fresh install, repeat install, a locally modified file preserved under default mode, then `--replace` with the original file retained in backups. Never test replacement against an unbacked-up personal installation.
 
 For editor changes, test `a` and `b` with each picker type and `Alt+Enter` from a disposable code cell. Verify that typing works without a click after the WebSocket card refresh, and that focused empty code and raw cells show the caret but not the placeholder. Also check click, `Enter`, save, and `Escape`. For presentation changes, check both input/output cycles, Omit and restore, cell chains, and action menus.
 
