@@ -1,9 +1,27 @@
-/* %% nbs/craft/01_cm_core.ipynb #1cf3dd3a */
+/* %% nbs/craft/03_hotkey_manager.ipynb #378fda2c */
+/* ── Hotkey manager bootstrap ──────────────────────────────────────
+   The shared shortcut registry lives in hotkey_manager.js (served from
+   ~/.craft-assets at /static/.craft-assets/hotkey_manager.js). Load it first so the sections below
+   can register their shortcuts; registrations made before it finishes
+   loading are queued and replayed by the manager. */
+(() => {
+  window.__hotkeyQueue ||= [];
+  window.__hotkeyRegister = spec => { if (window.solveitHotkeys) window.solveitHotkeys.register(spec); else window.__hotkeyQueue.push(spec); };
+  for (const [src, tag] of [['/static/.craft-assets/hotkey_manager.js', '1'], ['/static/.craft-assets/hotkey_builtins.js', 'builtins']])
+    if (!document.querySelector(`script[data-solveit-hotkeys="${tag}"]`)) {
+      const s = document.createElement('script');
+      s.src = src; s.dataset.solveitHotkeys = tag;
+      document.head.append(s);
+    }
+})();
+
+/* %% nbs/craft/04_cm_core.ipynb #1cf3dd3a */
 window.__craftCfg = Object.assign(window.__craftCfg || {}, {"cm_dark_pal": {"kw": "#f97583", "str": "#9ecbff", "re": "#dbedff", "num": "#79b8ff", "fn": "#b392f0", "tag": "#85e89d", "fg": "#e1e4e8", "inv": "#fdaeb7"}, "cm_light_pal": {"kw": "#d73a49", "str": "#032f62", "re": "#032f62", "num": "#005cc5", "fn": "#6f42c1", "tag": "#22863a", "fg": "#24292e", "inv": "#cb2431"}});
 
-/* %% nbs/craft/01_cm_core.ipynb #78a3ef9c */
-(() => {
-  const LOCAL_CM_BASE = '/static/.craft-assets/cm6';
+/* %% nbs/craft/04_cm_core.ipynb #c38c2857 */
+(() => { /* iife:cmCore */
+/* #c38c2857 */
+const LOCAL_CM_BASE = '/static/.craft-assets/cm6';
   const CM_DEPS = 'deps=@codemirror/state@6.5.2,@codemirror/view@6.36.5,@codemirror/language@6.11.0,@lezer/highlight@1.2.5';
   const CM_URLS = {
     state: 'https://esm.sh/@codemirror/state@6.5.2',
@@ -102,7 +120,8 @@ window.__craftCfg = Object.assign(window.__craftCfg || {}, {"cm_dark_pal": {"kw"
     throw err;
   });
 
-  const langCache = window.__craftCM6Langs ??= new Map();
+/* #0d55ecdc */
+const langCache = window.__craftCM6Langs ??= new Map();
   async function loadLang(cm, langKey) {
     if (langKey === 'python') return cm.python.python();
     const spec = LANG_SPECS[langKey];
@@ -293,7 +312,8 @@ window.__craftCfg = Object.assign(window.__craftCfg || {}, {"cm_dark_pal": {"kw"
     } catch { return null; }
   };
 
-  async function saveInputContents({id, content, waitersMap, key = id, tag = 'craft'}) {
+/* #06a65527 */
+async function saveInputContents({id, content, waitersMap, key = id, tag = 'craft'}) {
     let resolveReq;
     const statusP = new Promise(r => { resolveReq = r; });
     const waiters = waitersMap.get(key) || [];
@@ -400,7 +420,8 @@ window.__craftCfg = Object.assign(window.__craftCfg || {}, {"cm_dark_pal": {"kw"
     };
   }
 
-  function createInlineEditor(cfg) {
+/* #57a40547 */
+function createInlineEditor(cfg) {
     const tag = cfg.tag || 'craft';
     const keyToId = cfg.keyToId || (k => k);
     const idToInputKey = cfg.idToInputKey || (id => id);
@@ -770,28 +791,10 @@ window.__craftCfg = Object.assign(window.__craftCfg || {}, {"cm_dark_pal": {"kw"
   };
 })();
 
-/* %% nbs/craft/02_core_ui.ipynb #ca03a923 */
-window.__craftTpl = Object.assign(window.__craftTpl || {}, {"mobile_phone_icon": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"7\" y=\"2\" width=\"10\" height=\"20\" rx=\"2\"></rect><path d=\"M11 18h2\"></path></svg>", "mobile_desk_icon": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"2\" y=\"3\" width=\"20\" height=\"14\" rx=\"2\"></rect><path d=\"M8 21h8M12 17v4\"></path></svg>", "mobile_toggle_btn": "<button id=\"craft-mobile-toggle\" type=\"button\"></button>", "launcher_root": "<div id=\"solveit-launcher\" role=\"dialog\" aria-modal=\"true\" aria-label=\"Command palette\"><div class=\"solveit-launcher-card\"><input type=\"text\" placeholder=\"Run a command or open a dialog/file…\" autocomplete=\"off\" spellcheck=\"false\" aria-label=\"Search commands and files\"><ul role=\"listbox\"></ul></div></div>", "action_menu": "<div id=\"craft-cell-action-menu\" class=\"craft-action-menu\" popover=\"auto\" role=\"menu\"></div>", "insert_trigger": "<button id=\"craft-insert-preview\" type=\"button\" hidden popovertarget=\"craft-insert-preview-menu\"></button>", "insert_menu": "<div id=\"craft-insert-preview-menu\" popover=\"auto\"><small>New cell type</small><button type=\"button\" data-kind=\"Code\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 6l-6 6 6 6m8-12 6 6-6 6M14 4l-4 16\"></path></svg>Code</button><button type=\"button\" data-kind=\"Note\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 3h10l4 4v14H5z M15 3v5h4M8 12h8m-8 4h8\"></path></svg>Note</button><button type=\"button\" data-kind=\"Raw\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 5h18v14H3z M7 9v6\"></path></svg>Raw</button><button type=\"button\" data-kind=\"Prompt\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 4h18v12H9l-6 4z M7 10h.01m5 0h.01m5 0h.01\"></path></svg>Prompt</button></div>", "desk_edge_below": "<button type=\"button\" class=\"craft-desk-edge\" data-edge=\"below\" aria-label=\"Insert cell below (drag to pick type)\"><span class=\"craft-desk-edge-pill\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"12\" height=\"12\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 6v12M6 12h12\"></path></svg><span class=\"craft-desk-edge-kind\"></span></span></button>", "desk_picker": "<div id=\"craft-desk-picker\" role=\"menu\"><div class=\"craft-desk-picker-head\"></div><div class=\"craft-desk-picker-opts\"><button type=\"button\" role=\"menuitem\" data-type=\"Code\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 6l-6 6 6 6m8-12 6 6-6 6M14 4l-4 16\"></path></svg><span>Code</span><kbd>C</kbd></button><button type=\"button\" role=\"menuitem\" data-type=\"Note\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 3h10l4 4v14H5z M15 3v5h4M8 12h8m-8 4h8\"></path></svg><span>Note</span><kbd>N</kbd></button><button type=\"button\" role=\"menuitem\" data-type=\"Prompt\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 4h18v12H9l-6 4z M7 10h.01m5 0h.01m5 0h.01\"></path></svg><span>Prompt</span><kbd>P</kbd></button><button type=\"button\" role=\"menuitem\" data-type=\"Raw\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 5h18v14H3z M7 9v6\"></path></svg><span>Raw</span><kbd>R</kbd></button></div></div>", "action_trigger": "<button type=\"button\" class=\"craft-action-trigger\" aria-haspopup=\"menu\" aria-expanded=\"false\" aria-controls=\"craft-cell-action-menu\">…</button>", "omit_marker": "<button type=\"button\" class=\"craft-omit-marker\"></button>", "insert_placeholder": "<div class=\"craft-insert-placeholder\"></div>", "table_wrap": "<div class=\"craft-table-wrap\" tabindex=\"0\" role=\"region\" aria-label=\"Scrollable table\"></div>", "table_copy_btn": "<button type=\"button\" class=\"craft-table-copy\" aria-label=\"Copy table as TSV\">Copy TSV</button>", "cell_icon_Code": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 6l-6 6 6 6m8-12 6 6-6 6M14 4l-4 16\"></path></svg>", "cell_icon_Note": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 3h10l4 4v14H5z M15 3v5h4M8 12h8m-8 4h8\"></path></svg>", "cell_icon_Raw": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 5h18v14H3z M7 9v6\"></path></svg>", "cell_icon_Prompt": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 4h18v12H9l-6 4z M7 10h.01m5 0h.01m5 0h.01\"></path></svg>", "desk_icon_Code": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"11\" height=\"11\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 6l-6 6 6 6m8-12 6 6-6 6M14 4l-4 16\"></path></svg>", "desk_icon_Note": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"11\" height=\"11\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 3h10l4 4v14H5z M15 3v5h4M8 12h8m-8 4h8\"></path></svg>", "desk_icon_Raw": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"11\" height=\"11\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 5h18v14H3z M7 9v6\"></path></svg>", "desk_icon_Prompt": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"11\" height=\"11\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 4h18v12H9l-6 4z M7 10h.01m5 0h.01m5 0h.01\"></path></svg>"});
-window.__craftCfg = Object.assign(window.__craftCfg || {}, {"cell_types": ["Code", "Note", "Prompt", "Raw"], "key_to_type": {"c": "Code", "n": "Note", "p": "Prompt", "r": "Raw"}, "slash_map": {"c": "Code", "code": "Code", "n": "Note", "note": "Note", "p": "Prompt", "prompt": "Prompt", "r": "Raw", "raw": "Raw"}});
+/* %% nbs/craft/05_dialog_chrome.ipynb #6efd82c1 */
+window.__craftTpl = Object.assign(window.__craftTpl || {}, {"mobile_phone_icon": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"7\" y=\"2\" width=\"10\" height=\"20\" rx=\"2\"></rect><path d=\"M11 18h2\"></path></svg>", "mobile_desk_icon": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"2\" y=\"3\" width=\"20\" height=\"14\" rx=\"2\"></rect><path d=\"M8 21h8M12 17v4\"></path></svg>", "mobile_toggle_btn": "<button id=\"craft-mobile-toggle\" class=\"craft-nav-icon-btn\" type=\"button\"></button>", "launcher_root": "<div class=\"craft-overlay\" id=\"solveit-launcher\" role=\"dialog\" aria-modal=\"true\" aria-label=\"Command palette\"><div class=\"uk-card craft-card solveit-launcher-card\"><input type=\"text\" placeholder=\"Run a command or open a dialog/file…\" autocomplete=\"off\" spellcheck=\"false\" aria-label=\"Search commands and files\"><ul role=\"listbox\"></ul></div></div>"});
 
-/* %% nbs/craft/02_core_ui.ipynb #255a46c8 */
-/* ── Hotkey manager bootstrap ──────────────────────────────────────
-   The shared shortcut registry lives in hotkey_manager.js (served from
-   ~/.craft-assets at /static/.craft-assets/hotkey_manager.js). Load it first so the sections below
-   can register their shortcuts; registrations made before it finishes
-   loading are queued and replayed by the manager. */
-(() => {
-  window.__hotkeyQueue ||= [];
-  window.__hotkeyRegister = spec => { if (window.solveitHotkeys) window.solveitHotkeys.register(spec); else window.__hotkeyQueue.push(spec); };
-  for (const [src, tag] of [['/static/.craft-assets/hotkey_manager.js', '1'], ['/static/.craft-assets/hotkey_builtins.js', 'builtins']])
-    if (!document.querySelector(`script[data-solveit-hotkeys="${tag}"]`)) {
-      const s = document.createElement('script');
-      s.src = src; s.dataset.solveitHotkeys = tag;
-      document.head.append(s);
-    }
-})();
-
-/* %% nbs/craft/02_core_ui.ipynb #44718d99 */
+/* %% nbs/craft/05_dialog_chrome.ipynb #c87b8aba */
 /* ── Mobile mode detection & view toggle ───────────────────────────────
    Auto-enables `html.craft-mobile` only on touch/mobile devices (`(hover: none)
    and (pointer: coarse)`), so shrinking a desktop window stays in desktop view.
@@ -901,7 +904,7 @@ window.__craftCfg = Object.assign(window.__craftCfg || {}, {"cell_types": ["Code
   };
 })();
 
-/* %% nbs/craft/02_core_ui.ipynb #57c379b5 */
+/* %% nbs/craft/05_dialog_chrome.ipynb #816121ae */
 /* ── Auto-hiding top nav ──────────────────────────────────────────────
    The reveal trigger is decoupled from the bar. The band starts BELOW the
    browser's own top-edge hotspot so a hidden browser toolbar doesn't fight
@@ -960,6 +963,7 @@ window.__craftCfg = Object.assign(window.__craftCfg || {}, {"cell_types": ["Code
   });
 })();
 
+/* %% nbs/craft/05_dialog_chrome.ipynb #a77b15e8 */
 /* ── Compact Monaco line height ──────────────────────────────────── */
 /* Code size and family come from CRAFT.css. Monaco line-height matches the
    code size; remeasure after webfonts load to keep cursor columns aligned. */
@@ -991,6 +995,7 @@ window.__craftCfg = Object.assign(window.__craftCfg || {}, {"cell_types": ["Code
   go();
 })();
 
+/* %% nbs/craft/05_dialog_chrome.ipynb #3cd92916 */
 /* ── Launcher (⌘⇧P) ──────────────────────────────────────────────────
    One fuzzy box over commands (every hotkey-registry action, custom and
    Solveit built-in) and dialogs/files (whatever the file tree has loaded).
@@ -1063,6 +1068,8 @@ window.__craftCfg = Object.assign(window.__craftCfg || {}, {"cell_types": ["Code
 
   window.__hotkeyRegister?.({id: 'launcher', label: 'Open launcher', group: 'Launcher', combo: 'Mod+Shift+P', handler: () => { if (root?.classList.contains('open')) close(); else open(); return true; }});
 })();
+
+/* %% nbs/craft/05_dialog_chrome.ipynb #098b8be2 */
 (() => {
   window.craftIdleComposer?.disable();
   if (window.CRAFT_IDLE_COMPOSER === false) return;
@@ -1176,835 +1183,7 @@ window.__craftCfg = Object.assign(window.__craftCfg || {}, {"cell_types": ["Code
   }});
 })();
 
-/* %% nbs/craft/02_core_ui.ipynb #bedbb7e5 */
-(() => {
-  window.craftCellChains?.disable();
-  let frame;
-  const sync = () => {
-    frame = null;
-    const all = [...document.querySelectorAll('#dialog-container > .editable')];
-    const cells = all.filter(e => !e.hidden && getComputedStyle(e).display !== 'none');
-    const type = e => e?.querySelector(':scope > .card-in')?.dataset.mtype;
-    const joins = (a, b) => ['prompt', 'code', 'note'].includes(type(a)) && type(a) === type(b);
-    const prev = new Set(cells.filter((e, i) => i > 0 && joins(cells[i-1], e)));
-    const next = new Set(cells.filter((e, i) => i < cells.length-1 && joins(e, cells[i+1])));
-    for (const e of all) {
-      if (e.classList.contains('craft-chain-prev') !== prev.has(e)) e.classList.toggle('craft-chain-prev', prev.has(e));
-      if (e.classList.contains('craft-chain-next') !== next.has(e)) e.classList.toggle('craft-chain-next', next.has(e));
-    }
-  };
-  const offDom = window.__craftCMCore.onDomChange(sync, {attrs: ['class', 'style', 'hidden', 'data-mtype'], delay: 'raf'});
-  window.craftCellChains = {
-    sync,
-    disable() {
-      offDom();
-      document.querySelectorAll('.craft-chain-prev,.craft-chain-next').forEach(e => e.classList.remove('craft-chain-prev', 'craft-chain-next'));
-    }
-  };
-  sync();
-})();
-
-(() => {
-  window.craftActionMenus?.disable();
-  if (window.CRAFT_ACTION_MENUS === false) return;
-  let current = null, frame = null;
-  const {mountTpl, qsa, on, onDomChange} = window.__craftCMCore;
-  const menu = mountTpl('action_menu');
-  document.body.append(menu);
-  const close = (restore = false) => {
-    const trigger = current;
-    current = null;
-    trigger?.setAttribute('aria-expanded', 'false');
-    if (menu.matches(':popover-open')) menu.hidePopover();
-    if (restore && trigger?.isConnected) trigger.focus({preventScroll: true});
-  };
-  const open = trigger => {
-    if (current === trigger) return close(true);
-    close();
-    const card = trigger.closest('.msg-card');
-    const group = card.querySelector('.uk-card-header .uk-btn-group');
-    if (!group) return;
-    menu.replaceChildren();
-    for (const source of group.querySelectorAll('button,a')) {
-      if (source.hidden) continue;
-      const label = source.title || source.querySelector('[title]')?.getAttribute('title') || source.getAttribute('aria-label');
-      if (!label) continue;
-      menu.append(window.__craftCMCore.el('button', {
-        type: 'button', role: 'menuitem', disabled: source.disabled,
-        dataset: /^Delete/i.test(label) ? {danger: ''} : {},
-        onClick: e => {
-          e.stopPropagation();
-          close();
-          if (source.isConnected) source.click();
-          queueMicrotask(() => { if (document.activeElement === document.body && trigger.isConnected) trigger.focus({preventScroll: true}); });
-        },
-      }, label));
-    }
-    if (card.matches('.card-in[data-mtype="code"]') && window.craftC2) {
-      const cellEl = card.closest('.editable');
-      const cid = cellEl?.id?.replace(/^_/, '');
-      if (cid) {
-        menu.append(
-          window.__craftCMCore.el('hr', {cls: 'craft-action-sep'}),
-          window.__craftCMCore.el('button', {
-            type: 'button', role: 'menuitem',
-            onClick: e => { e.stopPropagation(); close(); window.craftC2.toggleLineNumbers?.(); },
-          }, `Line numbers: ${window.craftC2.lineNumbers?.() ? 'On' : 'Off'}`),
-        );
-      }
-    }
-    current = trigger;
-    trigger.setAttribute('aria-expanded', 'true');
-    menu.setAttribute('aria-label', trigger.getAttribute('aria-label'));
-    menu.showPopover();
-    const r = trigger.getBoundingClientRect();
-    menu.style.left = Math.max(8, Math.min(r.right - menu.offsetWidth, innerWidth - menu.offsetWidth - 8)) + 'px';
-    menu.style.top = Math.max(8, Math.min(r.bottom + 4, innerHeight - menu.offsetHeight - 8)) + 'px';
-    menu.querySelector('button:not(:disabled)')?.focus({preventScroll: true});
-  };
-  const sync = () => {
-    frame = null;
-    if (current && !current.isConnected) close();
-    for (const group of document.querySelectorAll('#dialog-container .msg-card > .uk-card-header .uk-btn-group')) {
-      const nav = group.closest('nav');
-      if (!nav) continue;
-      let shell = group;
-      while (shell.parentElement !== nav && shell.parentElement) shell = shell.parentElement;
-      if (shell === group && shell.parentElement !== nav) continue;
-      shell.classList.add('craft-action-source');
-      for (const button of nav.querySelectorAll(':scope > button[data-uk-toggle]')) button.classList.add('craft-old-action-toggle');
-      if (nav.querySelector(':scope > .craft-action-trigger')) continue;
-      const trigger = mountTpl('action_trigger');
-      const card = nav.closest('.msg-card');
-      trigger.setAttribute('aria-label', card.classList.contains('card-out') ? 'Output actions' : 'Input actions');
-      on(trigger, {
-        click: e => { e.stopPropagation(); open(trigger); },
-        keydown: e => { if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); open(trigger); } },
-      });
-      nav.append(trigger);
-    }
-  };
-  const keys = e => {
-    if (!current) return;
-    if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); close(true); return; }
-    if (!menu.contains(e.target)) return;
-    e.stopImmediatePropagation();
-    const items = qsa('button:not(:disabled)', menu);
-    const i = items.indexOf(document.activeElement);
-    if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) {
-      e.preventDefault();
-      const j = e.key === 'Home' ? 0 : e.key === 'End' ? items.length-1 : (i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
-      items[j]?.focus();
-    }
-  };
-  const focus = e => { if (current && !menu.contains(e.target) && e.target !== current) close(); };
-  const toggled = () => { if (!menu.matches(':popover-open') && current) close(); };
-  const ac = new AbortController(), sig = {signal: ac.signal}, cap = {capture: true, signal: ac.signal};
-  const offDom = onDomChange(sync, {delay: 'raf', inDialog: true});
-  on(document, 'keydown', keys, cap);
-  on(document, {focusin: focus, 'htmx:beforeSwap': () => close()}, sig);
-  on(menu, 'toggle', toggled, sig);
-  window.craftActionMenus = {
-    sync,
-    close,
-    disable() {
-      offDom();
-      close();
-      ac.abort();
-      qsa('.craft-action-trigger').forEach(e => e.remove());
-      qsa('.craft-action-source,.craft-old-action-toggle').forEach(e => e.classList.remove('craft-action-source', 'craft-old-action-toggle'));
-      menu.remove();
-    }
-  };
-  sync();
-})();
-
-
-(() => {
-  const {mountTpl, qsa, on, onDomChange} = window.__craftCMCore;
-  const preserved = qsa('.editable.craft-omitted').map(e => e.id);
-  window.craftOmit?.disable();
-  const omitted = new Set(preserved), markers = new Map();
-  let frame, approach = 1;
-  const root = () => document.getElementById('dialog-container');
-  const cells = () => qsa(':scope > .editable', root());
-  const eligible = e => !e.hidden && !e.matches('.filter-hidden,.heading-hidden,.hidden');
-  const marker = () => document.activeElement?.closest('.craft-omit-marker');
-  const blocked = () => window.__craftCMCore.typingBlocked();
-  const selected = () => cells().filter(e => e.matches('[data-sm="primary"],[data-sm="secondary"]') && e.offsetParent !== null);
-  const clearSelection = () => document.querySelectorAll('[data-sm="primary"],[data-sm="secondary"]').forEach(e => e.setAttribute('data-sm', 'unselected'));
-  const choose = (e, direction = 1) => {
-    if (!e) return;
-    approach = direction;
-    if (e.matches('.craft-omit-marker')) {
-      clearSelection();
-      e.focus({preventScroll: true});
-      e.scrollIntoView({block: 'nearest'});
-    } else {
-      marker()?.blur();
-      window.selectMsg(window.$(e));
-      document.activeElement?.closest('.craft-omit-marker')?.blur();
-    }
-  };
-  const restore = button => {
-    const ids = JSON.parse(button.dataset.omitIds);
-    ids.forEach(id => { omitted.delete(id); window.craftParts?.restoreCell(id); });
-    const target = document.getElementById(approach < 0 ? ids.at(-1) : ids[0]);
-    sync();
-    if (target) choose(target);
-    return true;
-  };
-  const sync = () => {
-    frame = null;
-    const all = cells(), runs = [];
-    let run;
-    for (const e of all) {
-      const hide = omitted.has(e.id) || !!window.craftParts?.fullyHidden(e);
-      if (e.classList.contains('craft-omitted') !== hide) e.classList.toggle('craft-omitted', hide);
-      if (!eligible(e) || !hide) { run = null; continue; }
-      if (!run) { run = []; runs.push(run); }
-      run.push(e);
-    }
-    const keys = new Set();
-    for (const group of runs) {
-      const key = group[0].id, ids = group.map(e => e.id);
-      keys.add(key);
-      let button = markers.get(key);
-      if (!button) {
-        button = mountTpl('omit_marker');
-        on(button, {click: () => restore(button), focus: clearSelection});
-        markers.set(key, button);
-      }
-      const text = `▸ ${ids.length}`, label = `Expand ${ids.length} omitted ${ids.length === 1 ? 'cell' : 'cells'}`;
-      if (button.textContent !== text) button.textContent = text;
-      if (button.getAttribute('aria-label') !== label) {
-        button.setAttribute('aria-label', label);
-        button.title = label + ' · Right arrow, Enter, or Omit';
-      }
-      button.setAttribute('aria-expanded', 'false');
-      button.dataset.omitIds = JSON.stringify(ids);
-      if (button.nextElementSibling !== group[0]) group[0].before(button);
-    }
-    for (const [key, button] of markers) {
-      if (keys.has(key)) continue;
-      const focused = document.activeElement === button;
-      const ids = JSON.parse(button.dataset.omitIds);
-      button.remove();
-      markers.delete(key);
-      if (focused) {
-        const replacement = [...markers.values()].find(b => JSON.parse(b.dataset.omitIds).some(id => ids.includes(id)));
-        replacement?.focus();
-      }
-    }
-    window.craftCellChains?.sync();
-  };
-  const toggle = () => {
-    if (blocked()) return false;
-    if (marker()) return restore(marker());
-    const targets = selected();
-    if (!targets.length) return false;
-    const editing = document.getElementById('id_')?.value;
-    if (targets.some(e => e.dataset.editing === 'true' || e.id === '_' + editing)) {
-      window.UIkit?.notification('Finish editing the cell before omitting it.', {status: 'warning'});
-      return true;
-    }
-    targets.forEach(e => omitted.add(e.id));
-    sync();
-    const button = [...markers.values()].find(b => JSON.parse(b.dataset.omitIds).includes(targets[0].id));
-    choose(button);
-    return true;
-  };
-  const stop = e => { e.preventDefault(); e.stopImmediatePropagation(); };
-  const keys = e => {
-    if (blocked() || e.isComposing) return;
-    const current = marker();
-    if (!e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
-      if (current && ['ArrowRight', 'Enter', ' '].includes(e.key)) { stop(e); restore(current); return; }
-      const direction = ['ArrowDown','j'].includes(e.key) ? 1 : ['ArrowUp','k'].includes(e.key) ? -1 : 0;
-      if (direction) {
-        const visible = [...(root()?.children || [])].filter(n => n.matches('.editable,.craft-omit-marker') && n.offsetParent !== null);
-        const active = current || document.querySelector('#dialog-container > [data-sm="primary"]');
-        const index = visible.indexOf(active), next = visible[index + direction];
-        if (current || next?.matches('.craft-omit-marker')) { stop(e); choose(next, direction); return; }
-      }
-      if (current && ['Home','End'].includes(e.key)) {
-        const visible = [...root().children].filter(n => n.matches('.editable,.craft-omit-marker') && n.offsetParent !== null);
-        stop(e); choose(e.key === 'Home' ? visible[0] : visible.at(-1)); return;
-      }
-    }
-    if (current && e.key !== 'Tab') stop(e);
-  };
-  const pointer = e => { if (marker() && !e.target.closest('.craft-omit-marker')) marker().blur(); };
-  const ac = new AbortController();
-  const offDom = onDomChange(sync, {attrs: ['class', 'hidden', 'data-sm-header'], delay: 'raf', inDialog: true});
-  on(document, {keydown: keys, pointerdown: pointer}, {capture: true, signal: ac.signal});
-  window.__hotkeyRegister?.({id: 'cell-omit', label: 'Toggle omit cells', group: 'Dialog · Presentation', combo: 'u', handler: () => window.craftOmit?.toggle() === true});
-  window.craftOmit = {
-    toggle, sync,
-    disable() {
-      offDom();
-      ac.abort();
-      markers.forEach(b => b.remove());
-      cells().forEach(e => e.classList.remove('craft-omitted'));
-      window.craftCellChains?.sync();
-    }
-  };
-  sync();
-})();
-
-
-(() => {
-  window.craftParts?.disable();
-  const states = new Map(), controls = new Map(), pending = new Map();
-  const originals = window.solveitHotkeys?.list().filter(s => ['si-i','si-o'].includes(s.id)) || [];
-  let bypass = false, frame;
-  const {qsa, on, onDomChange} = window.__craftCMCore;
-  const cells = () => qsa('#dialog-container > .editable');
-  const card = (e, side) => e.querySelector(side === 'input' ? ':scope > .card-in' : ':scope > .card-out');
-  const button = (e, side) => card(e, side)?.querySelector('[hx-post="/collapse_"]');
-  const present = (e, side) => side === 'input' ? !!card(e, side) : !!card(e, side)?.querySelector('.msg-body');
-  const blocked = () => window.__craftCMCore.typingBlocked();
-  const busy = e => e.dataset.editing === 'true' || e.id === '_' + document.getElementById('id_')?.value;
-  const waiting = (e, side) => {
-    const key = e.id + side, p = pending.get(key);
-    if (p && (p.collapsed !== !!card(e, side)?.classList.contains('collapsed') || performance.now() > p.until)) pending.delete(key);
-    return pending.has(key);
-  };
-  const native = (e, side) => {
-    const b = button(e, side);
-    if (!b || waiting(e, side)) return;
-    const selection = cells().map(n => [n, n.getAttribute('data-sm')]);
-    window.selectMsg($(e), {scroll: false});
-    pending.set(e.id + side, {collapsed: !!card(e, side)?.classList.contains('collapsed'), until: performance.now() + 5000});
-    bypass = true;
-    try { b.click(); }
-    finally {
-      bypass = false;
-      selection.forEach(([n, value]) => value === null ? n.removeAttribute('data-sm') : n.setAttribute('data-sm', value));
-    }
-  };
-  const restore = (id, side) => {
-    const state = states.get(id), e = document.getElementById(id);
-    if (!state || !e) return;
-    state.hidden.delete(side);
-    if (!state.hidden.size) states.delete(id);
-    sync();
-    if (card(e, side)?.classList.contains('collapsed')) native(e, side);
-    window.selectMsg($(e), {scroll: false});
-  };
-  const restoreCell = id => {
-    const state = states.get(id);
-    if (state) restore(id, state.last);
-  };
-  const fullyHidden = e => {
-    const state = states.get(e.id);
-    return !!state && ['input','output'].filter(s => present(e, s)).every(s => state.hidden.has(s));
-  };
-  const focusMarker = id => {
-    const b = [...document.querySelectorAll('.craft-omit-marker')].find(n => JSON.parse(n.dataset.omitIds).includes(id));
-    b?.focus({preventScroll: true});
-  };
-  const sync = () => {
-    frame = null;
-    const live = new Set();
-    for (const e of cells()) {
-      const state = states.get(e.id), full = fullyHidden(e);
-      for (const side of ['input','output']) {
-        const c = card(e, side), hidden = !!state?.hidden.has(side), key = e.id + ':' + side;
-        if (c && c.classList.contains('craft-part-hidden') !== hidden) c.classList.toggle('craft-part-hidden', hidden);
-        if (!hidden || !c || full) continue;
-        live.add(key);
-        let b = controls.get(key);
-        if (!b) {
-          b = window.__craftCMCore.el('button', {
-            type: 'button', cls: 'craft-part-restore', title: `Restore ${side}`,
-            'aria-label': `Restore ${side}`, onClick: () => restore(e.id, side),
-          }, side === 'input' ? '⌃' : '⌄');
-          controls.set(key, b);
-        }
-        if (side === 'input') {
-          const output = card(e, 'output');
-          if (output && b.nextElementSibling !== output) output.before(b);
-        } else if (b.previousElementSibling !== card(e, 'input')) card(e, 'input')?.after(b);
-      }
-    }
-    for (const [key, b] of controls) if (!live.has(key)) { b.remove(); controls.delete(key); }
-    window.craftOmit?.sync();
-  };
-  const cycleOne = (e, side) => {
-    if (!present(e, side) || waiting(e, side)) return;
-    if (busy(e)) {
-      window.UIkit?.notification('Finish editing before minimizing this cell.', {status: 'warning'});
-      return;
-    }
-    const state = states.get(e.id);
-    if (state?.hidden.has(side)) { restore(e.id, side); return; }
-    if (!card(e, side).classList.contains('collapsed')) { native(e, side); return; }
-    const next = state || {hidden: new Set(), last: side};
-    next.hidden.add(side);
-    next.last = side;
-    states.set(e.id, next);
-    sync();
-    if (fullyHidden(e)) focusMarker(e.id);
-  };
-  const cycle = side => {
-    if (blocked()) return false;
-    const marker = document.activeElement?.closest('.craft-omit-marker');
-    if (marker) {
-      for (const id of JSON.parse(marker.dataset.omitIds)) if (states.get(id)?.hidden.has(side)) restore(id, side);
-      return true;
-    }
-    const selected = cells().filter(e => e.matches('[data-sm="primary"],[data-sm="secondary"]') && e.offsetParent !== null);
-    selected.forEach(e => cycleOne(e, side));
-    return !!selected.length;
-  };
-  const click = event => {
-    if (bypass) return;
-    const b = event.target.closest('[hx-post="/collapse_"]');
-    const c = b?.closest('.msg-card'), e = c?.closest('.editable');
-    if (!e) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    cycleOne(e, c.classList.contains('card-in') ? 'input' : 'output');
-  };
-  const finished = event => {
-    const b = event.detail?.elt?.closest?.('[hx-post="/collapse_"]');
-    const c = b?.closest('.msg-card'), e = c?.closest('.editable');
-    if (e) pending.delete(e.id + (c.classList.contains('card-in') ? 'input' : 'output'));
-  };
-  const ac = new AbortController();
-  const offDom = onDomChange(sync, {attrs: ['class'], delay: 'raf', inDialog: true});
-  on(document, 'click', click, {capture: true, signal: ac.signal});
-  on(document, 'htmx:afterRequest', finished, {signal: ac.signal});
-  window.__hotkeyRegister?.({id: 'si-i', label: 'Cycle input: expanded / collapsed / hidden', group: 'Solveit · Dialog (selection mode)', combo: 'i', handler: () => cycle('input')});
-  window.__hotkeyRegister?.({id: 'si-o', label: 'Cycle output: expanded / collapsed / hidden', group: 'Solveit · Dialog (selection mode)', combo: 'o', handler: () => cycle('output')});
-  window.craftParts = {
-    cycle, sync, fullyHidden, restoreCell,
-    disable() {
-      offDom();
-      ac.abort();
-      controls.forEach(b => b.remove());
-      states.clear();
-      qsa('.craft-part-hidden').forEach(c => c.classList.remove('craft-part-hidden'));
-      originals.forEach(s => window.__hotkeyRegister?.({...s, handler: () => true}));
-      window.craftOmit?.sync();
-    }
-  };
-  sync();
-})();
-
-
-(() => {
-  window.craftInsertPreview?.disable();
-  if (!document.getElementById('dialog-container')) return;
-  const types = {Code: 1, Note: 1, Raw: 1, Prompt: 1};
-  const icon = name => window.__craftTpl?.[`cell_icon_${name}`] || '';
-  const key = 'craft-insert-preview:v1:' + (new URLSearchParams(location.search).get('name') || location.pathname);
-  const {mountTpl, qs, qsa, on, store, patch, onDomChange} = window.__craftCMCore;
-  const ac = new AbortController(), sig = {signal: ac.signal}, cap = {capture: true, signal: ac.signal};
-  const trigger = mountTpl('insert_trigger'), menu = mountTpl('insert_menu');
-  let current;
-  const select = name => {
-    current = name;
-    const title = `A/B inserts: ${name}`;
-    patch(trigger, {innerHTML: icon(name), title, 'aria-label': title});
-    for (const option of qsa('button', menu)) option.setAttribute('aria-pressed', String(option.dataset.kind === name));
-  };
-  const saved = store.get(key);
-  select(Object.hasOwn(types, saved) ? saved : document.getElementById('default_code')?.checked ? 'Code' : 'Prompt');
-  let scroller;
-  const position = () => {
-    if (!scroller) return;
-    const rect = scroller.getBoundingClientRect();
-    trigger.hidden = !rect.width || !rect.height;
-    Object.assign(trigger.style, {left: 'auto', right: '42px', top: '6px'});
-    Object.assign(menu.style, {right: '10px', top: '36px'});
-    window.craftMobile?.reposition?.();
-  };
-  const resize = new ResizeObserver(position);
-  const sync = () => {
-    const next = document.getElementById('dialog-container');
-    if (scroller === next) return;
-    if (scroller) {
-      resize.unobserve(scroller);
-      scroller.classList.remove('craft-insert-preview');
-    }
-    scroller = next;
-    if (!scroller) { trigger.hidden = true; return; }
-    scroller.classList.add('craft-insert-preview');
-    resize.observe(scroller); position();
-  };
-  const choose = name => {
-    select(name);
-    store.set(key, name);
-  };
-  const activeCells = () => qsa('.editable:is([data-sm="primary"],[data-sm="secondary"])', scroller).filter(el => el.getClientRects().length);
-  const cellType = el => el?.querySelector('.card-in[data-mtype]')?.dataset.mtype;
-  const editorCell = () => (document.querySelector('#full_editor #id_')?.value || '').replace(/^_/, '');
-  const notify = error => {
-    console.error('CRAFT insertion:', error);
-    window.UIkit?.notification?.({message: error.message, status: 'danger'});
-  };
-  const waitFor = (check, timeout = 5000) => {
-    const immediate = check();
-    if (immediate) return Promise.resolve(immediate);
-    return new Promise(resolve => {
-      let done = false;
-      const finish = val => {
-        if (done) return;
-        done = true;
-        offDomWait();
-        clearInterval(tick);
-        clearTimeout(cap);
-        resolve(val);
-      };
-      const probe = () => { const r = check(); if (r) finish(r); };
-      const offDomWait = onDomChange(probe, {attrs: ['data-mtype', 'class', 'hidden', 'data-editing'], delay: 0});
-      const tick = setInterval(probe, 100);
-      const cap = setTimeout(() => finish(null), timeout);
-    });
-  };
-  const setType = async (id, type) => {
-    if (cellType(document.getElementById(id)) !== type) {
-      await window.__craftCMCore.htmxPost('/set_mtyp_', {id_: id, ids: id, mtyp: type});
-      if (!(await waitFor(() => cellType(document.getElementById(id)) === type))) throw new Error(`Could not switch cell to ${type}.`);
-    }
-  };
-  const blocked = () => window.__craftCMCore.typingBlocked('.cm-editor,#craft-insert-preview-menu');
-  let busy = false;
-  const execute = action => {
-    if (!busy) {
-      busy = true;
-      Promise.resolve().then(action).catch(notify).finally(() => { busy = false; });
-    }
-    return true;
-  };
-  const mode = name => {
-    if (blocked()) return false;
-    choose(name);
-    const cells = activeCells();
-    if (cells.length !== 1) return true;
-    return execute(async () => { await setType(cells[0].id, name.toLowerCase()); });
-  };
-  // opts.type ('Code'|'Note'|'Prompt'|'Raw') overrides the picker; opts.cell targets a cell other than the
-  // selection; opts.force skips the focus guard (the mobile toolbar has already closed any editor).
-  const insert = (where, opts = {}) => {
-    if (!opts.force && blocked()) return false;
-    const primary = opts.cell || activeCells().find(el => el.dataset.sm === 'primary');
-    const button = primary?.querySelector(`[hx-post="/add_${where}_"]`);
-    if (!button) return true;
-    const name = Object.hasOwn(types, opts.type || '') ? opts.type : current;
-    return execute(async () => {
-      const type = name.toLowerCase(), old = new Set([...scroller.querySelectorAll('.editable[id]')].map(el => el.id));
-      if (!window.craftC2?.guardNonCodeInsertion) throw new Error('Reload this dialog to enable typed insertion.');
-      if (type === 'code') {
-        if (!window.craftC2?.expectCodeInsertion) throw new Error('Reload this dialog to enable C2 insertion.');
-        window.craftC2.expectCodeInsertion();
-      }
-      const release = type !== 'code' ? window.craftC2.guardNonCodeInsertion(old) : null;
-      const unhide = window.craftIdleComposer?.holdForInsertion();
-      const ph = window.__craftCMCore.mountTpl('insert_placeholder');
-      if (where === 'above') primary.before(ph); else primary.after(ph);
-      let id = null;
-      try {
-        button.dispatchEvent(new MouseEvent('click', {bubbles:false}));
-        id = await waitFor(() => {
-          const editing = editorCell(), id = '_' + editing;
-          if (editing && !old.has(id) && document.getElementById(id)) return id;
-          if (type === 'code') return [...scroller.querySelectorAll('.editable[id]')].find(el => !old.has(el.id) && window.craftC2?.manages(el.id))?.id;
-        });
-        if (!id) throw new Error(`Could not confirm ${name} insertion.`);
-        if (type === 'code') {
-          if (!(await waitFor(() => cellType(document.getElementById(id)) === 'code' && editorCell() !== id.slice(1) && Boolean(document.getElementById(id)?.querySelector('.craft-c2-host'))))) throw new Error('Could not confirm C2 handoff.');
-        } else {
-          await setType(id, type);
-          const cancel = await waitFor(() => {
-            if (editorCell() !== id.slice(1) || window.edValue?.()) return true;
-            const btn = document.getElementById('cancel_btn');
-            return btn && !btn.disabled ? btn : null;
-          });
-          if (!cancel) throw new Error('Could not close the insertion composer.');
-          if (cancel && cancel !== true) {
-            const field = document.querySelector('#full_editor #msg_type');
-            if (field) field.value = type;
-            cancel.click();
-            if (!(await waitFor(() => editorCell() !== id.slice(1)))) throw new Error('Could not close the insertion composer.');
-            if (cellType(document.getElementById(id)) !== type) throw new Error(`New cell did not retain type ${type}.`);
-          }
-        }
-      } finally { ph.remove(); release?.(); unhide?.(); }
-      if (id) {
-        document.getElementById(id)?.scrollIntoView({block: 'nearest'});
-        if (type === 'code') {
-          if (!document.activeElement?.closest?.(`#${id} .craft-c2-host`)) window.craftC2?.edit?.(id, {anchor: 0, head: 0});
-        } else if (!document.activeElement?.closest?.(`#${id} .craft-md-host`)) {
-          window.craftMd?.edit?.(id, {toEnd: true});
-        }
-      }
-    });
-  };
-  const defs = [
-    ['si-a', 'a', 'Add message above', () => insert('above')],
-    ['si-b', 'b', 'Add message below', () => insert('below')],
-    ...['Code','Note','Prompt','Raw'].map((name,i) => [`si-mode-${name.toLowerCase()}`, `Mod+Shift+${'JKL;'[i]}`, `Switch message to ${name.toLowerCase()}`, () => mode(name)]),
-  ].map(([id,combo,label,handler]) => ({id,combo,label,handler,group:'Solveit · Dialog (selection mode)'}));
-  const registerBindings = () => defs.forEach(spec => window.__hotkeyRegister?.(spec));
-  const builtins = qs('script[data-solveit-hotkeys="builtins"]');
-  on(builtins, 'load', registerBindings, {once: true, signal: ac.signal});
-  registerBindings();
-  on(menu, 'click', e => {
-    const option = e.target.closest('button[data-kind]');
-    if (!option) return;
-    choose(option.dataset.kind);
-    menu.hidePopover(); trigger.focus();
-  }, sig);
-  document.body.append(trigger, menu);
-  const KIND_MAP = {code: 'Code', note: 'Note', prompt: 'Prompt', raw: 'Raw'};
-  const onHtmxConfig = e => {
-    const path = e.detail?.path || '';
-    const mtyp = e.detail?.parameters?.mtyp || e.detail?.parameters?.msg_type;
-    if ((path.includes('set_mtyp') || path.includes('upsert_msg')) && mtyp && KIND_MAP[String(mtyp).toLowerCase()]) {
-      choose(KIND_MAP[String(mtyp).toLowerCase()]);
-    }
-  };
-  const onTabClick = e => {
-    const tab = e.target?.closest?.('#full_editor [role="tab"], #full_editor button');
-    const name = tab && KIND_MAP[(tab.textContent || '').trim().toLowerCase()];
-    if (name) choose(name);
-  };
-  on(document, 'htmx:configRequest', onHtmxConfig, sig);
-  on(document, 'click', onTabClick, cap);
-  const offDom = onDomChange(sync, {delay: 0});
-  on(window, 'resize', position, sig);
-  window.craftInsertPreview = {
-    insert: (where, opts) => insert(where, opts),
-    choose,
-    setType,
-    type: () => current,
-    isBusy: () => busy,
-    disable() {
-    ac.abort();
-    offDom(); resize.disconnect();
-    defs.forEach(spec => window.__hotkeyRegister?.({...spec, builtin:true, handler:() => true}));
-    scroller?.classList.remove('craft-insert-preview');
-    trigger.remove(); menu.remove(); delete window.craftInsertPreview;
-  }};
-  sync();
-})();
-
-
-(() => {
-  window.craftInlineNote?.disable?.();
-  window.craftInlineText?.disable?.();
-  if (!document.getElementById('dialog-container')) return;
-  if (!document.querySelector('script[data-craft-md="1"]')) {
-    const s = document.createElement('script');
-    s.src = '/static/.craft-assets/craft_md.js';
-    s.dataset.craftMd = '1';
-    document.head.append(s);
-  }
-})();
-
-(() => {
-  window.craftImageDrop?.disable();
-  const {qs, on} = window.__craftCMCore;
-  const target = e => {
-    if (e.target.closest?.('.monaco-editor')) return;
-    return e.target.closest?.('#dialog-container > .editable > .card-in:is([data-mtype="code"],[data-mtype="note"],[data-mtype="prompt"])');
-  };
-  const field = id => qs(`#full_editor #${id}`)?.value;
-  const editorId = () => (field('id_') || '').replace(/^_/, '');
-  const model = () => window.editor?.getModel();
-  const notify = message => window.UIkit?.notification?.({message, status: 'warning'});
-  let busy = false, disabled = false;
-  const dragover = e => {
-    if (!target(e)) return;
-    const items = [...(e.dataTransfer?.items || [])];
-    if (!items.some(i => i.kind === 'file' && (!i.type || i.type.startsWith('image/'))) && (items.length || !e.dataTransfer?.types.includes('Files'))) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'copy';
-  };
-  const attach = async (e, card, file) => {
-    if (typeof window.handleBlob !== 'function') return;
-    e.preventDefault();
-    e.stopPropagation();
-    if (busy) return notify('Wait for the current image upload to finish.');
-    const cell = card.parentElement, id = cell.id.slice(1), kind = card.dataset.mtype;
-    const priorModel = model();
-    const ready = () => editorId() === id && field('is_input') === '1' && field('msg_type') === kind && model() && !model().uri.path.endsWith('/temp');
-    busy = true;
-    try {
-      if (!ready()) {
-        if (editorId() || window.edValue?.()) return notify('Finish editing the open cell before attaching an image to another cell.');
-        if (window.craftC2?.active?.() === id) await window.craftC2.exit(id);
-        if (window.craftMd?.active?.() === `${id}:in`) await window.craftMd.exit(id, 'in');
-        const btn = card.querySelector('[hx-post="/editor_"]');
-        if (btn) { btn.dataset.craftAllowMonaco = '1'; btn.click(); delete btn.dataset.craftAllowMonaco; }
-        for (let i = 0; i < 100 && !disabled && !(ready() && model() !== priorModel); i++) await new Promise(resolve => setTimeout(resolve, 50));
-        if (disabled) return;
-        if (!ready() || model() === priorModel) return notify('Could not open the cell to attach the image.');
-      }
-      window.craftIdleComposer?.reveal();
-      window.editor.focus();
-      const ext = file.name.match(/\.([^.]+)$/)?.[1] || file.type.split('/')[1] || 'png';
-      await window.handleBlob(file, ext, true, file.name);
-    } catch (err) {
-      console.error('CRAFT image attachment:', err);
-      notify('Could not attach the image.');
-    } finally { busy = false; }
-  };
-  const drop = e => {
-    const card = target(e), file = e.dataTransfer?.files[0];
-    if (card && file?.type.startsWith('image/')) attach(e, card, file);
-  };
-  const ac = new AbortController();
-  on(window, {dragover, drop}, {capture: true, signal: ac.signal});
-  window.craftImageDrop = {disable() {
-    disabled = true;
-    ac.abort();
-    delete window.craftImageDrop;
-  }};
-})();
-
-/* ── Progressive table enhancer (wrap, numeric align, flat-table sort, copy TSV) ── */
-(() => {
-  const NUM_RE = /^[-+\u2212]?[$€£¥]?\s*\d[\d,_]*(?:\.\d+)?(?:[eE][+-]?\d+)?%?$/;
-  const EMPTY_RE = /^(?:|nan|na|n\/a|null|none|-|\u2014)$/i;
-  const parseNum = s => {
-    const t = s.trim();
-    if (!t || EMPTY_RE.test(t)) return null;
-    if (!NUM_RE.test(t)) return NaN;
-    return parseFloat(t.replace(/[\u2212]/g, '-').replace(/[$€£¥,\s_%]/g, ''));
-  };
-
-  const enhanceTable = tbl => {
-    if (!tbl || tbl.dataset.craftTable) return;
-    tbl.dataset.craftTable = '1';
-
-    // 1. Wrap in a keyboard-scrollable container if not already wrapped
-    let wrap = tbl.parentElement;
-    if (!wrap?.classList.contains('craft-table-wrap')) {
-      wrap = window.__craftCMCore.mountTpl('table_wrap');
-      tbl.parentNode.insertBefore(wrap, tbl);
-      wrap.appendChild(tbl);
-    }
-
-    const headRows = [...tbl.querySelectorAll(':scope > thead > tr')];
-    const tbody = tbl.querySelector(':scope > tbody');
-    const bodyRows = tbody ? [...tbody.querySelectorAll(':scope > tr')] : [];
-    const hasSpans = [...tbl.querySelectorAll('th, td')].some(c => c.colSpan > 1 || c.rowSpan > 1);
-
-    // 2. Detect numeric columns and right-align both header and cells
-    if (!hasSpans && bodyRows.length) {
-      const sample = bodyRows.slice(0, 40);
-      const colCount = sample[0].children.length;
-      const headCells = headRows.length === 1 ? [...headRows[0].children] : null;
-      for (let col = 0; col < colCount; col++) {
-        let numHits = 0, nonEmpty = 0;
-        for (const row of sample) {
-          const cell = row.children[col];
-          if (!cell || cell.tagName === 'TH') continue;
-          const v = parseNum(cell.textContent || '');
-          if (v === null) continue;
-          nonEmpty++;
-          if (!Number.isNaN(v)) numHits++;
-        }
-        if (nonEmpty > 0 && numHits === nonEmpty) {
-          for (const row of bodyRows) row.children[col]?.classList.add('craft-num');
-          if (headCells && headCells[col]) headCells[col].classList.add('craft-num');
-        }
-      }
-    } else if (hasSpans && bodyRows.length) {
-      // MultiIndex: align numeric <td> cells (and matching top-row headers) without disturbing rowspan
-      for (const row of bodyRows) {
-        for (const cell of row.children) {
-          if (cell.tagName !== 'TD') continue;
-          const v = parseNum(cell.textContent || '');
-          if (v !== null && !Number.isNaN(v)) cell.classList.add('craft-num');
-        }
-      }
-      if (headRows.length && headRows[0].children.length === bodyRows[0].children.length) {
-        for (let col = 0; col < bodyRows[0].children.length; col++) {
-          if (bodyRows[0].children[col]?.classList.contains('craft-num')) {
-            headRows[0].children[col]?.classList.add('craft-num');
-          }
-        }
-      }
-    }
-
-    // 3. Click/keyboard sort on flat tables (>= 2 rows, single header row, no spans)
-    if (!hasSpans && headRows.length === 1 && bodyRows.length >= 2) {
-      const origOrder = bodyRows.slice();
-      const ths = [...headRows[0].children];
-      ths.forEach((th, colIdx) => {
-        if (!(th.textContent || '').trim()) return;
-        th.classList.add('craft-sort');
-        th.tabIndex = 0;
-        th.setAttribute('aria-sort', 'none');
-        const toggle = () => {
-          const cur = th.getAttribute('aria-sort');
-          const next = cur === 'ascending' ? 'descending' : cur === 'descending' ? 'none' : 'ascending';
-          for (const other of ths) if (other !== th && other.classList.contains('craft-sort')) other.setAttribute('aria-sort', 'none');
-          th.setAttribute('aria-sort', next);
-          if (next === 'none') {
-            tbody.append(...origOrder);
-            return;
-          }
-          const dir = next === 'ascending' ? 1 : -1;
-          const isNum = th.classList.contains('craft-num');
-          const sorted = origOrder.slice().sort((a, b) => {
-            const ta = (a.children[colIdx]?.textContent || '').trim();
-            const tb = (b.children[colIdx]?.textContent || '').trim();
-            if (isNum) {
-              const na = parseNum(ta), nb = parseNum(tb);
-              const va = (na === null || Number.isNaN(na)) ? Infinity : na;
-              const vb = (nb === null || Number.isNaN(nb)) ? Infinity : nb;
-              return (va - vb) * dir;
-            }
-            return ta.localeCompare(tb, undefined, { numeric: true, sensitivity: 'base' }) * dir;
-          });
-          tbody.append(...sorted);
-        };
-        th.addEventListener('click', toggle);
-        th.addEventListener('keydown', e => {
-          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
-        });
-      });
-    }
-
-    // 4. Subtle Copy TSV button on output tables
-    if (tbl.closest('.card-out') && !wrap.querySelector(':scope > .craft-table-copy')) {
-      const btn = window.__craftCMCore.mountTpl('table_copy_btn');
-      btn.addEventListener('click', async e => {
-        e.stopPropagation();
-        const rows = [...tbl.querySelectorAll('tr')].map(tr =>
-          [...tr.children].map(c => (c.textContent || '').replace(/[\t\r\n]+/g, ' ').trim()).join('\t')
-        ).join('\n');
-        try {
-          await navigator.clipboard.writeText(rows);
-          btn.textContent = 'Copied';
-          btn.classList.add('is-copied');
-          setTimeout(() => { btn.textContent = 'Copy TSV'; btn.classList.remove('is-copied'); }, 1400);
-        } catch {}
-      });
-      wrap.insertBefore(btn, tbl);
-    }
-  };
-
-  const enhanceAll = () => {
-    for (const tbl of document.querySelectorAll('#dialog-container .msg-content table:not([data-craft-table])')) {
-      enhanceTable(tbl);
-    }
-  };
-  const start = () => {
-    window.__craftCMCore.onDomChange(enhanceAll, {delay: 80, inDialog: true});
-    enhanceAll();
-  };
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
-  else start();
-  window.craftTables = { enhance: enhanceAll, disable() { mo.disconnect(); clearTimeout(timer); } };
-})();
-
+/* %% nbs/craft/05_dialog_chrome.ipynb #e5cec0de */
 /* ── Accessibility: mirror uk-tooltip & fallback aria-labels on icon controls ── */
 (() => {
   const extractTip = raw => {
@@ -2057,279 +1236,13 @@ window.__craftCfg = Object.assign(window.__craftCfg || {}, {"cell_types": ["Code
   window.craftA11y = { refresh: () => labelControls(document), disable() { offDom?.(); } };
 })();
 
-/* ── Desktop UX: hover-edge drag-to-insert, click-margin escape, Shift+A/B seam picker & slash-morph ── */
-(() => {
-  window.craftDesktopUX?.disable?.();
-  if (!document.getElementById('dialog-container')) return;
-  const {mountTpl, on} = window.__craftCMCore;
-  const ac = new AbortController(), sig = {signal: ac.signal}, cap = {capture: true, signal: ac.signal};
-  const isMobile = () => !!window.craftMobile?.active?.();
-  const dialog = () => document.getElementById('dialog-container');
-  const CELL_TYPES = window.__craftCfg?.cell_types || ['Code', 'Note', 'Prompt', 'Raw'];
-  const KEY_TO_TYPE = window.__craftCfg?.key_to_type || {c: 'Code', n: 'Note', p: 'Prompt', r: 'Raw'};
-  const SLASH_RE = /^\/(c|code|n|note|p|prompt|r|raw)[ \t\n]$/i;
-  const SLASH_MAP = window.__craftCfg?.slash_map || {c: 'Code', code: 'Code', n: 'Note', note: 'Note', p: 'Prompt', prompt: 'Prompt', r: 'Raw', raw: 'Raw'};
-  /* Bottom hover-edge + handle on desktop (shown when hovering near bottom-center) */
-  const hBelow = mountTpl('desk_edge_below');
-  const syncHandleKinds = () => {
-    const t = window.craftInsertPreview?.type?.() || 'Code';
-    const k = hBelow.querySelector('.craft-desk-edge-kind');
-    if (k) k.innerHTML = window.__craftTpl?.[`desk_icon_${t}`] || window.__craftTpl?.desk_icon_Code || '';
-    hBelow.title = `Click to insert ${t} below · Drag to choose type`;
-  };
+/* %% nbs/craft/06_file_tree.ipynb #654a40d5 */
+window.__craftTpl = Object.assign(window.__craftTpl || {}, {"ft_upload_icon": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"></path><polyline points=\"17 8 12 3 7 8\"></polyline><line x1=\"12\" y1=\"3\" x2=\"12\" y2=\"15\"></line></svg>", "ft_collapse_icon": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"7 20 12 15 17 20\"></polyline><polyline points=\"7 4 12 9 17 4\"></polyline><line x1=\"4\" y1=\"12\" x2=\"20\" y2=\"12\"></line></svg>", "ft_temp_editor": "<div class=\"craft-overlay\" id=\"solveit-temp-editor\"><div class=\"solveit-temp-editor-bar\"><strong></strong><button type=\"button\" aria-label=\"Close editor\">×</button></div><iframe title=\"Temporary file editor\"></iframe></div>", "ft_create_form": "<form class=\"solveit-tree-create\"><input class=\"uk-input\" autocomplete=\"off\" spellcheck=\"false\" enterkeyhint=\"done\" aria-describedby=\"solveit-tree-create-error\" type=\"text\"><div id=\"solveit-tree-create-error\" role=\"alert\"></div></form>", "ft_upload_pop": "<div class=\"uk-card craft-card solveit-tree-upload-pop\" role=\"dialog\"><div class=\"solveit-tree-upload-head\"><span class=\"solveit-tree-upload-dest\"></span><button type=\"button\" class=\"solveit-tree-upload-x\" aria-label=\"Close\">×</button></div><div class=\"solveit-tree-upload-drop\">Drop files or folders here</div><div class=\"solveit-tree-upload-actions\"><button class=\"uk-btn uk-btn-default uk-btn-sm solveit-tree-upload-pick-files\" type=\"button\">Files…</button><button class=\"uk-btn uk-btn-default uk-btn-sm solveit-tree-upload-pick-dir\" type=\"button\">Folder…</button></div><input type=\"file\" class=\"solveit-tree-upload-input-files\" multiple hidden><input type=\"file\" class=\"solveit-tree-upload-input-dir\" webkitdirectory multiple hidden></div>", "ft_panel": "<aside id=\"solveit-file-tree-panel\" role=\"complementary\" aria-label=\"Files\"><div class=\"solveit-tree-brand\"><span class=\"solveit-tree-appname\">solveit</span></div><header><strong>Files</strong><kbd class=\"solveit-tree-shortcut\" data-hotkey=\"file-tree-toggle\">⌘B</kbd><button class=\"solveit-tree-new\" type=\"button\" aria-label=\"New dialog, file, or folder\" title=\"New dialog, file, or folder (name/ for folder)\">+</button><button class=\"solveit-tree-upload\" type=\"button\" aria-label=\"Upload files or folders\" title=\"Upload files or folders\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"></path><polyline points=\"17 8 12 3 7 8\"></polyline><line x1=\"12\" y1=\"3\" x2=\"12\" y2=\"15\"></line></svg></button><button class=\"solveit-tree-collapse\" type=\"button\" aria-label=\"Collapse all folders\" title=\"Collapse all folders\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"7 20 12 15 17 20\"></polyline><polyline points=\"7 4 12 9 17 4\"></polyline><line x1=\"4\" y1=\"12\" x2=\"20\" y2=\"12\"></line></svg></button><button class=\"solveit-tree-dots\" type=\"button\" aria-pressed=\"true\">.*</button><button class=\"solveit-tree-refresh\" type=\"button\" aria-label=\"Refresh files\" title=\"Refresh files\">↻</button><button class=\"solveit-tree-home\" type=\"button\" aria-label=\"Dialogs home\" title=\"Dialogs home\">⌂</button></header><input class=\"uk-input solveit-tree-filter\" type=\"search\" placeholder=\"Filter loaded files…\" autocomplete=\"off\"><div class=\"solveit-tree-status\" role=\"status\"></div><div class=\"solveit-tree-rootbar\" title=\"Right-click to create/paste/upload in root; drop here to move or upload to root\"><span class=\"solveit-tree-rootbar-path\">~/</span><span class=\"solveit-tree-rootbar-hint\">root · drop / right-click</span><button class=\"solveit-tree-row-upload\" type=\"button\" aria-label=\"Upload into root\" title=\"Upload into root\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"></path><polyline points=\"17 8 12 3 7 8\"></polyline><line x1=\"12\" y1=\"3\" x2=\"12\" y2=\"15\"></line></svg></button><button class=\"solveit-tree-row-more\" type=\"button\" aria-label=\"Actions for root\" title=\"New dialog, file, folder…\">⋯</button></div><div id=\"solveit-file-tree\" role=\"tree\"></div><div class=\"solveit-tree-resizer\" aria-hidden=\"true\" title=\"Drag to resize · Double-click to reset\"></div></aside>", "ft_menu": "<div class=\"craft-menu solveit-tree-menu\" role=\"menu\"></div>", "ft_workspace": "<div class=\"solveit-tree-workspace\"></div>"});
 
-  /* Shared 4-option fan picker for both drag-to-insert and Shift+A/B */
-  const picker = mountTpl('desk_picker');
-  document.body.append(picker);
-
-  let hostCell = null, pState = null; // {edge, cell, pointerId, startX, startY, dragged, hotType, keyMode}
-  const detachHandles = () => {
-    hBelow.removeAttribute('data-near');
-    hostCell?.classList.remove('craft-desk-host');
-    hBelow.remove();
-    hostCell = null;
-  };
-  const attachHandles = cell => {
-    if (isMobile() || !cell?.isConnected) { detachHandles(); return; }
-    if (cell === hostCell) { syncHandleKinds(); return; }
-    detachHandles();
-    hostCell = cell;
-    cell.classList.add('craft-desk-host');
-    syncHandleKinds();
-    cell.append(hBelow);
-  };
-  const setHot = type => {
-    if (pState) pState.hotType = type;
-    for (const b of picker.querySelectorAll('button[data-type]')) {
-      b.toggleAttribute('data-hot', b.dataset.type === type);
-    }
-  };
-  const closePicker = () => {
-    hBelow.removeAttribute('data-active');
-    picker.classList.remove('open');
-    setHot(null);
-    pState = null;
-  };
-  const positionPicker = (anchorRect, edge, hint) => {
-    picker.querySelector('.craft-desk-picker-head').textContent = hint || (edge === 'above' ? 'Insert above' : 'Insert below');
-    picker.classList.add('open');
-    const pw = picker.offsetWidth || 270, ph = picker.offsetHeight || 68;
-    const cx = anchorRect.left + anchorRect.width / 2;
-    const left = Math.max(8, Math.min(cx - pw / 2, innerWidth - pw - 8));
-    let top;
-    if (edge === 'above') {
-      const aboveTop = anchorRect.top - ph - 10;
-      top = aboveTop >= 8 ? aboveTop : Math.min(anchorRect.bottom + 10, innerHeight - ph - 8);
-    } else {
-      const belowTop = anchorRect.bottom + 10;
-      top = (belowTop + ph <= innerHeight - 8) ? belowTop : Math.max(8, anchorRect.top - ph - 10);
-    }
-    picker.style.left = Math.round(left) + 'px';
-    picker.style.top = Math.round(top) + 'px';
-  };
-  const hitOpt = (x, y) => {
-    const PAD = 8;
-    for (const b of picker.querySelectorAll('button[data-type]')) {
-      const r = b.getBoundingClientRect();
-      if (x >= r.left - PAD && x <= r.right + PAD && y >= r.top - PAD && y <= r.bottom + PAD) return b.dataset.type;
-    }
-    return null;
-  };
-  async function commitEditors() {
-    if (window.craftC2?.active?.()) await window.craftC2.exit();
-    if (window.craftMd?.active?.()) await window.craftMd.exit();
-  }
-  async function doInsert(edge, cell, type) {
-    if (type) window.craftInsertPreview?.choose?.(type);
-    syncHandleKinds();
-    await commitEditors();
-    window.craftInsertPreview?.insert?.(edge, {type: type || window.craftInsertPreview?.type?.(), cell, force: true});
-  }
-
-  const onHandleDown = e => {
-    if (isMobile() || e.button !== 0) return;
-    const handle = e.currentTarget;
-    const cell = handle.closest('#dialog-container > .editable[id]');
-    if (!cell) return;
-    e.preventDefault(); e.stopPropagation();
-    closePicker();
-    const edge = handle.dataset.edge;
-    handle.dataset.active = 'true';
-    handle.setPointerCapture?.(e.pointerId);
-    pState = {edge, cell, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, dragged: false, hotType: null, keyMode: false};
-  };
-  const onHandleMove = e => {
-    if (!pState || e.pointerId !== pState.pointerId || pState.keyMode) return;
-    const dist = Math.hypot(e.clientX - pState.startX, e.clientY - pState.startY);
-    if (!pState.dragged && dist > 6) {
-      pState.dragged = true;
-      positionPicker(e.currentTarget.getBoundingClientRect(), pState.edge, `Drop to insert ${pState.edge} & set default`);
-    }
-    if (pState.dragged) setHot(hitOpt(e.clientX, e.clientY));
-  };
-  const onHandleUp = e => {
-    if (!pState || e.pointerId !== pState.pointerId || pState.keyMode) return;
-    const {edge, cell, dragged, hotType} = pState;
-    closePicker();
-    if (!dragged) doInsert(edge, cell, null);
-    else if (hotType) doInsert(edge, cell, hotType);
-  };
-  const onHandleCancel = e => { if (pState && e.pointerId === pState.pointerId) closePicker(); };
-  const onHandleClick = e => { e.preventDefault(); e.stopPropagation(); };
-  on(hBelow, {pointerdown: onHandleDown, pointermove: onHandleMove, pointerup: onHandleUp, pointercancel: onHandleCancel, click: onHandleClick}, sig);
-  const onPickerClick = e => {
-    const b = e.target.closest('button[data-type]');
-    if (!b || !pState) return;
-    e.preventDefault(); e.stopPropagation();
-    const {edge, cell} = pState;
-    closePicker();
-    doInsert(edge, cell, b.dataset.type);
-  };
-  on(picker, 'click', onPickerClick, sig);
-
-  /* Track cursor proximity to the bottom-center target area of a cell on desktop */
-  const onMouseMove = e => {
-    if (isMobile() || pState) return;
-    const t = e.target;
-    if (t instanceof Element && hBelow.contains(t)) {
-      hBelow.dataset.near = 'true';
-      return;
-    }
-    const cell = t instanceof Element ? t.closest('#dialog-container > .editable[id]') : null;
-    if (cell) {
-      attachHandles(cell);
-      if (hostCell === cell) {
-        const r = cell.getBoundingClientRect();
-        const nearY = Math.abs(e.clientY - r.bottom) <= 26;
-        const nearX = Math.abs(e.clientX - (r.left + r.width / 2)) <= 140;
-        hBelow.toggleAttribute('data-near', nearY && nearX);
-      }
-    } else if (hostCell) {
-      const r = hostCell.getBoundingClientRect();
-      const nearY = Math.abs(e.clientY - r.bottom) <= 26;
-      const nearX = Math.abs(e.clientX - (r.left + r.width / 2)) <= 140;
-      if (nearY && nearX) hBelow.dataset.near = 'true';
-      else hBelow.removeAttribute('data-near');
-    }
-  };
-  const onDialogLeave = () => { if (!pState) detachHandles(); };
-  on(document, 'mousemove', onMouseMove, {passive: true, signal: ac.signal});
-  on(dialog(), 'mouseleave', onDialogLeave, sig);
-
-  /* Click-margin / click-header to escape active inline editors on desktop */
-  const onDocMouseDown = e => {
-    if (isMobile()) return;
-    if (pState?.keyMode && !picker.contains(e.target)) closePicker();
-    if (e.button !== 0) return;
-    const hasEd = !!(window.craftC2?.active?.() || window.craftMd?.active?.());
-    if (!hasEd) return;
-    const t = e.target;
-    if (!(t instanceof Element)) return;
-    if (t.closest('#solveit-file-tree-panel, #solveit-temp-editor, #solveit-launcher, .craft-action-menu, #craft-desk-picker, .craft-desk-edge, .cm-editor, .cm-tooltip, .uk-modal, .uk-dropdown, .uk-drop, nav.monster-navbar')) return;
-    const inDialog = t.closest('#dialog-container');
-    if (!inDialog) return;
-    const inCell = t.closest('#dialog-container > .editable[id]');
-    const onHeaderBlank = inCell && t.closest('.uk-card-header') && !t.closest('button, a, input, select');
-    if (!inCell || onHeaderBlank) {
-      commitEditors();
-    }
-  };
-  on(document, 'mousedown', onDocMouseDown, cap);
-
-  /* Shift+A / Shift+B inline seam quick-picker in selection mode */
-  const blocked = () => document.activeElement?.closest?.('input,textarea,select,[contenteditable],.monaco-editor,.cm-editor,#full_editor,.hk-overlay.open,#solveit-launcher.open,[role="dialog"],.uk-modal.uk-open');
-  const onKeyDown = e => {
-    if (isMobile() || e.isComposing) return;
-    if (pState?.keyMode) {
-      if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); closePicker(); return; }
-      const t = KEY_TO_TYPE[e.key.toLowerCase()];
-      if (t && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        e.preventDefault(); e.stopImmediatePropagation();
-        const {edge, cell} = pState;
-        closePicker();
-        doInsert(edge, cell, t);
-        return;
-      }
-      return;
-    }
-    if (e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && (e.key === 'A' || e.key === 'B')) {
-      if (blocked()) return;
-      const cell = dialog()?.querySelector(':scope > .editable[data-sm="primary"]');
-      if (!cell) return;
-      e.preventDefault(); e.stopImmediatePropagation();
-      const edge = e.key === 'A' ? 'above' : 'below';
-      const r = cell.getBoundingClientRect();
-      const seamRect = edge === 'above'
-        ? {left: r.left, width: r.width, top: r.top, bottom: r.top}
-        : {left: r.left, width: r.width, top: r.bottom, bottom: r.bottom};
-      pState = {edge, cell, pointerId: null, startX: 0, startY: 0, dragged: false, hotType: null, keyMode: true};
-      positionPicker(seamRect, edge, `Insert ${edge} · press C / N / P / R`);
-    }
-  };
-  on(document, 'keydown', onKeyDown, cap);
-
-  /* Slash-morph on empty cells: typing /c, /code, /n, /note, /p, /prompt, /r, /raw + Space/Enter morphs the cell */
-  let morphing = false;
-  const checkSlashMorph = () => {
-    if (morphing || isMobile()) return;
-    let id = null, view = null, isCode = false;
-    const c2Id = window.craftC2?.active?.();
-    if (c2Id) {
-      view = window.craftC2.view(c2Id);
-      if (view?.hasFocus) { id = '_' + String(c2Id).replace(/^_/, ''); isCode = true; }
-    }
-    if (!id) {
-      const mdKey = window.craftMd?.active?.();
-      if (mdKey && mdKey.endsWith(':in')) {
-        view = window.craftMd.view(mdKey);
-        if (view?.hasFocus) id = '_' + mdKey.split(':')[0].replace(/^_/, '');
-      }
-    }
-    if (!id || !view) return;
-    const text = view.state.doc.toString();
-    const m = SLASH_RE.exec(text);
-    if (!m) return;
-    const targetName = SLASH_MAP[m[1].toLowerCase()];
-    const targetType = targetName.toLowerCase();
-    const el = document.getElementById(id);
-    const curType = el?.querySelector('.card-in[data-mtype]')?.dataset.mtype;
-    if (!el || curType === targetType) return;
-    morphing = true;
-    view.dispatch({changes: {from: 0, to: text.length, insert: ''}});
-    (async () => {
-      try {
-        await commitEditors();
-        window.craftInsertPreview?.choose?.(targetName);
-        if (window.craftInsertPreview?.setType) {
-          await window.craftInsertPreview.setType(id, targetType);
-        }
-        if (targetType === 'code') window.craftC2?.edit?.(id.slice(1), {anchor: 0, head: 0});
-        else window.craftMd?.edit?.(id.slice(1), {toEnd: true});
-      } catch (err) {
-        console.error('craftDesktopUX: slash-morph failed', err);
-      } finally { morphing = false; }
-    })();
-  };
-  const onSlashInput = () => { queueMicrotask(checkSlashMorph); };
-  on(document, 'input', onSlashInput, cap);
-
-  const offMobile = window.craftMobile?.onChange?.(active => { if (active) { closePicker(); detachHandles(); } });
-  window.craftDesktopUX = {
-    disable() {
-      offMobile?.(); closePicker(); detachHandles(); picker.remove();
-      ac.abort();
-      delete window.craftDesktopUX;
-    },
-  };
-})();
-
-/* %% nbs/craft/03_file_tree.ipynb #654a40d5 */
-window.__craftTpl = Object.assign(window.__craftTpl || {}, {"ft_upload_icon": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"></path><polyline points=\"17 8 12 3 7 8\"></polyline><line x1=\"12\" y1=\"3\" x2=\"12\" y2=\"15\"></line></svg>", "ft_collapse_icon": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"7 20 12 15 17 20\"></polyline><polyline points=\"7 4 12 9 17 4\"></polyline><line x1=\"4\" y1=\"12\" x2=\"20\" y2=\"12\"></line></svg>", "ft_temp_editor": "<div id=\"solveit-temp-editor\"><div class=\"solveit-temp-editor-bar\"><strong></strong><button type=\"button\" aria-label=\"Close editor\">×</button></div><iframe title=\"Temporary file editor\"></iframe></div>", "ft_create_form": "<form class=\"solveit-tree-create\"><input type=\"text\" autocomplete=\"off\" spellcheck=\"false\" enterkeyhint=\"done\" aria-describedby=\"solveit-tree-create-error\"><div id=\"solveit-tree-create-error\" role=\"alert\"></div></form>", "ft_upload_pop": "<div class=\"solveit-tree-upload-pop\" role=\"dialog\"><div class=\"solveit-tree-upload-head\"><span class=\"solveit-tree-upload-dest\"></span><button type=\"button\" class=\"solveit-tree-upload-x\" aria-label=\"Close\">×</button></div><div class=\"solveit-tree-upload-drop\">Drop files or folders here</div><div class=\"solveit-tree-upload-actions\"><button type=\"button\" class=\"solveit-tree-upload-pick-files\">Files…</button><button type=\"button\" class=\"solveit-tree-upload-pick-dir\">Folder…</button></div><input type=\"file\" class=\"solveit-tree-upload-input-files\" multiple hidden><input type=\"file\" class=\"solveit-tree-upload-input-dir\" webkitdirectory multiple hidden></div>", "ft_panel": "<aside id=\"solveit-file-tree-panel\" role=\"complementary\" aria-label=\"Files\"><div class=\"solveit-tree-brand\"><span class=\"solveit-tree-appname\">solveit</span></div><header><strong>Files</strong><kbd class=\"solveit-tree-shortcut\" data-hotkey=\"file-tree-toggle\">⌘B</kbd><button class=\"solveit-tree-new\" type=\"button\" aria-label=\"New dialog, file, or folder\" title=\"New dialog, file, or folder (name/ for folder)\">+</button><button class=\"solveit-tree-upload\" type=\"button\" aria-label=\"Upload files or folders\" title=\"Upload files or folders\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"></path><polyline points=\"17 8 12 3 7 8\"></polyline><line x1=\"12\" y1=\"3\" x2=\"12\" y2=\"15\"></line></svg></button><button class=\"solveit-tree-collapse\" type=\"button\" aria-label=\"Collapse all folders\" title=\"Collapse all folders\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"7 20 12 15 17 20\"></polyline><polyline points=\"7 4 12 9 17 4\"></polyline><line x1=\"4\" y1=\"12\" x2=\"20\" y2=\"12\"></line></svg></button><button class=\"solveit-tree-dots\" type=\"button\" aria-pressed=\"true\">.*</button><button class=\"solveit-tree-refresh\" type=\"button\" aria-label=\"Refresh files\" title=\"Refresh files\">↻</button><button class=\"solveit-tree-home\" type=\"button\" aria-label=\"Dialogs home\" title=\"Dialogs home\">⌂</button></header><input class=\"solveit-tree-filter\" type=\"search\" placeholder=\"Filter loaded files…\" autocomplete=\"off\"><div class=\"solveit-tree-status\" role=\"status\"></div><div class=\"solveit-tree-rootbar\" title=\"Right-click to create/paste/upload in root; drop here to move or upload to root\"><span class=\"solveit-tree-rootbar-path\">~/</span><span class=\"solveit-tree-rootbar-hint\">root · drop / right-click</span><button class=\"solveit-tree-row-upload\" type=\"button\" aria-label=\"Upload into root\" title=\"Upload into root\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"></path><polyline points=\"17 8 12 3 7 8\"></polyline><line x1=\"12\" y1=\"3\" x2=\"12\" y2=\"15\"></line></svg></button><button class=\"solveit-tree-row-more\" type=\"button\" aria-label=\"Actions for root\" title=\"New dialog, file, folder…\">⋯</button></div><div id=\"solveit-file-tree\" role=\"tree\"></div><div class=\"solveit-tree-resizer\" aria-hidden=\"true\" title=\"Drag to resize · Double-click to reset\"></div></aside>", "ft_menu": "<div class=\"solveit-tree-menu\" role=\"menu\"></div>", "ft_workspace": "<div class=\"solveit-tree-workspace\"></div>"});
-
-/* %% nbs/craft/03_file_tree.ipynb #2cac7d02 */
-/* ── Lightweight file tree ─────────────────────────────────────────── */
-(() => {
-  window.solveitFileTree?.disable?.();
+/* %% nbs/craft/06_file_tree.ipynb #bdd93cf1 */
+(() => { /* iife:fileTree */
+/* #bdd93cf1 */
+window.solveitFileTree?.disable?.();
   const {mountTpl, qs, on, store, patch} = window.__craftCMCore;
   const QUERCUS_JS = '/static/.craft-assets/quercus-treeview.js', QUERCUS_CSS = '/static/.craft-assets/quercus-treeview.css';
   const DOTS_KEY = 'solveit-file-tree:hide-dots';
@@ -2400,7 +1313,8 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"ft_upload_icon": "<
     if (el) el.textContent = msg || '';
   }
 
-  /* ── Minimal ZIP builders (for mkdir & renamed recursive folder copy) ── */
+/* #18757c3f */
+/* ── Minimal ZIP builders (for mkdir & renamed recursive folder copy) ── */
   function makeEmptyDirZip(dirName) {
     const nameBytes = new TextEncoder().encode(dirName.replace(/\/+$/, '') + '/');
     const n = nameBytes.length;
@@ -2561,7 +1475,8 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"ft_upload_icon": "<
     });
   }
 
-  /* ── Tree rendering & navigation ───────────────────────────────────── */
+/* #b73a2155 */
+/* ── Tree rendering & navigation ───────────────────────────────────── */
   const KIND_ORDER = {directory: 0, dialog: 1, file: 2};
   function nodesFor(path, curAncestors) {
     return (rowsByPath.get(path) || [])
@@ -2812,7 +1727,8 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"ft_upload_icon": "<
     else if (node.href) openNode(node);
   }
 
-  /* ── File operations: Create, Delete, Copy/Paste, Drag-Move ────────── */
+/* #73352039 */
+/* ── File operations: Create, Delete, Copy/Paste, Drag-Move ────────── */
   function validateName(raw, kind) {
     const trimmed = raw.trim();
     if (!trimmed) throw new Error('Enter a name.');
@@ -3088,7 +2004,8 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"ft_upload_icon": "<
     });
   }
 
-  /* ── Upload (files & folders, via drag-and-drop or Upload popover) ─── */
+/* #e08775ac */
+/* ── Upload (files & folders, via drag-and-drop or Upload popover) ─── */
   function snapshotDataTransfer(dt) {
     const entries = dt?.items
       ? [...dt.items].filter(it => it.kind === 'file').map(it => it.webkitGetAsEntry?.()).filter(Boolean)
@@ -3290,7 +2207,8 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"ft_upload_icon": "<
     setStatus('Collapsed all folders');
   }
 
-  /* ── Context menu ──────────────────────────────────────────────────── */
+/* #8c1d01d4 */
+/* ── Context menu ──────────────────────────────────────────────────── */
   function closeMenu() { if (!menu) return false; menu.remove(); menu = null; return true; }
 
   async function copyNodePath(node) {
@@ -3481,7 +2399,8 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"ft_upload_icon": "<
     on(treeEl, 'dragend', onDragEnd);
   }
 
-  /* ── Panel construction & lifecycle ────────────────────────────────── */
+/* #4d083eaf */
+/* ── Panel construction & lifecycle ────────────────────────────────── */
   function updateDotsBtn() {
     const dots = qs('.solveit-tree-dots', panel);
     if (!dots) return;
@@ -3776,12 +2695,1110 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"ft_upload_icon": "<
   window.__craftCMCore.onDomChange(markDotPrompts, {delay: 'raf', inDialog: true, charData: true});
 })();
 
-/* %% nbs/craft/04_craft_c2.ipynb #e2023303 */
-window.__craftTpl = Object.assign(window.__craftTpl || {}, {"c2_tooltip_portal": "<div id=\"craft-c2-tooltips\" class=\"craft-c2-tooltips\"></div>", "c2_ai_form": "<form class=\"craft-c2-ai-form\"><input type=\"text\" name=\"query\" autocomplete=\"off\" class=\"craft-c2-ai-input\" placeholder=\"Enter your query... (Enter to apply, Esc to cancel)\"></form>", "c2_spinner": "<div class=\"craft-c2-spinner\" data-uk-spinner=\"ratio: 0.5\"></div>"});
+/* %% nbs/craft/07_cell_presentation.ipynb #455c9f8a */
+window.__craftTpl = Object.assign(window.__craftTpl || {}, {"action_menu": "<div class=\"craft-menu craft-action-menu\" id=\"craft-cell-action-menu\" popover=\"auto\" role=\"menu\"></div>", "action_trigger": "<button type=\"button\" class=\"craft-action-trigger\" aria-haspopup=\"menu\" aria-expanded=\"false\" aria-controls=\"craft-cell-action-menu\">…</button>", "omit_marker": "<button type=\"button\" class=\"craft-omit-marker\"></button>"});
 
-/* %% nbs/craft/04_craft_c2.ipynb #cb2ed5a6 */
+/* %% nbs/craft/07_cell_presentation.ipynb #68ce4acb */
 (() => {
-  window.craftC2?.disable();
+  window.craftCellChains?.disable();
+  let frame;
+  const sync = () => {
+    frame = null;
+    const all = [...document.querySelectorAll('#dialog-container > .editable')];
+    const cells = all.filter(e => !e.hidden && getComputedStyle(e).display !== 'none');
+    const type = e => e?.querySelector(':scope > .card-in')?.dataset.mtype;
+    const joins = (a, b) => ['prompt', 'code', 'note'].includes(type(a)) && type(a) === type(b);
+    const prev = new Set(cells.filter((e, i) => i > 0 && joins(cells[i-1], e)));
+    const next = new Set(cells.filter((e, i) => i < cells.length-1 && joins(e, cells[i+1])));
+    for (const e of all) {
+      if (e.classList.contains('craft-chain-prev') !== prev.has(e)) e.classList.toggle('craft-chain-prev', prev.has(e));
+      if (e.classList.contains('craft-chain-next') !== next.has(e)) e.classList.toggle('craft-chain-next', next.has(e));
+    }
+  };
+  const offDom = window.__craftCMCore.onDomChange(sync, {attrs: ['class', 'style', 'hidden', 'data-mtype'], delay: 'raf'});
+  window.craftCellChains = {
+    sync,
+    disable() {
+      offDom();
+      document.querySelectorAll('.craft-chain-prev,.craft-chain-next').forEach(e => e.classList.remove('craft-chain-prev', 'craft-chain-next'));
+    }
+  };
+  sync();
+})();
+
+/* %% nbs/craft/07_cell_presentation.ipynb #958ca2ad */
+(() => {
+  window.craftActionMenus?.disable();
+  if (window.CRAFT_ACTION_MENUS === false) return;
+  let current = null, frame = null;
+  const {mountTpl, qsa, on, onDomChange} = window.__craftCMCore;
+  const menu = mountTpl('action_menu');
+  document.body.append(menu);
+  const close = (restore = false) => {
+    const trigger = current;
+    current = null;
+    trigger?.setAttribute('aria-expanded', 'false');
+    if (menu.matches(':popover-open')) menu.hidePopover();
+    if (restore && trigger?.isConnected) trigger.focus({preventScroll: true});
+  };
+  const open = trigger => {
+    if (current === trigger) return close(true);
+    close();
+    const card = trigger.closest('.msg-card');
+    const group = card.querySelector('.uk-card-header .uk-btn-group');
+    if (!group) return;
+    menu.replaceChildren();
+    for (const source of group.querySelectorAll('button,a')) {
+      if (source.hidden) continue;
+      const label = source.title || source.querySelector('[title]')?.getAttribute('title') || source.getAttribute('aria-label');
+      if (!label) continue;
+      menu.append(window.__craftCMCore.el('button', {
+        type: 'button', role: 'menuitem', disabled: source.disabled,
+        dataset: /^Delete/i.test(label) ? {danger: ''} : {},
+        onClick: e => {
+          e.stopPropagation();
+          close();
+          if (source.isConnected) source.click();
+          queueMicrotask(() => { if (document.activeElement === document.body && trigger.isConnected) trigger.focus({preventScroll: true}); });
+        },
+      }, label));
+    }
+    if (card.matches('.card-in[data-mtype="code"]') && window.craftC2) {
+      const cellEl = card.closest('.editable');
+      const cid = cellEl?.id?.replace(/^_/, '');
+      if (cid) {
+        menu.append(
+          window.__craftCMCore.el('hr', {cls: 'craft-action-sep'}),
+          window.__craftCMCore.el('button', {
+            type: 'button', role: 'menuitem',
+            onClick: e => { e.stopPropagation(); close(); window.craftC2.toggleLineNumbers?.(); },
+          }, `Line numbers: ${window.craftC2.lineNumbers?.() ? 'On' : 'Off'}`),
+        );
+      }
+    }
+    current = trigger;
+    trigger.setAttribute('aria-expanded', 'true');
+    menu.setAttribute('aria-label', trigger.getAttribute('aria-label'));
+    menu.showPopover();
+    const r = trigger.getBoundingClientRect();
+    menu.style.left = Math.max(8, Math.min(r.right - menu.offsetWidth, innerWidth - menu.offsetWidth - 8)) + 'px';
+    menu.style.top = Math.max(8, Math.min(r.bottom + 4, innerHeight - menu.offsetHeight - 8)) + 'px';
+    menu.querySelector('button:not(:disabled)')?.focus({preventScroll: true});
+  };
+  const sync = () => {
+    frame = null;
+    if (current && !current.isConnected) close();
+    for (const group of document.querySelectorAll('#dialog-container .msg-card > .uk-card-header .uk-btn-group')) {
+      const nav = group.closest('nav');
+      if (!nav) continue;
+      let shell = group;
+      while (shell.parentElement !== nav && shell.parentElement) shell = shell.parentElement;
+      if (shell === group && shell.parentElement !== nav) continue;
+      shell.classList.add('craft-action-source');
+      for (const button of nav.querySelectorAll(':scope > button[data-uk-toggle]')) button.classList.add('craft-old-action-toggle');
+      if (nav.querySelector(':scope > .craft-action-trigger')) continue;
+      const trigger = mountTpl('action_trigger');
+      const card = nav.closest('.msg-card');
+      trigger.setAttribute('aria-label', card.classList.contains('card-out') ? 'Output actions' : 'Input actions');
+      on(trigger, {
+        click: e => { e.stopPropagation(); open(trigger); },
+        keydown: e => { if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); open(trigger); } },
+      });
+      nav.append(trigger);
+    }
+  };
+  const keys = e => {
+    if (!current) return;
+    if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); close(true); return; }
+    if (!menu.contains(e.target)) return;
+    e.stopImmediatePropagation();
+    const items = qsa('button:not(:disabled)', menu);
+    const i = items.indexOf(document.activeElement);
+    if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) {
+      e.preventDefault();
+      const j = e.key === 'Home' ? 0 : e.key === 'End' ? items.length-1 : (i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+      items[j]?.focus();
+    }
+  };
+  const focus = e => { if (current && !menu.contains(e.target) && e.target !== current) close(); };
+  const toggled = () => { if (!menu.matches(':popover-open') && current) close(); };
+  const ac = new AbortController(), sig = {signal: ac.signal}, cap = {capture: true, signal: ac.signal};
+  const offDom = onDomChange(sync, {delay: 'raf', inDialog: true});
+  on(document, 'keydown', keys, cap);
+  on(document, {focusin: focus, 'htmx:beforeSwap': () => close()}, sig);
+  on(menu, 'toggle', toggled, sig);
+  window.craftActionMenus = {
+    sync,
+    close,
+    disable() {
+      offDom();
+      close();
+      ac.abort();
+      qsa('.craft-action-trigger').forEach(e => e.remove());
+      qsa('.craft-action-source,.craft-old-action-toggle').forEach(e => e.classList.remove('craft-action-source', 'craft-old-action-toggle'));
+      menu.remove();
+    }
+  };
+  sync();
+})();
+
+/* %% nbs/craft/07_cell_presentation.ipynb #b89894f9 */
+(() => {
+  const {mountTpl, qsa, on, onDomChange} = window.__craftCMCore;
+  const preserved = qsa('.editable.craft-omitted').map(e => e.id);
+  window.craftOmit?.disable();
+  const omitted = new Set(preserved), markers = new Map();
+  let frame, approach = 1;
+  const root = () => document.getElementById('dialog-container');
+  const cells = () => qsa(':scope > .editable', root());
+  const eligible = e => !e.hidden && !e.matches('.filter-hidden,.heading-hidden,.hidden');
+  const marker = () => document.activeElement?.closest('.craft-omit-marker');
+  const blocked = () => window.__craftCMCore.typingBlocked();
+  const selected = () => cells().filter(e => e.matches('[data-sm="primary"],[data-sm="secondary"]') && e.offsetParent !== null);
+  const clearSelection = () => document.querySelectorAll('[data-sm="primary"],[data-sm="secondary"]').forEach(e => e.setAttribute('data-sm', 'unselected'));
+  const choose = (e, direction = 1) => {
+    if (!e) return;
+    approach = direction;
+    if (e.matches('.craft-omit-marker')) {
+      clearSelection();
+      e.focus({preventScroll: true});
+      e.scrollIntoView({block: 'nearest'});
+    } else {
+      marker()?.blur();
+      window.selectMsg(window.$(e));
+      document.activeElement?.closest('.craft-omit-marker')?.blur();
+    }
+  };
+  const restore = button => {
+    const ids = JSON.parse(button.dataset.omitIds);
+    ids.forEach(id => { omitted.delete(id); window.craftParts?.restoreCell(id); });
+    const target = document.getElementById(approach < 0 ? ids.at(-1) : ids[0]);
+    sync();
+    if (target) choose(target);
+    return true;
+  };
+  const sync = () => {
+    frame = null;
+    const all = cells(), runs = [];
+    let run;
+    for (const e of all) {
+      const hide = omitted.has(e.id) || !!window.craftParts?.fullyHidden(e);
+      if (e.classList.contains('craft-omitted') !== hide) e.classList.toggle('craft-omitted', hide);
+      if (!eligible(e) || !hide) { run = null; continue; }
+      if (!run) { run = []; runs.push(run); }
+      run.push(e);
+    }
+    const keys = new Set();
+    for (const group of runs) {
+      const key = group[0].id, ids = group.map(e => e.id);
+      keys.add(key);
+      let button = markers.get(key);
+      if (!button) {
+        button = mountTpl('omit_marker');
+        on(button, {click: () => restore(button), focus: clearSelection});
+        markers.set(key, button);
+      }
+      const text = `▸ ${ids.length}`, label = `Expand ${ids.length} omitted ${ids.length === 1 ? 'cell' : 'cells'}`;
+      if (button.textContent !== text) button.textContent = text;
+      if (button.getAttribute('aria-label') !== label) {
+        button.setAttribute('aria-label', label);
+        button.title = label + ' · Right arrow, Enter, or Omit';
+      }
+      button.setAttribute('aria-expanded', 'false');
+      button.dataset.omitIds = JSON.stringify(ids);
+      if (button.nextElementSibling !== group[0]) group[0].before(button);
+    }
+    for (const [key, button] of markers) {
+      if (keys.has(key)) continue;
+      const focused = document.activeElement === button;
+      const ids = JSON.parse(button.dataset.omitIds);
+      button.remove();
+      markers.delete(key);
+      if (focused) {
+        const replacement = [...markers.values()].find(b => JSON.parse(b.dataset.omitIds).some(id => ids.includes(id)));
+        replacement?.focus();
+      }
+    }
+    window.craftCellChains?.sync();
+  };
+  const toggle = () => {
+    if (blocked()) return false;
+    if (marker()) return restore(marker());
+    const targets = selected();
+    if (!targets.length) return false;
+    const editing = document.getElementById('id_')?.value;
+    if (targets.some(e => e.dataset.editing === 'true' || e.id === '_' + editing)) {
+      window.UIkit?.notification('Finish editing the cell before omitting it.', {status: 'warning'});
+      return true;
+    }
+    targets.forEach(e => omitted.add(e.id));
+    sync();
+    const button = [...markers.values()].find(b => JSON.parse(b.dataset.omitIds).includes(targets[0].id));
+    choose(button);
+    return true;
+  };
+  const stop = e => { e.preventDefault(); e.stopImmediatePropagation(); };
+  const keys = e => {
+    if (blocked() || e.isComposing) return;
+    const current = marker();
+    if (!e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+      if (current && ['ArrowRight', 'Enter', ' '].includes(e.key)) { stop(e); restore(current); return; }
+      const direction = ['ArrowDown','j'].includes(e.key) ? 1 : ['ArrowUp','k'].includes(e.key) ? -1 : 0;
+      if (direction) {
+        const visible = [...(root()?.children || [])].filter(n => n.matches('.editable,.craft-omit-marker') && n.offsetParent !== null);
+        const active = current || document.querySelector('#dialog-container > [data-sm="primary"]');
+        const index = visible.indexOf(active), next = visible[index + direction];
+        if (current || next?.matches('.craft-omit-marker')) { stop(e); choose(next, direction); return; }
+      }
+      if (current && ['Home','End'].includes(e.key)) {
+        const visible = [...root().children].filter(n => n.matches('.editable,.craft-omit-marker') && n.offsetParent !== null);
+        stop(e); choose(e.key === 'Home' ? visible[0] : visible.at(-1)); return;
+      }
+    }
+    if (current && e.key !== 'Tab') stop(e);
+  };
+  const pointer = e => { if (marker() && !e.target.closest('.craft-omit-marker')) marker().blur(); };
+  const ac = new AbortController();
+  const offDom = onDomChange(sync, {attrs: ['class', 'hidden', 'data-sm-header'], delay: 'raf', inDialog: true});
+  on(document, {keydown: keys, pointerdown: pointer}, {capture: true, signal: ac.signal});
+  window.__hotkeyRegister?.({id: 'cell-omit', label: 'Toggle omit cells', group: 'Dialog · Presentation', combo: 'u', handler: () => window.craftOmit?.toggle() === true});
+  window.craftOmit = {
+    toggle, sync,
+    disable() {
+      offDom();
+      ac.abort();
+      markers.forEach(b => b.remove());
+      cells().forEach(e => e.classList.remove('craft-omitted'));
+      window.craftCellChains?.sync();
+    }
+  };
+  sync();
+})();
+
+/* %% nbs/craft/07_cell_presentation.ipynb #0ef67c86 */
+(() => {
+  window.craftParts?.disable();
+  const states = new Map(), controls = new Map(), pending = new Map();
+  const originals = window.solveitHotkeys?.list().filter(s => ['si-i','si-o'].includes(s.id)) || [];
+  let bypass = false, frame;
+  const {qsa, on, onDomChange} = window.__craftCMCore;
+  const cells = () => qsa('#dialog-container > .editable');
+  const card = (e, side) => e.querySelector(side === 'input' ? ':scope > .card-in' : ':scope > .card-out');
+  const button = (e, side) => card(e, side)?.querySelector('[hx-post="/collapse_"]');
+  const present = (e, side) => side === 'input' ? !!card(e, side) : !!card(e, side)?.querySelector('.msg-body');
+  const blocked = () => window.__craftCMCore.typingBlocked();
+  const busy = e => e.dataset.editing === 'true' || e.id === '_' + document.getElementById('id_')?.value;
+  const waiting = (e, side) => {
+    const key = e.id + side, p = pending.get(key);
+    if (p && (p.collapsed !== !!card(e, side)?.classList.contains('collapsed') || performance.now() > p.until)) pending.delete(key);
+    return pending.has(key);
+  };
+  const native = (e, side) => {
+    const b = button(e, side);
+    if (!b || waiting(e, side)) return;
+    const selection = cells().map(n => [n, n.getAttribute('data-sm')]);
+    window.selectMsg($(e), {scroll: false});
+    pending.set(e.id + side, {collapsed: !!card(e, side)?.classList.contains('collapsed'), until: performance.now() + 5000});
+    bypass = true;
+    try { b.click(); }
+    finally {
+      bypass = false;
+      selection.forEach(([n, value]) => value === null ? n.removeAttribute('data-sm') : n.setAttribute('data-sm', value));
+    }
+  };
+  const restore = (id, side) => {
+    const state = states.get(id), e = document.getElementById(id);
+    if (!state || !e) return;
+    state.hidden.delete(side);
+    if (!state.hidden.size) states.delete(id);
+    sync();
+    if (card(e, side)?.classList.contains('collapsed')) native(e, side);
+    window.selectMsg($(e), {scroll: false});
+  };
+  const restoreCell = id => {
+    const state = states.get(id);
+    if (state) restore(id, state.last);
+  };
+  const fullyHidden = e => {
+    const state = states.get(e.id);
+    return !!state && ['input','output'].filter(s => present(e, s)).every(s => state.hidden.has(s));
+  };
+  const focusMarker = id => {
+    const b = [...document.querySelectorAll('.craft-omit-marker')].find(n => JSON.parse(n.dataset.omitIds).includes(id));
+    b?.focus({preventScroll: true});
+  };
+  const sync = () => {
+    frame = null;
+    const live = new Set();
+    for (const e of cells()) {
+      const state = states.get(e.id), full = fullyHidden(e);
+      for (const side of ['input','output']) {
+        const c = card(e, side), hidden = !!state?.hidden.has(side), key = e.id + ':' + side;
+        if (c && c.classList.contains('craft-part-hidden') !== hidden) c.classList.toggle('craft-part-hidden', hidden);
+        if (!hidden || !c || full) continue;
+        live.add(key);
+        let b = controls.get(key);
+        if (!b) {
+          b = window.__craftCMCore.el('button', {
+            type: 'button', cls: 'craft-part-restore', title: `Restore ${side}`,
+            'aria-label': `Restore ${side}`, onClick: () => restore(e.id, side),
+          }, side === 'input' ? '⌃' : '⌄');
+          controls.set(key, b);
+        }
+        if (side === 'input') {
+          const output = card(e, 'output');
+          if (output && b.nextElementSibling !== output) output.before(b);
+        } else if (b.previousElementSibling !== card(e, 'input')) card(e, 'input')?.after(b);
+      }
+    }
+    for (const [key, b] of controls) if (!live.has(key)) { b.remove(); controls.delete(key); }
+    window.craftOmit?.sync();
+  };
+  const cycleOne = (e, side) => {
+    if (!present(e, side) || waiting(e, side)) return;
+    if (busy(e)) {
+      window.UIkit?.notification('Finish editing before minimizing this cell.', {status: 'warning'});
+      return;
+    }
+    const state = states.get(e.id);
+    if (state?.hidden.has(side)) { restore(e.id, side); return; }
+    if (!card(e, side).classList.contains('collapsed')) { native(e, side); return; }
+    const next = state || {hidden: new Set(), last: side};
+    next.hidden.add(side);
+    next.last = side;
+    states.set(e.id, next);
+    sync();
+    if (fullyHidden(e)) focusMarker(e.id);
+  };
+  const cycle = side => {
+    if (blocked()) return false;
+    const marker = document.activeElement?.closest('.craft-omit-marker');
+    if (marker) {
+      for (const id of JSON.parse(marker.dataset.omitIds)) if (states.get(id)?.hidden.has(side)) restore(id, side);
+      return true;
+    }
+    const selected = cells().filter(e => e.matches('[data-sm="primary"],[data-sm="secondary"]') && e.offsetParent !== null);
+    selected.forEach(e => cycleOne(e, side));
+    return !!selected.length;
+  };
+  const click = event => {
+    if (bypass) return;
+    const b = event.target.closest('[hx-post="/collapse_"]');
+    const c = b?.closest('.msg-card'), e = c?.closest('.editable');
+    if (!e) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    cycleOne(e, c.classList.contains('card-in') ? 'input' : 'output');
+  };
+  const finished = event => {
+    const b = event.detail?.elt?.closest?.('[hx-post="/collapse_"]');
+    const c = b?.closest('.msg-card'), e = c?.closest('.editable');
+    if (e) pending.delete(e.id + (c.classList.contains('card-in') ? 'input' : 'output'));
+  };
+  const ac = new AbortController();
+  const offDom = onDomChange(sync, {attrs: ['class'], delay: 'raf', inDialog: true});
+  on(document, 'click', click, {capture: true, signal: ac.signal});
+  on(document, 'htmx:afterRequest', finished, {signal: ac.signal});
+  window.__hotkeyRegister?.({id: 'si-i', label: 'Cycle input: expanded / collapsed / hidden', group: 'Solveit · Dialog (selection mode)', combo: 'i', handler: () => cycle('input')});
+  window.__hotkeyRegister?.({id: 'si-o', label: 'Cycle output: expanded / collapsed / hidden', group: 'Solveit · Dialog (selection mode)', combo: 'o', handler: () => cycle('output')});
+  window.craftParts = {
+    cycle, sync, fullyHidden, restoreCell,
+    disable() {
+      offDom();
+      ac.abort();
+      controls.forEach(b => b.remove());
+      states.clear();
+      qsa('.craft-part-hidden').forEach(c => c.classList.remove('craft-part-hidden'));
+      originals.forEach(s => window.__hotkeyRegister?.({...s, handler: () => true}));
+      window.craftOmit?.sync();
+    }
+  };
+  sync();
+})();
+
+/* %% nbs/craft/08_tables.ipynb #abdf09dd */
+window.__craftTpl = Object.assign(window.__craftTpl || {}, {"table_wrap": "<div class=\"craft-table-wrap\" tabindex=\"0\" role=\"region\" aria-label=\"Scrollable table\"></div>", "table_copy_btn": "<button type=\"button\" class=\"craft-table-copy\" aria-label=\"Copy table as TSV\">Copy TSV</button>"});
+
+/* %% nbs/craft/08_tables.ipynb #7e6edaa3 */
+/* ── Progressive table enhancer (wrap, numeric align, flat-table sort, copy TSV) ── */
+(() => {
+  const NUM_RE = /^[-+\u2212]?[$€£¥]?\s*\d[\d,_]*(?:\.\d+)?(?:[eE][+-]?\d+)?%?$/;
+  const EMPTY_RE = /^(?:|nan|na|n\/a|null|none|-|\u2014)$/i;
+  const parseNum = s => {
+    const t = s.trim();
+    if (!t || EMPTY_RE.test(t)) return null;
+    if (!NUM_RE.test(t)) return NaN;
+    return parseFloat(t.replace(/[\u2212]/g, '-').replace(/[$€£¥,\s_%]/g, ''));
+  };
+
+  const enhanceTable = tbl => {
+    if (!tbl || tbl.dataset.craftTable) return;
+    tbl.dataset.craftTable = '1';
+    tbl.classList.add('uk-table', 'uk-table-small', 'uk-table-divider', 'uk-table-hover');
+
+    // 1. Wrap in a keyboard-scrollable container if not already wrapped
+    let wrap = tbl.parentElement;
+    if (!wrap?.classList.contains('craft-table-wrap')) {
+      wrap = window.__craftCMCore.mountTpl('table_wrap');
+      tbl.parentNode.insertBefore(wrap, tbl);
+      wrap.appendChild(tbl);
+    }
+
+    const headRows = [...tbl.querySelectorAll(':scope > thead > tr')];
+    const tbody = tbl.querySelector(':scope > tbody');
+    const bodyRows = tbody ? [...tbody.querySelectorAll(':scope > tr')] : [];
+    const hasSpans = [...tbl.querySelectorAll('th, td')].some(c => c.colSpan > 1 || c.rowSpan > 1);
+
+    // 2. Detect numeric columns and right-align both header and cells
+    if (!hasSpans && bodyRows.length) {
+      const sample = bodyRows.slice(0, 40);
+      const colCount = sample[0].children.length;
+      const headCells = headRows.length === 1 ? [...headRows[0].children] : null;
+      for (let col = 0; col < colCount; col++) {
+        let numHits = 0, nonEmpty = 0;
+        for (const row of sample) {
+          const cell = row.children[col];
+          if (!cell || cell.tagName === 'TH') continue;
+          const v = parseNum(cell.textContent || '');
+          if (v === null) continue;
+          nonEmpty++;
+          if (!Number.isNaN(v)) numHits++;
+        }
+        if (nonEmpty > 0 && numHits === nonEmpty) {
+          for (const row of bodyRows) row.children[col]?.classList.add('craft-num');
+          if (headCells && headCells[col]) headCells[col].classList.add('craft-num');
+        }
+      }
+    } else if (hasSpans && bodyRows.length) {
+      // MultiIndex: align numeric <td> cells (and matching top-row headers) without disturbing rowspan
+      for (const row of bodyRows) {
+        for (const cell of row.children) {
+          if (cell.tagName !== 'TD') continue;
+          const v = parseNum(cell.textContent || '');
+          if (v !== null && !Number.isNaN(v)) cell.classList.add('craft-num');
+        }
+      }
+      if (headRows.length && headRows[0].children.length === bodyRows[0].children.length) {
+        for (let col = 0; col < bodyRows[0].children.length; col++) {
+          if (bodyRows[0].children[col]?.classList.contains('craft-num')) {
+            headRows[0].children[col]?.classList.add('craft-num');
+          }
+        }
+      }
+    }
+
+    // 3. Click/keyboard sort on flat tables (>= 2 rows, single header row, no spans)
+    if (!hasSpans && headRows.length === 1 && bodyRows.length >= 2) {
+      const origOrder = bodyRows.slice();
+      const ths = [...headRows[0].children];
+      ths.forEach((th, colIdx) => {
+        if (!(th.textContent || '').trim()) return;
+        th.classList.add('craft-sort');
+        th.tabIndex = 0;
+        th.setAttribute('aria-sort', 'none');
+        const toggle = () => {
+          const cur = th.getAttribute('aria-sort');
+          const next = cur === 'ascending' ? 'descending' : cur === 'descending' ? 'none' : 'ascending';
+          for (const other of ths) if (other !== th && other.classList.contains('craft-sort')) other.setAttribute('aria-sort', 'none');
+          th.setAttribute('aria-sort', next);
+          if (next === 'none') {
+            tbody.append(...origOrder);
+            return;
+          }
+          const dir = next === 'ascending' ? 1 : -1;
+          const isNum = th.classList.contains('craft-num');
+          const sorted = origOrder.slice().sort((a, b) => {
+            const ta = (a.children[colIdx]?.textContent || '').trim();
+            const tb = (b.children[colIdx]?.textContent || '').trim();
+            if (isNum) {
+              const na = parseNum(ta), nb = parseNum(tb);
+              const va = (na === null || Number.isNaN(na)) ? Infinity : na;
+              const vb = (nb === null || Number.isNaN(nb)) ? Infinity : nb;
+              return (va - vb) * dir;
+            }
+            return ta.localeCompare(tb, undefined, { numeric: true, sensitivity: 'base' }) * dir;
+          });
+          tbody.append(...sorted);
+        };
+        th.addEventListener('click', toggle);
+        th.addEventListener('keydown', e => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+        });
+      });
+    }
+
+    // 4. Subtle Copy TSV button on output tables
+    if (tbl.closest('.card-out') && !wrap.querySelector(':scope > .craft-table-copy')) {
+      const btn = window.__craftCMCore.mountTpl('table_copy_btn');
+      btn.addEventListener('click', async e => {
+        e.stopPropagation();
+        const rows = [...tbl.querySelectorAll('tr')].map(tr =>
+          [...tr.children].map(c => (c.textContent || '').replace(/[\t\r\n]+/g, ' ').trim()).join('\t')
+        ).join('\n');
+        try {
+          await navigator.clipboard.writeText(rows);
+          btn.textContent = 'Copied';
+          btn.classList.add('is-copied');
+          setTimeout(() => { btn.textContent = 'Copy TSV'; btn.classList.remove('is-copied'); }, 1400);
+        } catch {}
+      });
+      wrap.insertBefore(btn, tbl);
+    }
+  };
+
+  const enhanceAll = () => {
+    for (const tbl of document.querySelectorAll('#dialog-container .msg-content table:not([data-craft-table])')) {
+      enhanceTable(tbl);
+    }
+  };
+  const start = () => {
+    window.__craftCMCore.onDomChange(enhanceAll, {delay: 80, inDialog: true});
+    enhanceAll();
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+  else start();
+  window.craftTables = { enhance: enhanceAll, disable() { mo.disconnect(); clearTimeout(timer); } };
+})();
+
+/* %% nbs/craft/09_cell_insertion.ipynb #99c8fe76 */
+window.__craftTpl = Object.assign(window.__craftTpl || {}, {"insert_trigger": "<button id=\"craft-insert-preview\" class=\"craft-nav-icon-btn\" type=\"button\" hidden popovertarget=\"craft-insert-preview-menu\"></button>", "insert_menu": "<div class=\"craft-menu\" id=\"craft-insert-preview-menu\" popover=\"auto\"><small>New cell type</small><button type=\"button\" data-kind=\"Code\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 6l-6 6 6 6m8-12 6 6-6 6M14 4l-4 16\"></path></svg>Code</button><button type=\"button\" data-kind=\"Note\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 3h10l4 4v14H5z M15 3v5h4M8 12h8m-8 4h8\"></path></svg>Note</button><button type=\"button\" data-kind=\"Raw\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 5h18v14H3z M7 9v6\"></path></svg>Raw</button><button type=\"button\" data-kind=\"Prompt\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 4h18v12H9l-6 4z M7 10h.01m5 0h.01m5 0h.01\"></path></svg>Prompt</button></div>", "desk_edge_below": "<button type=\"button\" class=\"craft-desk-edge\" data-edge=\"below\" aria-label=\"Insert cell below (drag to pick type)\"><span class=\"craft-desk-edge-pill\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"12\" height=\"12\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 6v12M6 12h12\"></path></svg><span class=\"craft-desk-edge-kind\"></span></span></button>", "desk_picker": "<div id=\"craft-desk-picker\" class=\"craft-type-picker\" role=\"menu\"><div class=\"craft-type-picker-head craft-desk-picker-head\"></div><div class=\"craft-type-picker-opts craft-desk-picker-opts\"><button class=\"uk-btn uk-btn-default uk-btn-sm\" role=\"menuitem\" data-type=\"Code\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 6l-6 6 6 6m8-12 6 6-6 6M14 4l-4 16\"></path></svg><span>Code</span><kbd>C</kbd></button><button class=\"uk-btn uk-btn-default uk-btn-sm\" role=\"menuitem\" data-type=\"Note\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 3h10l4 4v14H5z M15 3v5h4M8 12h8m-8 4h8\"></path></svg><span>Note</span><kbd>N</kbd></button><button class=\"uk-btn uk-btn-default uk-btn-sm\" role=\"menuitem\" data-type=\"Prompt\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 4h18v12H9l-6 4z M7 10h.01m5 0h.01m5 0h.01\"></path></svg><span>Prompt</span><kbd>P</kbd></button><button class=\"uk-btn uk-btn-default uk-btn-sm\" role=\"menuitem\" data-type=\"Raw\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 5h18v14H3z M7 9v6\"></path></svg><span>Raw</span><kbd>R</kbd></button></div></div>", "insert_placeholder": "<div class=\"craft-insert-placeholder\"></div>", "cell_icon_Code": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 6l-6 6 6 6m8-12 6 6-6 6M14 4l-4 16\"></path></svg>", "cell_icon_Note": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 3h10l4 4v14H5z M15 3v5h4M8 12h8m-8 4h8\"></path></svg>", "cell_icon_Raw": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 5h18v14H3z M7 9v6\"></path></svg>", "cell_icon_Prompt": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 4h18v12H9l-6 4z M7 10h.01m5 0h.01m5 0h.01\"></path></svg>", "desk_icon_Code": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"11\" height=\"11\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 6l-6 6 6 6m8-12 6 6-6 6M14 4l-4 16\"></path></svg>", "desk_icon_Note": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"11\" height=\"11\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 3h10l4 4v14H5z M15 3v5h4M8 12h8m-8 4h8\"></path></svg>", "desk_icon_Raw": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"11\" height=\"11\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 5h18v14H3z M7 9v6\"></path></svg>", "desk_icon_Prompt": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"11\" height=\"11\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 4h18v12H9l-6 4z M7 10h.01m5 0h.01m5 0h.01\"></path></svg>"});
+window.__craftCfg = Object.assign(window.__craftCfg || {}, {"cell_types": ["Code", "Note", "Prompt", "Raw"], "key_to_type": {"c": "Code", "n": "Note", "p": "Prompt", "r": "Raw"}, "slash_map": {"c": "Code", "code": "Code", "n": "Note", "note": "Note", "p": "Prompt", "prompt": "Prompt", "r": "Raw", "raw": "Raw"}});
+
+/* %% nbs/craft/09_cell_insertion.ipynb #6d845b7d */
+(() => {
+  window.craftInsertPreview?.disable();
+  if (!document.getElementById('dialog-container')) return;
+  const types = {Code: 1, Note: 1, Raw: 1, Prompt: 1};
+  const icon = name => window.__craftTpl?.[`cell_icon_${name}`] || '';
+  const key = 'craft-insert-preview:v1:' + (new URLSearchParams(location.search).get('name') || location.pathname);
+  const {mountTpl, qs, qsa, on, store, patch, onDomChange} = window.__craftCMCore;
+  const ac = new AbortController(), sig = {signal: ac.signal}, cap = {capture: true, signal: ac.signal};
+  const trigger = mountTpl('insert_trigger'), menu = mountTpl('insert_menu');
+  let current;
+  const select = name => {
+    current = name;
+    const title = `A/B inserts: ${name}`;
+    patch(trigger, {innerHTML: icon(name), title, 'aria-label': title});
+    for (const option of qsa('button', menu)) option.setAttribute('aria-pressed', String(option.dataset.kind === name));
+  };
+  const saved = store.get(key);
+  select(Object.hasOwn(types, saved) ? saved : document.getElementById('default_code')?.checked ? 'Code' : 'Prompt');
+  let scroller;
+  const position = () => {
+    if (!scroller) return;
+    const rect = scroller.getBoundingClientRect();
+    trigger.hidden = !rect.width || !rect.height;
+    Object.assign(trigger.style, {left: 'auto', right: '42px', top: '6px'});
+    Object.assign(menu.style, {right: '10px', top: '36px'});
+    window.craftMobile?.reposition?.();
+  };
+  const resize = new ResizeObserver(position);
+  const sync = () => {
+    const next = document.getElementById('dialog-container');
+    if (scroller === next) return;
+    if (scroller) {
+      resize.unobserve(scroller);
+      scroller.classList.remove('craft-insert-preview');
+    }
+    scroller = next;
+    if (!scroller) { trigger.hidden = true; return; }
+    scroller.classList.add('craft-insert-preview');
+    resize.observe(scroller); position();
+  };
+  const choose = name => {
+    select(name);
+    store.set(key, name);
+  };
+  const activeCells = () => qsa('.editable:is([data-sm="primary"],[data-sm="secondary"])', scroller).filter(el => el.getClientRects().length);
+  const cellType = el => el?.querySelector('.card-in[data-mtype]')?.dataset.mtype;
+  const editorCell = () => (document.querySelector('#full_editor #id_')?.value || '').replace(/^_/, '');
+  const notify = error => {
+    console.error('CRAFT insertion:', error);
+    window.UIkit?.notification?.({message: error.message, status: 'danger'});
+  };
+  const waitFor = (check, timeout = 5000) => {
+    const immediate = check();
+    if (immediate) return Promise.resolve(immediate);
+    return new Promise(resolve => {
+      let done = false;
+      const finish = val => {
+        if (done) return;
+        done = true;
+        offDomWait();
+        clearInterval(tick);
+        clearTimeout(cap);
+        resolve(val);
+      };
+      const probe = () => { const r = check(); if (r) finish(r); };
+      const offDomWait = onDomChange(probe, {attrs: ['data-mtype', 'class', 'hidden', 'data-editing'], delay: 0});
+      const tick = setInterval(probe, 100);
+      const cap = setTimeout(() => finish(null), timeout);
+    });
+  };
+  const setType = async (id, type) => {
+    if (cellType(document.getElementById(id)) !== type) {
+      await window.__craftCMCore.htmxPost('/set_mtyp_', {id_: id, ids: id, mtyp: type});
+      if (!(await waitFor(() => cellType(document.getElementById(id)) === type))) throw new Error(`Could not switch cell to ${type}.`);
+    }
+  };
+  const blocked = () => window.__craftCMCore.typingBlocked('.cm-editor,#craft-insert-preview-menu');
+  let busy = false;
+  const execute = action => {
+    if (!busy) {
+      busy = true;
+      Promise.resolve().then(action).catch(notify).finally(() => { busy = false; });
+    }
+    return true;
+  };
+  const mode = name => {
+    if (blocked()) return false;
+    choose(name);
+    const cells = activeCells();
+    if (cells.length !== 1) return true;
+    return execute(async () => { await setType(cells[0].id, name.toLowerCase()); });
+  };
+  // opts.type ('Code'|'Note'|'Prompt'|'Raw') overrides the picker; opts.cell targets a cell other than the
+  // selection; opts.force skips the focus guard (the mobile toolbar has already closed any editor).
+  const insert = (where, opts = {}) => {
+    if (!opts.force && blocked()) return false;
+    const primary = opts.cell || activeCells().find(el => el.dataset.sm === 'primary');
+    const button = primary?.querySelector(`[hx-post="/add_${where}_"]`);
+    if (!button) return true;
+    const name = Object.hasOwn(types, opts.type || '') ? opts.type : current;
+    return execute(async () => {
+      const type = name.toLowerCase(), old = new Set([...scroller.querySelectorAll('.editable[id]')].map(el => el.id));
+      if (!window.craftC2?.guardNonCodeInsertion) throw new Error('Reload this dialog to enable typed insertion.');
+      if (type === 'code') {
+        if (!window.craftC2?.expectCodeInsertion) throw new Error('Reload this dialog to enable C2 insertion.');
+        window.craftC2.expectCodeInsertion();
+      }
+      const release = type !== 'code' ? window.craftC2.guardNonCodeInsertion(old) : null;
+      const unhide = window.craftIdleComposer?.holdForInsertion();
+      const ph = window.__craftCMCore.mountTpl('insert_placeholder');
+      if (where === 'above') primary.before(ph); else primary.after(ph);
+      let id = null;
+      try {
+        button.dispatchEvent(new MouseEvent('click', {bubbles:false}));
+        id = await waitFor(() => {
+          const editing = editorCell(), id = '_' + editing;
+          if (editing && !old.has(id) && document.getElementById(id)) return id;
+          if (type === 'code') return [...scroller.querySelectorAll('.editable[id]')].find(el => !old.has(el.id) && window.craftC2?.manages(el.id))?.id;
+        });
+        if (!id) throw new Error(`Could not confirm ${name} insertion.`);
+        if (type === 'code') {
+          if (!(await waitFor(() => cellType(document.getElementById(id)) === 'code' && editorCell() !== id.slice(1) && Boolean(document.getElementById(id)?.querySelector('.craft-c2-host'))))) throw new Error('Could not confirm C2 handoff.');
+        } else {
+          await setType(id, type);
+          const cancel = await waitFor(() => {
+            if (editorCell() !== id.slice(1) || window.edValue?.()) return true;
+            const btn = document.getElementById('cancel_btn');
+            return btn && !btn.disabled ? btn : null;
+          });
+          if (!cancel) throw new Error('Could not close the insertion composer.');
+          if (cancel && cancel !== true) {
+            const field = document.querySelector('#full_editor #msg_type');
+            if (field) field.value = type;
+            cancel.click();
+            if (!(await waitFor(() => editorCell() !== id.slice(1)))) throw new Error('Could not close the insertion composer.');
+            if (cellType(document.getElementById(id)) !== type) throw new Error(`New cell did not retain type ${type}.`);
+          }
+        }
+      } finally { ph.remove(); release?.(); unhide?.(); }
+      if (id) {
+        document.getElementById(id)?.scrollIntoView({block: 'nearest'});
+        if (type === 'code') {
+          if (!document.activeElement?.closest?.(`#${id} .craft-c2-host`)) window.craftC2?.edit?.(id, {anchor: 0, head: 0});
+        } else if (!document.activeElement?.closest?.(`#${id} .craft-md-host`)) {
+          window.craftMd?.edit?.(id, {toEnd: true});
+        }
+      }
+    });
+  };
+  const defs = [
+    ['si-a', 'a', 'Add message above', () => insert('above')],
+    ['si-b', 'b', 'Add message below', () => insert('below')],
+    ...['Code','Note','Prompt','Raw'].map((name,i) => [`si-mode-${name.toLowerCase()}`, `Mod+Shift+${'JKL;'[i]}`, `Switch message to ${name.toLowerCase()}`, () => mode(name)]),
+  ].map(([id,combo,label,handler]) => ({id,combo,label,handler,group:'Solveit · Dialog (selection mode)'}));
+  const registerBindings = () => defs.forEach(spec => window.__hotkeyRegister?.(spec));
+  const builtins = qs('script[data-solveit-hotkeys="builtins"]');
+  on(builtins, 'load', registerBindings, {once: true, signal: ac.signal});
+  registerBindings();
+  on(menu, 'click', e => {
+    const option = e.target.closest('button[data-kind]');
+    if (!option) return;
+    choose(option.dataset.kind);
+    menu.hidePopover(); trigger.focus();
+  }, sig);
+  document.body.append(trigger, menu);
+  const KIND_MAP = {code: 'Code', note: 'Note', prompt: 'Prompt', raw: 'Raw'};
+  const onHtmxConfig = e => {
+    const path = e.detail?.path || '';
+    const mtyp = e.detail?.parameters?.mtyp || e.detail?.parameters?.msg_type;
+    if ((path.includes('set_mtyp') || path.includes('upsert_msg')) && mtyp && KIND_MAP[String(mtyp).toLowerCase()]) {
+      choose(KIND_MAP[String(mtyp).toLowerCase()]);
+    }
+  };
+  const onTabClick = e => {
+    const tab = e.target?.closest?.('#full_editor [role="tab"], #full_editor button');
+    const name = tab && KIND_MAP[(tab.textContent || '').trim().toLowerCase()];
+    if (name) choose(name);
+  };
+  on(document, 'htmx:configRequest', onHtmxConfig, sig);
+  on(document, 'click', onTabClick, cap);
+  const offDom = onDomChange(sync, {delay: 0});
+  on(window, 'resize', position, sig);
+  window.craftInsertPreview = {
+    insert: (where, opts) => insert(where, opts),
+    choose,
+    setType,
+    type: () => current,
+    isBusy: () => busy,
+    disable() {
+    ac.abort();
+    offDom(); resize.disconnect();
+    defs.forEach(spec => window.__hotkeyRegister?.({...spec, builtin:true, handler:() => true}));
+    scroller?.classList.remove('craft-insert-preview');
+    trigger.remove(); menu.remove(); delete window.craftInsertPreview;
+  }};
+  sync();
+})();
+
+/* %% nbs/craft/09_cell_insertion.ipynb #55053b2e */
+/* ── Desktop UX: hover-edge drag-to-insert, click-margin escape, Shift+A/B seam picker & slash-morph ── */
+(() => {
+  window.craftDesktopUX?.disable?.();
+  if (!document.getElementById('dialog-container')) return;
+  const {mountTpl, on} = window.__craftCMCore;
+  const ac = new AbortController(), sig = {signal: ac.signal}, cap = {capture: true, signal: ac.signal};
+  const isMobile = () => !!window.craftMobile?.active?.();
+  const dialog = () => document.getElementById('dialog-container');
+  const CELL_TYPES = window.__craftCfg?.cell_types || ['Code', 'Note', 'Prompt', 'Raw'];
+  const KEY_TO_TYPE = window.__craftCfg?.key_to_type || {c: 'Code', n: 'Note', p: 'Prompt', r: 'Raw'};
+  const SLASH_RE = /^\/(c|code|n|note|p|prompt|r|raw)[ \t\n]$/i;
+  const SLASH_MAP = window.__craftCfg?.slash_map || {c: 'Code', code: 'Code', n: 'Note', note: 'Note', p: 'Prompt', prompt: 'Prompt', r: 'Raw', raw: 'Raw'};
+  /* Bottom hover-edge + handle on desktop (shown when hovering near bottom-center) */
+  const hBelow = mountTpl('desk_edge_below');
+  const syncHandleKinds = () => {
+    const t = window.craftInsertPreview?.type?.() || 'Code';
+    const k = hBelow.querySelector('.craft-desk-edge-kind');
+    if (k) k.innerHTML = window.__craftTpl?.[`desk_icon_${t}`] || window.__craftTpl?.desk_icon_Code || '';
+    hBelow.title = `Click to insert ${t} below · Drag to choose type`;
+  };
+
+  /* Shared 4-option fan picker for both drag-to-insert and Shift+A/B */
+  const picker = mountTpl('desk_picker');
+  document.body.append(picker);
+
+  let hostCell = null, pState = null; // {edge, cell, pointerId, startX, startY, dragged, hotType, keyMode}
+  const detachHandles = () => {
+    hBelow.removeAttribute('data-near');
+    hostCell?.classList.remove('craft-desk-host');
+    hBelow.remove();
+    hostCell = null;
+  };
+  const attachHandles = cell => {
+    if (isMobile() || !cell?.isConnected) { detachHandles(); return; }
+    if (cell === hostCell) { syncHandleKinds(); return; }
+    detachHandles();
+    hostCell = cell;
+    cell.classList.add('craft-desk-host');
+    syncHandleKinds();
+    cell.append(hBelow);
+  };
+  const setHot = type => {
+    if (pState) pState.hotType = type;
+    for (const b of picker.querySelectorAll('button[data-type]')) {
+      b.toggleAttribute('data-hot', b.dataset.type === type);
+    }
+  };
+  const closePicker = () => {
+    hBelow.removeAttribute('data-active');
+    picker.classList.remove('open');
+    setHot(null);
+    pState = null;
+  };
+  const positionPicker = (anchorRect, edge, hint) => {
+    picker.querySelector('.craft-desk-picker-head').textContent = hint || (edge === 'above' ? 'Insert above' : 'Insert below');
+    picker.classList.add('open');
+    const pw = picker.offsetWidth || 270, ph = picker.offsetHeight || 68;
+    const cx = anchorRect.left + anchorRect.width / 2;
+    const left = Math.max(8, Math.min(cx - pw / 2, innerWidth - pw - 8));
+    let top;
+    if (edge === 'above') {
+      const aboveTop = anchorRect.top - ph - 10;
+      top = aboveTop >= 8 ? aboveTop : Math.min(anchorRect.bottom + 10, innerHeight - ph - 8);
+    } else {
+      const belowTop = anchorRect.bottom + 10;
+      top = (belowTop + ph <= innerHeight - 8) ? belowTop : Math.max(8, anchorRect.top - ph - 10);
+    }
+    picker.style.left = Math.round(left) + 'px';
+    picker.style.top = Math.round(top) + 'px';
+  };
+  const hitOpt = (x, y) => {
+    const PAD = 8;
+    for (const b of picker.querySelectorAll('button[data-type]')) {
+      const r = b.getBoundingClientRect();
+      if (x >= r.left - PAD && x <= r.right + PAD && y >= r.top - PAD && y <= r.bottom + PAD) return b.dataset.type;
+    }
+    return null;
+  };
+  async function commitEditors() {
+    if (window.craftC2?.active?.()) await window.craftC2.exit();
+    if (window.craftMd?.active?.()) await window.craftMd.exit();
+  }
+  async function doInsert(edge, cell, type) {
+    if (type) window.craftInsertPreview?.choose?.(type);
+    syncHandleKinds();
+    await commitEditors();
+    window.craftInsertPreview?.insert?.(edge, {type: type || window.craftInsertPreview?.type?.(), cell, force: true});
+  }
+
+  const onHandleDown = e => {
+    if (isMobile() || e.button !== 0) return;
+    const handle = e.currentTarget;
+    const cell = handle.closest('#dialog-container > .editable[id]');
+    if (!cell) return;
+    e.preventDefault(); e.stopPropagation();
+    closePicker();
+    const edge = handle.dataset.edge;
+    handle.dataset.active = 'true';
+    handle.setPointerCapture?.(e.pointerId);
+    pState = {edge, cell, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, dragged: false, hotType: null, keyMode: false};
+  };
+  const onHandleMove = e => {
+    if (!pState || e.pointerId !== pState.pointerId || pState.keyMode) return;
+    const dist = Math.hypot(e.clientX - pState.startX, e.clientY - pState.startY);
+    if (!pState.dragged && dist > 6) {
+      pState.dragged = true;
+      positionPicker(e.currentTarget.getBoundingClientRect(), pState.edge, `Drop to insert ${pState.edge} & set default`);
+    }
+    if (pState.dragged) setHot(hitOpt(e.clientX, e.clientY));
+  };
+  const onHandleUp = e => {
+    if (!pState || e.pointerId !== pState.pointerId || pState.keyMode) return;
+    const {edge, cell, dragged, hotType} = pState;
+    closePicker();
+    if (!dragged) doInsert(edge, cell, null);
+    else if (hotType) doInsert(edge, cell, hotType);
+  };
+  const onHandleCancel = e => { if (pState && e.pointerId === pState.pointerId) closePicker(); };
+  const onHandleClick = e => { e.preventDefault(); e.stopPropagation(); };
+  on(hBelow, {pointerdown: onHandleDown, pointermove: onHandleMove, pointerup: onHandleUp, pointercancel: onHandleCancel, click: onHandleClick}, sig);
+  const onPickerClick = e => {
+    const b = e.target.closest('button[data-type]');
+    if (!b || !pState) return;
+    e.preventDefault(); e.stopPropagation();
+    const {edge, cell} = pState;
+    closePicker();
+    doInsert(edge, cell, b.dataset.type);
+  };
+  on(picker, 'click', onPickerClick, sig);
+
+  /* Track cursor proximity to the bottom-center target area of a cell on desktop */
+  const onMouseMove = e => {
+    if (isMobile() || pState) return;
+    const t = e.target;
+    if (t instanceof Element && hBelow.contains(t)) {
+      hBelow.dataset.near = 'true';
+      return;
+    }
+    const cell = t instanceof Element ? t.closest('#dialog-container > .editable[id]') : null;
+    if (cell) {
+      attachHandles(cell);
+      if (hostCell === cell) {
+        const r = cell.getBoundingClientRect();
+        const nearY = Math.abs(e.clientY - r.bottom) <= 26;
+        const nearX = Math.abs(e.clientX - (r.left + r.width / 2)) <= 140;
+        hBelow.toggleAttribute('data-near', nearY && nearX);
+      }
+    } else if (hostCell) {
+      const r = hostCell.getBoundingClientRect();
+      const nearY = Math.abs(e.clientY - r.bottom) <= 26;
+      const nearX = Math.abs(e.clientX - (r.left + r.width / 2)) <= 140;
+      if (nearY && nearX) hBelow.dataset.near = 'true';
+      else hBelow.removeAttribute('data-near');
+    }
+  };
+  const onDialogLeave = () => { if (!pState) detachHandles(); };
+  on(document, 'mousemove', onMouseMove, {passive: true, signal: ac.signal});
+  on(dialog(), 'mouseleave', onDialogLeave, sig);
+
+  /* Click-margin / click-header to escape active inline editors on desktop */
+  const onDocMouseDown = e => {
+    if (isMobile()) return;
+    if (pState?.keyMode && !picker.contains(e.target)) closePicker();
+    if (e.button !== 0) return;
+    const hasEd = !!(window.craftC2?.active?.() || window.craftMd?.active?.());
+    if (!hasEd) return;
+    const t = e.target;
+    if (!(t instanceof Element)) return;
+    if (t.closest('#solveit-file-tree-panel, #solveit-temp-editor, #solveit-launcher, .craft-action-menu, #craft-desk-picker, .craft-desk-edge, .cm-editor, .cm-tooltip, .uk-modal, .uk-dropdown, .uk-drop, nav.monster-navbar')) return;
+    const inDialog = t.closest('#dialog-container');
+    if (!inDialog) return;
+    const inCell = t.closest('#dialog-container > .editable[id]');
+    const onHeaderBlank = inCell && t.closest('.uk-card-header') && !t.closest('button, a, input, select');
+    if (!inCell || onHeaderBlank) {
+      commitEditors();
+    }
+  };
+  on(document, 'mousedown', onDocMouseDown, cap);
+
+  /* Shift+A / Shift+B inline seam quick-picker in selection mode */
+  const blocked = () => document.activeElement?.closest?.('input,textarea,select,[contenteditable],.monaco-editor,.cm-editor,#full_editor,.hk-overlay.open,#solveit-launcher.open,[role="dialog"],.uk-modal.uk-open');
+  const onKeyDown = e => {
+    if (isMobile() || e.isComposing) return;
+    if (pState?.keyMode) {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); closePicker(); return; }
+      const t = KEY_TO_TYPE[e.key.toLowerCase()];
+      if (t && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault(); e.stopImmediatePropagation();
+        const {edge, cell} = pState;
+        closePicker();
+        doInsert(edge, cell, t);
+        return;
+      }
+      return;
+    }
+    if (e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && (e.key === 'A' || e.key === 'B')) {
+      if (blocked()) return;
+      const cell = dialog()?.querySelector(':scope > .editable[data-sm="primary"]');
+      if (!cell) return;
+      e.preventDefault(); e.stopImmediatePropagation();
+      const edge = e.key === 'A' ? 'above' : 'below';
+      const r = cell.getBoundingClientRect();
+      const seamRect = edge === 'above'
+        ? {left: r.left, width: r.width, top: r.top, bottom: r.top}
+        : {left: r.left, width: r.width, top: r.bottom, bottom: r.bottom};
+      pState = {edge, cell, pointerId: null, startX: 0, startY: 0, dragged: false, hotType: null, keyMode: true};
+      positionPicker(seamRect, edge, `Insert ${edge} · press C / N / P / R`);
+    }
+  };
+  on(document, 'keydown', onKeyDown, cap);
+
+  /* Slash-morph on empty cells: typing /c, /code, /n, /note, /p, /prompt, /r, /raw + Space/Enter morphs the cell */
+  let morphing = false;
+  const checkSlashMorph = () => {
+    if (morphing || isMobile()) return;
+    let id = null, view = null, isCode = false;
+    const c2Id = window.craftC2?.active?.();
+    if (c2Id) {
+      view = window.craftC2.view(c2Id);
+      if (view?.hasFocus) { id = '_' + String(c2Id).replace(/^_/, ''); isCode = true; }
+    }
+    if (!id) {
+      const mdKey = window.craftMd?.active?.();
+      if (mdKey && mdKey.endsWith(':in')) {
+        view = window.craftMd.view(mdKey);
+        if (view?.hasFocus) id = '_' + mdKey.split(':')[0].replace(/^_/, '');
+      }
+    }
+    if (!id || !view) return;
+    const text = view.state.doc.toString();
+    const m = SLASH_RE.exec(text);
+    if (!m) return;
+    const targetName = SLASH_MAP[m[1].toLowerCase()];
+    const targetType = targetName.toLowerCase();
+    const el = document.getElementById(id);
+    const curType = el?.querySelector('.card-in[data-mtype]')?.dataset.mtype;
+    if (!el || curType === targetType) return;
+    morphing = true;
+    view.dispatch({changes: {from: 0, to: text.length, insert: ''}});
+    (async () => {
+      try {
+        await commitEditors();
+        window.craftInsertPreview?.choose?.(targetName);
+        if (window.craftInsertPreview?.setType) {
+          await window.craftInsertPreview.setType(id, targetType);
+        }
+        if (targetType === 'code') window.craftC2?.edit?.(id.slice(1), {anchor: 0, head: 0});
+        else window.craftMd?.edit?.(id.slice(1), {toEnd: true});
+      } catch (err) {
+        console.error('craftDesktopUX: slash-morph failed', err);
+      } finally { morphing = false; }
+    })();
+  };
+  const onSlashInput = () => { queueMicrotask(checkSlashMorph); };
+  on(document, 'input', onSlashInput, cap);
+
+  const offMobile = window.craftMobile?.onChange?.(active => { if (active) { closePicker(); detachHandles(); } });
+  window.craftDesktopUX = {
+    disable() {
+      offMobile?.(); closePicker(); detachHandles(); picker.remove();
+      ac.abort();
+      delete window.craftDesktopUX;
+    },
+  };
+})();
+
+/* %% nbs/craft/09_cell_insertion.ipynb #dc465295 */
+(() => {
+  window.craftImageDrop?.disable();
+  const {qs, on} = window.__craftCMCore;
+  const target = e => {
+    if (e.target.closest?.('.monaco-editor')) return;
+    return e.target.closest?.('#dialog-container > .editable > .card-in:is([data-mtype="code"],[data-mtype="note"],[data-mtype="prompt"])');
+  };
+  const field = id => qs(`#full_editor #${id}`)?.value;
+  const editorId = () => (field('id_') || '').replace(/^_/, '');
+  const model = () => window.editor?.getModel();
+  const notify = message => window.UIkit?.notification?.({message, status: 'warning'});
+  let busy = false, disabled = false;
+  const dragover = e => {
+    if (!target(e)) return;
+    const items = [...(e.dataTransfer?.items || [])];
+    if (!items.some(i => i.kind === 'file' && (!i.type || i.type.startsWith('image/'))) && (items.length || !e.dataTransfer?.types.includes('Files'))) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  };
+  const attach = async (e, card, file) => {
+    if (typeof window.handleBlob !== 'function') return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (busy) return notify('Wait for the current image upload to finish.');
+    const cell = card.parentElement, id = cell.id.slice(1), kind = card.dataset.mtype;
+    const priorModel = model();
+    const ready = () => editorId() === id && field('is_input') === '1' && field('msg_type') === kind && model() && !model().uri.path.endsWith('/temp');
+    busy = true;
+    try {
+      if (!ready()) {
+        if (editorId() || window.edValue?.()) return notify('Finish editing the open cell before attaching an image to another cell.');
+        if (window.craftC2?.active?.() === id) await window.craftC2.exit(id);
+        if (window.craftMd?.active?.() === `${id}:in`) await window.craftMd.exit(id, 'in');
+        const btn = card.querySelector('[hx-post="/editor_"]');
+        if (btn) { btn.dataset.craftAllowMonaco = '1'; btn.click(); delete btn.dataset.craftAllowMonaco; }
+        for (let i = 0; i < 100 && !disabled && !(ready() && model() !== priorModel); i++) await new Promise(resolve => setTimeout(resolve, 50));
+        if (disabled) return;
+        if (!ready() || model() === priorModel) return notify('Could not open the cell to attach the image.');
+      }
+      window.craftIdleComposer?.reveal();
+      window.editor.focus();
+      const ext = file.name.match(/\.([^.]+)$/)?.[1] || file.type.split('/')[1] || 'png';
+      await window.handleBlob(file, ext, true, file.name);
+    } catch (err) {
+      console.error('CRAFT image attachment:', err);
+      notify('Could not attach the image.');
+    } finally { busy = false; }
+  };
+  const drop = e => {
+    const card = target(e), file = e.dataTransfer?.files[0];
+    if (card && file?.type.startsWith('image/')) attach(e, card, file);
+  };
+  const ac = new AbortController();
+  on(window, {dragover, drop}, {capture: true, signal: ac.signal});
+  window.craftImageDrop = {disable() {
+    disabled = true;
+    ac.abort();
+    delete window.craftImageDrop;
+  }};
+})();
+
+/* %% nbs/craft/10_code_editor_c2.ipynb #e2023303 */
+window.__craftTpl = Object.assign(window.__craftTpl || {}, {"c2_tooltip_portal": "<div id=\"craft-c2-tooltips\" class=\"craft-c2-tooltips\"></div>", "c2_ai_form": "<form class=\"craft-c2-ai-form\"><input class=\"uk-input craft-c2-ai-input\" name=\"query\" autocomplete=\"off\" placeholder=\"Enter your query... (Enter to apply, Esc to cancel)\" type=\"text\"></form>", "c2_spinner": "<div class=\"craft-c2-spinner\" data-uk-spinner=\"ratio: 0.5\"></div>"});
+
+/* %% nbs/craft/10_code_editor_c2.ipynb #d0e1d53d */
+(() => { /* iife:craftC2 */
+/* #d0e1d53d */
+window.craftC2?.disable();
   const {mountTpl, qsa, on, store, patch} = window.__craftCMCore;
   const LN_KEY = 'solveit-craft:c2:linenums';
   const staticHlText = new WeakMap(), smartSelHist = new WeakMap();
@@ -4192,7 +4209,8 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"c2_tooltip_portal":
     });
   }
 
-  const jumpToLastCell = id => CORE.jumpToLastCell(() => exitCell(id));
+/* #564ce3de */
+const jumpToLastCell = id => CORE.jumpToLastCell(() => exitCell(id));
 
   const editorId = () => String(document.querySelector('#full_editor #id_')?.value || '').replace(/^_/, '');
   const model = () => window.editor?.getModel();
@@ -4544,7 +4562,8 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"c2_tooltip_portal":
     });
   }
 
-  const hasFolds = (cm, state) => {
+/* #f79e8477 */
+const hasFolds = (cm, state) => {
     let any = false;
     cm.lang.foldedRanges(state).between(0, state.doc.length, () => { any = true; return false; });
     return any;
@@ -4882,8 +4901,8 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"c2_tooltip_portal":
     return true;
   }
 
-
-  function buildExtensions(cm, id, comps) {
+/* #f3ed72d7 */
+function buildExtensions(cm, id, comps) {
     const {state, view, lang, python, cmds, ac, search} = cm;
     const {ghostField, sigHelpField, setSigHelp, aiEditField, indentGuidesExt, rainbowBracketsExt, hoverFoldGutter} = ensureCMExtras(cm);
     const {langComp, themeComp, readOnlyComp, lineNumComp} = comps;
@@ -5086,7 +5105,8 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"c2_tooltip_portal":
     ];
   }
 
-  async function openCell(id, selSpec = null) {
+/* #0f3850db */
+async function openCell(id, selSpec = null) {
     if (ed.destroyed) return;
     const cm = cmCache || await loadCM();
     cmCache = cm;
@@ -5097,7 +5117,7 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"c2_tooltip_portal":
     const text = getCellText(el);
     ed.openView(id, {
       el, card, text, cm, selSpec,
-      hostClass: 'craft-c2-host',
+      hostClass: 'craft-cm-host craft-c2-host',
       extraRec: {langKey: 'python', showLN: null},
       themeExts: themeExtensions(cm),
       prepareState: () => {
@@ -5198,22 +5218,26 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"c2_tooltip_portal":
   sync();
 })();
 
-/* %% nbs/craft/06_mobile.ipynb #83f4bb08 */
-window.__craftTpl = Object.assign(window.__craftTpl || {}, {"mb_bar": "<nav id=\"craft-mbar\" aria-label=\"Mobile toolbar\" data-mode=\"idle\"><div class=\"craft-mbar-row\" data-row=\"idle\"><button type=\"button\" data-act=\"nav\" aria-label=\"Menu\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 6h16M4 12h16M4 18h16\"></path></svg><span>Menu</span></button><button type=\"button\" data-act=\"files\" aria-label=\"Files\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z\"></path></svg><span>Files</span></button></div><div class=\"craft-mbar-row\" data-row=\"edit\"><button type=\"button\" data-act=\"tab\" aria-label=\"Tab\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 12h13m-4-4 4 4-4 4M20 6v12\"></path></svg><span>Tab</span></button><span class=\"craft-mbar-spacer\"></span><button type=\"button\" data-act=\"run\" aria-label=\"Run\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M7 5v14l11-7z\"></path></svg><span>Run</span></button><button type=\"button\" data-act=\"done\" aria-label=\"Done\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 12.5l4.5 4.5L19 7.5\"></path></svg><span>Done</span></button></div></nav>", "mb_backdrop": "<div id=\"craft-mobile-backdrop\"></div>", "mb_jump_btn": "<button id=\"craft-scroll-bottom\" type=\"button\" aria-label=\"Jump to bottom\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 5v14m-6-6 6 6 6-6\"></path></svg></button>", "mb_picker": "<div id=\"craft-edge-picker\" role=\"menu\" aria-label=\"Insert cell\"><div class=\"craft-edge-picker-head\"></div><div class=\"craft-edge-picker-opts\"><button type=\"button\" role=\"menuitem\" data-type=\"Code\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 6l-6 6 6 6m8-12 6 6-6 6M14 4l-4 16\"></path></svg><span>Code</span></button><button type=\"button\" role=\"menuitem\" data-type=\"Note\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 3h10l4 4v14H5z M15 3v5h4M8 12h8m-8 4h8\"></path></svg><span>Note</span></button><button type=\"button\" role=\"menuitem\" data-type=\"Prompt\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 4h18v12H9l-6 4z M7 10h.01m5 0h.01m5 0h.01\"></path></svg><span>Prompt</span></button><button type=\"button\" role=\"menuitem\" data-type=\"Raw\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 5h18v14H3z M7 9v6\"></path></svg><span>Raw</span></button></div></div>", "mb_bulge_above": "<button type=\"button\" class=\"craft-edge-bulge\" data-edge=\"above\" aria-label=\"Insert cell above\"><svg aria-hidden=\"true\" viewbox=\"0 0 36 10\" width=\"36\" height=\"10\"><path class=\"craft-edge-stroke\" d=\"M0 9 C9 9 12 1.5 18 1.5 C24 1.5 27 9 36 9\"></path></svg></button>", "mb_bulge_below": "<button type=\"button\" class=\"craft-edge-bulge\" data-edge=\"below\" aria-label=\"Insert cell below\"><svg aria-hidden=\"true\" viewbox=\"0 0 36 10\" width=\"36\" height=\"10\"><path class=\"craft-edge-stroke\" d=\"M0 1 C9 1 12 8.5 18 8.5 C24 8.5 27 1 36 1\"></path></svg></button>", "mb_empty_add": "<div id=\"craft-empty-add\"><span class=\"craft-empty-add-label\">Add first cell</span><div class=\"craft-empty-add-btns\"><button type=\"button\" data-type=\"Code\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 6l-6 6 6 6m8-12 6 6-6 6M14 4l-4 16\"></path></svg><span>Code</span></button><button type=\"button\" data-type=\"Note\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 3h10l4 4v14H5z M15 3v5h4M8 12h8m-8 4h8\"></path></svg><span>Note</span></button><button type=\"button\" data-type=\"Prompt\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 4h18v12H9l-6 4z M7 10h.01m5 0h.01m5 0h.01\"></path></svg><span>Prompt</span></button><button type=\"button\" data-type=\"Raw\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 5h18v14H3z M7 9v6\"></path></svg><span>Raw</span></button></div></div>"});
-
-/* %% nbs/craft/06_mobile.ipynb #271473a5 */
-/* ── Mobile toolbar, edge-bulge cell insertion & scroll chrome ───────────
-   Only rendered under `html.craft-mobile` (see "Mobile mode detection").
-   Phones have no hover, no Escape, no Shift+Enter and no Tab, so this module
-   provides:
-     - idle:    floating pill dock (Menu · Files) that hides on scroll-down
-     - editing: full-width bar above the soft keyboard (Tab · Run/Send · Done)
-     - cell insertion: top/bottom brace-style bulges on the selected cell;
-       press-and-drag (or tap) into Code / Note / Prompt / Raw to prepend or
-       append relative to that cell (plus an inline starter row on empty dialogs)
-     - jump-to-bottom button when scrolled well above the end of a dialog. */
+/* %% nbs/craft/11_markdown_editor.ipynb #6c51ec83 */
 (() => {
-  window.craftMobileBar?.disable();
+  window.craftInlineNote?.disable?.();
+  window.craftInlineText?.disable?.();
+  if (!document.getElementById('dialog-container')) return;
+  if (!document.querySelector('script[data-craft-md="1"]')) {
+    const s = document.createElement('script');
+    s.src = '/static/.craft-assets/craft_md.js';
+    s.dataset.craftMd = '1';
+    document.head.append(s);
+  }
+})();
+
+/* %% nbs/craft/12_mobile.ipynb #83f4bb08 */
+window.__craftTpl = Object.assign(window.__craftTpl || {}, {"mb_bar": "<nav id=\"craft-mbar\" aria-label=\"Mobile toolbar\" data-mode=\"idle\"><div class=\"craft-mbar-row\" data-row=\"idle\"><button type=\"button\" data-act=\"nav\" aria-label=\"Menu\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 6h16M4 12h16M4 18h16\"></path></svg><span>Menu</span></button><button type=\"button\" data-act=\"files\" aria-label=\"Files\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z\"></path></svg><span>Files</span></button></div><div class=\"craft-mbar-row\" data-row=\"edit\"><button type=\"button\" data-act=\"tab\" aria-label=\"Tab\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 12h13m-4-4 4 4-4 4M20 6v12\"></path></svg><span>Tab</span></button><span class=\"craft-mbar-spacer\"></span><button type=\"button\" data-act=\"run\" aria-label=\"Run\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M7 5v14l11-7z\"></path></svg><span>Run</span></button><button type=\"button\" data-act=\"done\" aria-label=\"Done\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 12.5l4.5 4.5L19 7.5\"></path></svg><span>Done</span></button></div></nav>", "mb_backdrop": "<div class=\"craft-overlay\" id=\"craft-mobile-backdrop\"></div>", "mb_jump_btn": "<button id=\"craft-scroll-bottom\" type=\"button\" aria-label=\"Jump to bottom\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 5v14m-6-6 6 6 6-6\"></path></svg></button>", "mb_picker": "<div id=\"craft-edge-picker\" class=\"craft-type-picker\" role=\"menu\" aria-label=\"Insert cell\"><div class=\"craft-type-picker-head craft-edge-picker-head\"></div><div class=\"craft-type-picker-opts craft-edge-picker-opts\"><button class=\"uk-btn uk-btn-default uk-btn-sm\" role=\"menuitem\" data-type=\"Code\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 6l-6 6 6 6m8-12 6 6-6 6M14 4l-4 16\"></path></svg><span>Code</span></button><button class=\"uk-btn uk-btn-default uk-btn-sm\" role=\"menuitem\" data-type=\"Note\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 3h10l4 4v14H5z M15 3v5h4M8 12h8m-8 4h8\"></path></svg><span>Note</span></button><button class=\"uk-btn uk-btn-default uk-btn-sm\" role=\"menuitem\" data-type=\"Prompt\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 4h18v12H9l-6 4z M7 10h.01m5 0h.01m5 0h.01\"></path></svg><span>Prompt</span></button><button class=\"uk-btn uk-btn-default uk-btn-sm\" role=\"menuitem\" data-type=\"Raw\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 5h18v14H3z M7 9v6\"></path></svg><span>Raw</span></button></div></div>", "mb_bulge_above": "<button type=\"button\" class=\"craft-edge-bulge\" data-edge=\"above\" aria-label=\"Insert cell above\"><svg aria-hidden=\"true\" viewbox=\"0 0 36 10\" width=\"36\" height=\"10\"><path class=\"craft-edge-stroke\" d=\"M0 9 C9 9 12 1.5 18 1.5 C24 1.5 27 9 36 9\"></path></svg></button>", "mb_bulge_below": "<button type=\"button\" class=\"craft-edge-bulge\" data-edge=\"below\" aria-label=\"Insert cell below\"><svg aria-hidden=\"true\" viewbox=\"0 0 36 10\" width=\"36\" height=\"10\"><path class=\"craft-edge-stroke\" d=\"M0 1 C9 1 12 8.5 18 8.5 C24 8.5 27 1 36 1\"></path></svg></button>", "mb_empty_add": "<div id=\"craft-empty-add\"><span class=\"craft-empty-add-label\">Add first cell</span><div class=\"craft-empty-add-btns\"><button class=\"uk-btn uk-btn-default uk-btn-sm\" data-type=\"Code\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 6l-6 6 6 6m8-12 6 6-6 6M14 4l-4 16\"></path></svg><span>Code</span></button><button class=\"uk-btn uk-btn-default uk-btn-sm\" data-type=\"Note\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 3h10l4 4v14H5z M15 3v5h4M8 12h8m-8 4h8\"></path></svg><span>Note</span></button><button class=\"uk-btn uk-btn-default uk-btn-sm\" data-type=\"Prompt\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 4h18v12H9l-6 4z M7 10h.01m5 0h.01m5 0h.01\"></path></svg><span>Prompt</span></button><button class=\"uk-btn uk-btn-default uk-btn-sm\" data-type=\"Raw\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 5h18v14H3z M7 9v6\"></path></svg><span>Raw</span></button></div></div>"});
+
+/* %% nbs/craft/12_mobile.ipynb #87343c83 */
+(() => { /* iife:mobileBar */
+/* #87343c83 */
+window.craftMobileBar?.disable();
   const root = document.documentElement;
   const {mountTpl, qs, qsa, on, htmxPost, patch, rafOnce, onDomChange} = window.__craftCMCore;
   const ac = new AbortController(), sig = {signal: ac.signal}, cap = {capture: true, signal: ac.signal}, pas = {passive: true, signal: ac.signal};
@@ -5301,7 +5325,8 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"mb_bar": "<nav id=\
     } finally { adding = false; }
   }
 
-  /* ── Cell-edge bulges: attach to the editing cell or primary selected cell ── */
+/* #ffa3db5a */
+/* ── Cell-edge bulges: attach to the editing cell or primary selected cell ── */
   let bulgeHost = null;
   const detachBulges = () => {
     bulgeHost?.classList.remove('craft-bulge-host');
@@ -5457,7 +5482,8 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"mb_bar": "<nav id=\
     addCell(opt.dataset.type, 'below', null);
   }, sig);
 
-  /* After Run/Send the output lands below the fold: keep the cell in view while it grows,
+/* #cc9a7fbd */
+/* After Run/Send the output lands below the fold: keep the cell in view while it grows,
      until it has been still for ~10s or the user scrolls on their own. */
   let stopFollow = null;
   function followCell(id) {
@@ -5568,7 +5594,8 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"mb_bar": "<nav id=\
     (m.el === window ? window : m.el).scrollTo({top: m.height, behavior: 'smooth'});
   }, sig);
 
-  /* ── Tap-to-select first on mobile ──
+/* #730a733f */
+/* ── Tap-to-select first on mobile ──
      Tapping an unselected cell (or a different cell while editing another) selects
      it first instead of immediately opening the inline editor and soft keyboard.
      A second tap into the already-selected cell opens the editor normally. */

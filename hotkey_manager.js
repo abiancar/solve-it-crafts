@@ -1,7 +1,7 @@
-/* %% nbs/craft/00_hotkey_manager.ipynb #ea005e0d */
-window.__craftTpl = Object.assign(window.__craftTpl || {}, {"hk_overlay": "<div class=\"hk-overlay\"><div class=\"hk-modal\" role=\"dialog\" aria-modal=\"true\" aria-label=\"Keyboard shortcuts\" tabindex=\"-1\"><header class=\"hk-head\"><strong>Keyboard shortcuts</strong><span class=\"hk-sub\">Click Change to rebind · Esc cancels · ⊘ also disables a Solveit row's original key</span><button class=\"hk-close\" type=\"button\" aria-label=\"Close\">×</button></header><div class=\"hk-body\"></div><footer class=\"hk-foot\"><span>Overrides are saved in this browser.</span><button class=\"hk-reset-all\" type=\"button\">Reset all</button></footer></div></div>"});
+/* %% nbs/craft/03_hotkey_manager.ipynb #ea005e0d */
+window.__craftTpl = Object.assign(window.__craftTpl || {}, {"hk_overlay": "<div class=\"craft-overlay hk-overlay\"><div class=\"uk-card craft-card hk-modal\" role=\"dialog\" aria-modal=\"true\" aria-label=\"Keyboard shortcuts\" tabindex=\"-1\"><header class=\"uk-modal-header hk-head\"><strong>Keyboard shortcuts</strong><span class=\"hk-sub\">Click Change to rebind · Esc cancels · ⊘ also disables a Solveit row's original key</span><button class=\"hk-close\" type=\"button\" aria-label=\"Close\">×</button></header><div class=\"uk-modal-body hk-body\"></div><footer class=\"uk-modal-footer hk-foot\"><span>Overrides are saved in this browser.</span><button class=\"uk-btn uk-btn-default uk-btn-sm hk-reset-all\" type=\"button\">Reset all</button></footer></div></div>"});
 
-/* %% nbs/craft/00_hotkey_manager.ipynb #8b08b80e */
+/* %% nbs/craft/03_hotkey_manager.ipynb #8b08b80e */
 /* ── Hotkey manager ───────────────────────────────────────────────────
    Shared registry for page-level shortcuts, plus a settings modal that
    lists them all and lets you rebind them (press '?', or solveit's own
@@ -174,11 +174,11 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"hk_overlay": "<div 
       ? mkEl('span', {cls: 'hk-combo hk-capturing'}, 'Press keys…')
       : mkEl('span', {cls: 'hk-combo'}, comboParts(effective(id)).map(p => mkEl('kbd', {}, p)));
     const reset = overrides[id] && mkEl('button', {
-      type: 'button', cls: 'hk-reset', title: 'Reset to default',
+      type: 'button', cls: 'uk-btn uk-btn-default uk-btn-sm hk-reset', title: 'Reset to default',
       onclick: () => { delete overrides[id]; save(); refreshChips(); renderRows(); },
     }, '↺');
     const sup = spec.builtin && overrides[id] && mkEl('button', {
-      type: 'button', cls: 'hk-suppress' + (isSuppressed(id) ? ' on' : ''),
+      type: 'button', cls: 'uk-btn uk-btn-default uk-btn-sm hk-suppress' + (isSuppressed(id) ? ' on' : ''),
       'aria-pressed': String(isSuppressed(id)),
       title: isSuppressed(id) ? `Original ${formatCombo(spec.combo)} disabled — click to re-enable` : `Also disable original ${formatCombo(spec.combo)}`,
       onclick: () => { const o = norm(overrides[id]); o.suppress = !o.suppress; overrides[id] = o; save(); renderRows(); },

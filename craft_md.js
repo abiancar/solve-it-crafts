@@ -1,11 +1,7 @@
-/* %% nbs/craft/05_craft_md.ipynb #25995427 */
-/* ── Craft Inline Markdown & Raw Editor (CM6 + Obsidian-style Live Preview) ──
-   Replaces the plain-textarea craftInlineText editor for `note`, `prompt`, and
-   `raw` cells. Shares CodeMirror 6 core modules with craftC2 via
-   `window.__craftCM6LocalPromise` and loads vendored @codemirror/lang-markdown
-   and @lezer/markdown from /static/.craft-assets/cm6/. */
-(() => {
-  window.craftInlineNote?.disable?.();
+/* %% nbs/craft/11_markdown_editor.ipynb #65ff7306 */
+(() => { /* iife:craftMd */
+/* #65ff7306 */
+window.craftInlineNote?.disable?.();
   window.craftInlineText?.disable?.();
   window.craftMd?.disable?.();
   if (!document.getElementById('dialog-container')) return;
@@ -140,7 +136,8 @@
 
   loadMdCM().then(b => { mdCache = b; cmCache = b.cm; }).catch(() => {});
 
-  /* ── Obsidian-style Live Preview ViewPlugin ───────────────────────────── */
+/* #4d4b0f47 */
+/* ── Obsidian-style Live Preview ViewPlugin ───────────────────────────── */
   function buildLivePreview(cm) {
     const {view, lang} = cm;
     const {Decoration, ViewPlugin, WidgetType} = view;
@@ -535,7 +532,8 @@
     return [plugin, linkClickExt];
   }
 
-  /* ── Markdown formatting commands ─────────────────────────────────────── */
+/* #9c08569a */
+/* ── Markdown formatting commands ─────────────────────────────────────── */
   function toggleWrap(v, mark) {
     const ml = mark.length;
     const doc = v.state.doc;
@@ -761,7 +759,8 @@
     return exts;
   }
 
-  /* ── Save, unmount, blur, run, split, type-switch ─────────────────────── */
+/* #b69b94e8 */
+/* ── Save, unmount, blur, run, split, type-switch ─────────────────────── */
 
   async function saveAndAdvance(key) {
     const {id} = parseKey(key);
@@ -863,7 +862,7 @@
     return ed.openView(key, {
       el, card, text, cm: bundle.cm, selSpec, resolveHint: resolveCaretHint,
       canReuseRec: rec => rec.kind === kind,
-      hostClass: `craft-md-host craft-md-${kind} ${kind === 'raw' ? 'craft-md-mono' : 'craft-md-prose'}`,
+      hostClass: `craft-cm-host craft-md-host craft-md-${kind} ${kind === 'raw' ? 'craft-md-mono' : 'craft-md-prose'}`,
       extraRec: {id, part, kind},
       themeExts: themeExtensions(bundle, kind),
       prepareState: () => {
@@ -878,7 +877,8 @@
     });
   }
 
-  /* ── DOM event handlers ───────────────────────────────────────────────── */
+/* #30d994ee */
+/* ── DOM event handlers ───────────────────────────────────────────────── */
   const onMouseDown = e => {
     if (e.button !== 0 || e.metaKey || e.ctrlKey || e.altKey) return;
     if (e.target.closest?.('a, button, summary, input, select, textarea, label, [role="button"], .craft-md-host, .craft-c2-host, .copy-wrap > button')) return;
@@ -915,6 +915,220 @@
     openCell(p.id, {caretHint: p.caretHint, coords: {x: e.clientX, y: e.clientY}}, 'in');
   };
 
+/* #64e072f8 */
+/* ── Preserve single newlines in rendered markdown (notes & prompts) ──── */
+  const SOFT_BR_CARD_SEL = '#dialog-container > .editable > .card-in:is([data-mtype="note"],[data-mtype="prompt"])';
+  const BLOCK_TAGS = new Set(['P', 'UL', 'OL', 'BLOCKQUOTE', 'PRE', 'TABLE', 'DIV', 'HR', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'FIGURE', 'DETAILS']);
+  const SKIP_TAGS = new Set(['PRE', 'SCRIPT', 'STYLE', 'SVG', 'MATH', 'TEXTAREA']);
+
+  function maskCodeFences(raw) {
+    const lines = raw.split('\n');
+    let fence = null;
+    for (let i = 0; i < lines.length; i++) {
+      const m = lines[i].match(/^[ \t]{0,3}(`{3,}|~{3,})/);
+      if (!fence) {
+        if (m) { fence = {ch: m[1][0], len: m[1].length}; lines[i] = ' '.repeat(lines[i].length); }
+      } else {
+        if (new RegExp(`^[ \\t]{0,3}${fence.ch}{${fence.len},}[ \\t]*$`).test(lines[i])) fence = null;
+        lines[i] = ' '.repeat(lines[i].length);
+      }
+    }
+    return lines.join('\n');
+  }
+
+  function skipLinkDest(raw, pos) {
+    if (raw[pos] !== ']') return pos;
+    const nxt = raw[pos + 1];
+    if (nxt === '(') {
+      let i = pos + 2, depth = 1;
+      while (i < raw.length && depth > 0) {
+        if (raw[i] === '\\') { i += 2; continue; }
+        if (raw[i] === '(') depth++;
+        else if (raw[i] === ')') depth--;
+        i++;
+      }
+      return i;
+    }
+    if (nxt === '[') {
+      const close = raw.indexOf(']', pos + 2);
+      return close >= 0 ? close + 1 : pos + 1;
+    }
+    return pos + 1;
+  }
+
+  function findWordInRaw(raw, word, from, limit) {
+    const end = Math.min(raw.length, limit);
+    const idx = raw.indexOf(word, from);
+    if (idx >= 0 && idx + word.length <= end) return {start: idx, end: idx + word.length};
+    if (word.length <= 80 && /[\\*_~`\[\]()#+\-.!&<>"]/.test(word)) {
+      const pat = [...word].map(ch => {
+        if (ch === '&') return '(?:&amp;|&)';
+        if (ch === '<') return '(?:&lt;|<)';
+        if (ch === '>') return '(?:&gt;|>)';
+        if (ch === '"') return '(?:&quot;|")';
+        return '\\?' + ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      }).join('');
+      const m = new RegExp(pat).exec(raw.slice(from, end));
+      if (m) return {start: from + m.index, end: from + m.index + m[0].length};
+    }
+    return null;
+  }
+
+  function collectInlineItems(root, stopAtBlocks) {
+    const items = [];
+    const walk = node => {
+      for (let child = node.firstChild; child; child = child.nextSibling) {
+        if (child.nodeType === Node.TEXT_NODE) {
+          const s = child.nodeValue || '';
+          const re = /(\S+)|(\s+)/g;
+          let m;
+          while ((m = re.exec(s))) {
+            if (m[1]) items.push({type: 'word', text: m[1]});
+            else items.push({type: 'space', text: m[2], node: child, offset: m.index, len: m[2].length});
+          }
+        } else if (child.nodeType === Node.ELEMENT_NODE) {
+          const tag = child.tagName;
+          if (stopAtBlocks && BLOCK_TAGS.has(tag)) continue;
+          if (SKIP_TAGS.has(tag) || child.classList?.contains('katex') || child.classList?.contains('mjx-container')) continue;
+          if (tag === 'BR') { items.push({type: 'br'}); continue; }
+          if (tag === 'IMG') { items.push({type: 'img'}); continue; }
+          if (tag === 'CODE') {
+            const t = (child.textContent || '').trim();
+            if (t) items.push({type: 'code', text: t});
+            continue;
+          }
+          walk(child);
+          if (tag === 'A') items.push({type: 'link-end'});
+        }
+      }
+    };
+    walk(root);
+    return items;
+  }
+
+  function applySoftBreaksToCard(card) {
+    if (!card || card.dataset.mdEditing === 'true') return;
+    const mc = card.querySelector(':scope > .msg-body > .msg-content');
+    if (!mc || mc.dataset.craftBreaks === '1') return;
+    const el = card.closest('#dialog-container > .editable');
+    const raw = getCellText(el, 'in');
+    if (!raw || !/[^\n]\n[^\n]/.test(raw)) { mc.dataset.craftBreaks = '1'; return; }
+
+    const prose = mc.querySelector(':scope > .prose') || mc;
+    const masked = maskCodeFences(raw);
+    let rawPos = 0;
+
+    for (const blk of prose.querySelectorAll('h1, h2, h3, h4, h5, h6, p, li')) {
+      if (blk.closest('pre, table, .craft-md-host, .katex, .mjx-container')) continue;
+      const tag = blk.tagName;
+      const isHeading = tag[0] === 'H' && tag.length === 2;
+      const items = collectInlineItems(blk, tag === 'LI');
+      if (!items.some(it => it.type === 'word' || it.type === 'code')) continue;
+
+      if (isHeading) {
+        for (const it of items) {
+          if (it.type !== 'word' && it.type !== 'code') continue;
+          const hit = findWordInRaw(masked, it.text, rawPos, masked.length);
+          if (hit) rawPos = hit.end;
+        }
+        continue;
+      }
+
+      const firstWordIdx = items.findIndex(it => it.type === 'word' || it.type === 'code');
+      if (firstWordIdx < 0) continue;
+      const firstWord = items[firstWordIdx].text;
+      let startHit = null;
+      if (firstWord.length <= 2) {
+        const secondWord = items.slice(firstWordIdx + 1).find(it => it.type === 'word' || it.type === 'code')?.text;
+        if (secondWord) {
+          let searchFrom = rawPos;
+          while (searchFrom < masked.length) {
+            const h1 = findWordInRaw(masked, firstWord, searchFrom, masked.length);
+            if (!h1) break;
+            const h2 = findWordInRaw(masked, secondWord, h1.end, Math.min(masked.length, h1.end + 120));
+            if (h2 && !/\n[ \t>]*\n/.test(masked.slice(h1.end, h2.start))) { startHit = h1; break; }
+            searchFrom = h1.start + 1;
+          }
+        }
+      }
+      if (!startHit) startHit = findWordInRaw(masked, firstWord, rawPos, masked.length);
+      if (!startHit) continue;
+      rawPos = startHit.end;
+
+      const breaksToInsert = [];
+      let pendingSpace = null;
+      let prevMatched = true;
+      let sawBr = false;
+
+      for (let i = firstWordIdx + 1; i < items.length; i++) {
+        const it = items[i];
+        if (it.type === 'space') {
+          if (!sawBr && it.text === ' ') pendingSpace = it;
+          continue;
+        }
+        if (it.type === 'br') {
+          pendingSpace = null;
+          sawBr = true;
+          const nl = masked.indexOf('\n', rawPos);
+          if (nl >= 0) rawPos = nl + 1;
+          continue;
+        }
+        if (it.type === 'link-end') {
+          const closeBracket = masked.indexOf(']', rawPos);
+          if (closeBracket >= 0 && closeBracket - rawPos <= 8) rawPos = skipLinkDest(masked, closeBracket);
+          continue;
+        }
+        if (it.type === 'img') {
+          const imgStart = masked.indexOf('![', rawPos);
+          if (imgStart >= 0 && imgStart - rawPos <= 40) {
+            const closeBracket = masked.indexOf(']', imgStart + 2);
+            if (closeBracket >= 0) rawPos = skipLinkDest(masked, closeBracket);
+          }
+          continue;
+        }
+
+        const blankRe = /\n[ \t>]*\n/g;
+        blankRe.lastIndex = rawPos;
+        const blankMatch = blankRe.exec(masked);
+        const paraEnd = blankMatch ? blankMatch.index : masked.length;
+
+        const hit = findWordInRaw(masked, it.text, rawPos, paraEnd);
+        if (hit) {
+          if (prevMatched && pendingSpace && !sawBr) {
+            if (masked.slice(rawPos, hit.start).includes('\n')) breaksToInsert.push(pendingSpace);
+          }
+          rawPos = hit.end;
+          if (it.type === 'code') {
+            while (rawPos < paraEnd && masked[rawPos] === '`') rawPos++;
+          }
+          prevMatched = true;
+        } else {
+          prevMatched = false;
+        }
+        pendingSpace = null;
+        sawBr = false;
+      }
+
+      for (let j = breaksToInsert.length - 1; j >= 0; j--) {
+        const sp = breaksToInsert[j];
+        const after = sp.node.splitText(sp.offset);
+        after.deleteData(0, sp.len);
+        const br = document.createElement('br');
+        br.className = 'craft-soft-br';
+        sp.node.parentNode.insertBefore(br, after);
+      }
+    }
+
+    mc.dataset.craftBreaks = '1';
+  }
+
+  const applyAllSoftBreaks = () => {
+    for (const card of document.querySelectorAll(SOFT_BR_CARD_SEL)) applySoftBreaksToCard(card);
+  };
+  const unsubSoftBreaks = CORE.onDomChange(applyAllSoftBreaks, {delay: 'raf', inDialog: true});
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', applyAllSoftBreaks, {once: true});
+  else applyAllSoftBreaks();
+
   document.addEventListener('mousedown', onMouseDown);
   document.addEventListener('mouseup', onMouseUp);
 
@@ -932,6 +1146,7 @@
     disable() {
       document.removeEventListener('mousedown', onMouseDown);
       document.removeEventListener('mouseup', onMouseUp);
+      unsubSoftBreaks();
       ed.disable();
       delete window.craftMd;
     },

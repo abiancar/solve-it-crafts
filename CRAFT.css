@@ -1,75 +1,121 @@
-/* %% nbs/craft/00_hotkey_manager.ipynb #4ae55718 */
-/* ── Hotkey manager modal ──────────────────────────────────────────── */
-.hk-overlay { position: fixed; inset: 0; z-index: 10000; display: none; align-items: flex-start; justify-content: center; background: rgba(0,0,0,.55); padding-top: 12vh; }
-.hk-overlay.open { display: flex; }
-.hk-modal { width: min(560px, calc(100vw - 32px)); max-height: 74vh; display: flex; flex-direction: column; background: #1a1b26; color: #cfc9c2; border: 1px solid #2f3044; border-radius: 10px; box-shadow: 0 18px 48px rgba(0,0,0,.5); font-family: inherit; font-size: 13px; line-height: 1.4; }
-.hk-head { display: flex; align-items: baseline; gap: 8px; padding: 12px 16px; border-bottom: 1px solid #2f3044; }
-.hk-sub { font-size: 11px; opacity: .6; }
-.hk-close { margin-left: auto; }
-.hk-body { overflow: auto; padding: 4px 16px; }
-.hk-group { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; opacity: .55; margin: 12px 0 4px; }
-.hk-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid rgba(47,48,68,.4); }
-.hk-row:last-child { border-bottom: 0; }
-.hk-suppress { opacity: .55; }
-.hk-suppress.on { opacity: 1; background: #7aa2f7; border-color: #7aa2f7; color: #16161e; }
-.hk-label { flex: 1; }
-.hk-combo kbd { background: #222434; border: 1px solid #3a3b55; border-bottom-width: 2px; border-radius: 4px; padding: 1px 6px; font-family: inherit; font-size: 12px; margin-right: 3px; }
-.hk-combo.hk-capturing { font-style: italic; opacity: .75; }
-.hk-msg { color: #f7768e; font-size: 11.5px; max-width: 45%; }
-.hk-body button, .hk-foot button { background: #222434; color: #cfc9c2; border: 1px solid #3a3b55; border-radius: 6px; padding: 2px 10px; cursor: pointer; font-size: 12px; font-family: inherit; }
-.hk-body button:hover, .hk-foot button:hover { background: #2f3044; }
-.hk-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; border-top: 1px solid #2f3044; font-size: 11.5px; opacity: .85; }
-
-/* %% nbs/craft/02_core_ui.ipynb #5e777830 */
-/* Reserve top-right space inside desktop top nav so #craft-insert-preview and #craft-mobile-toggle never overlap navbar buttons. */
-html:not(.craft-mobile) .uk-container > nav.monster-navbar {
-  padding-right: 78px !important;
-  box-sizing: border-box;
-}
+/* %% nbs/craft/01_theme_and_tokens.ipynb #36e355dc */
 /* ══ Solveit "borderless" restyle · Tokyo Night Pure ══════════════════
-   Injected as a <style> tag for every dialog in this folder. RELOAD to apply.
    Intent: cells float on one continuous canvas, full width, minimal chrome,
    separated by spacing and faint tone steps rather than boxes.
 
-   Palette, from themes/tokyo-night-pure-color-theme.json:
-     #16161e   panel/titleBar/sideBar   page canvas, recessed wells
-     #1f2030   lifted editor.background card surface, composer (#1a1b26 was ~1:1 vs canvas)
-     #25273a   derived                  output step (see note below)
-     #cfc9c2   editor.foreground        body text
-     #cfc9c266 editorLineNumber.fg      muted metadata label
-     #7aa2f7   selection hue            active toggle glyph
-     #7dcfff   Tokyo Night cyan         links (#1779b2 was ~3.6:1 on cards)
-
-   The output step is invented: no theme key means "a shade off the editor".
-   editor.lineHighlightBackground #2b2e43 is the semantically exact choice but
-   a big jump; #25273a sits a half-step above the #1f2030 card instead.
-
-   NOT remapped: --color-background and friends. Tailwind bg-* utilities still
-   resolve to the original greys, which is why the nav <select> arrived black.
-
-   Companion files in this folder:
-     CRAFT.js   — marks `.dot-prompt` wrappers, and drives the top-nav reveal
-                  via a `.nav-shown` class. Section 7 only styles the states;
-                  the policy lives in the JS.
-     Both are injected per dialog. RELOAD after editing either.
-
-   Gotcha that cost two probes: UIkit paints its button chips as `outline`
-   (inset / outset / groove, rgba(255,255,255,0.1)), NOT border or box-shadow.
-   `outline` is not part of the `border` shorthand, so border/background/shadow
-   resets leave the boxes visible. Section 7 now resets it. Do NOT add a
-   blanket outline reset outside the nav: the app's [data-editing] cursor ring
-   is an outline, and Tailwind's ring-2 selection ring is a box-shadow.
-
-   Probing method: filter by getBoundingClientRect() and print the rect, so
-   screenshot pixels map straight to elements — scoping a probe by selector
-   presumes the answer. Always test border AND background AND box-shadow AND
-   outline. Note `nav.monster-navbar` is not unique: every .uk-card-header
-   holds one, so an unscoped probe returns card-header noise; the `>` child
-   combinator is what keeps the real rules correct.
+   Remaps FrankenUI / MonsterUI / Tailwind semantic theme tokens in html.dark
+   and defines --craft-* design tokens (light defaults in :root, Tokyo Night
+   Pure in html.dark) so native overlays and CRAFT components share one theme.
    ──────────────────────────────────────────────────────────────────── */
 
+:root {
+  /* Type scale; CRAFT.js reads --craft-code for Monaco editors too. */
+  --craft-prose: 11px;
+  --craft-prose-lh: 13px;
+  --craft-code: 10px;
+  --craft-code-lh: 1.2;
+  --craft-prose-family: 'Craft Encode Sans', -apple-system, sans-serif;
+  --craft-code-family: 'Craft Iosevka', monospace;
+
+  /* Semantic color tokens (light defaults) */
+  --craft-bg: #ffffff;
+  --craft-surface: #ffffff;
+  --craft-surface-alt: #f6f8fa;
+  --craft-recessed: #f6f8fa;
+  --craft-hover: #eaeef2;
+  --craft-fg: #24292e;
+  --craft-fg-strong: #1f2328;
+  --craft-muted: #57606a;
+  --craft-muted-soft: #57606a88;
+  --craft-placeholder: #57606a66;
+  --craft-border: #d0d7de;
+  --craft-border-soft: #eaeef2;
+  --craft-accent: #0969da;
+  --craft-accent-soft: #0969da10;
+  --craft-accent-bg: #ddf4ff;
+  --craft-accent-border: #0969da44;
+  --craft-accent-muted: #0969da77;
+  --craft-cyan: #0550ae;
+  --craft-purple: #8250df;
+  --craft-amber: #9a6700;
+  --craft-red: #cf222e;
+  --craft-green: #1a7f37;
+  --craft-inline-bg: #eaeef2;
+  --craft-var-bg: #ddf4ff;
+  --craft-tool-bg: #fbefff;
+  --craft-math-bg: #fff8c5;
+  --craft-quote-border: #0969da66;
+  --craft-hr: #d0d7de;
+  --craft-ig: #24292e16;
+  --craft-kbd-bg: #eaeef2;
+  --craft-row-hover: rgba(9, 105, 218, 0.05);
+  --craft-copy-bg: #f6f8fae6;
+  --craft-shadow: 0 6px 18px #0002;
+}
+
+html.dark,
+html.dark[class*="uk-theme-"] {
+  /* Remap MonsterUI / FrankenUI / Tailwind semantic variables to Tokyo Night Pure */
+  --background: 236.5 21.5% 15.5%;          /* #1f2030 canvas */
+  --foreground: 32.3 12.6% 78.9%;           /* #cfc9c2 body text */
+  --card: 236.5 21.5% 15.5%;                /* #1f2030 cards */
+  --card-foreground: 32.3 12.6% 78.9%;      /* #cfc9c2 */
+  --popover: 240 15.4% 10.2%;               /* #16161e modals, dropdowns, #find-box, #vars-sb */
+  --popover-foreground: 32.3 12.6% 78.9%;   /* #cfc9c2 */
+  --primary: 220.8 89.2% 72.4%;             /* #7aa2f7 Tokyo Night blue */
+  --primary-foreground: 240 15.4% 10.2%;    /* #16161e */
+  --secondary: 234.3 22.1% 18.6%;           /* #25273a secondary surfaces */
+  --secondary-foreground: 32.3 12.6% 78.9%; /* #cfc9c2 */
+  --muted: 234.3 22.1% 18.6%;               /* #25273a muted tabs/wells */
+  --muted-foreground: 227.3 34.7% 70.6%;    /* #9aa5ce */
+  --accent: 228 23.4% 20.9%;                /* #292e42 hover / active surfaces */
+  --accent-foreground: 240 15.4% 89.4%;     /* #e0e0e8 */
+  --destructive: 348.8 89.0% 71.6%;         /* #f7768e */
+  --destructive-foreground: 240 15.4% 10.2%;
+  --border: 228 23.4% 20.9%;                /* #292e42 */
+  --border-alpha: 100%;
+  --input: 228 23.4% 20.9%;                 /* #292e42 */
+  --input-alpha: 100%;
+  --ring: 220.8 89.2% 72.4%;                /* #7aa2f7 */
+
+  /* Semantic color tokens (Tokyo Night Pure) */
+  --craft-bg: #1f2030;
+  --craft-surface: #1a1b26;
+  --craft-surface-alt: #181926;
+  --craft-recessed: #16161e;
+  --craft-hover: #292e42;
+  --craft-fg: #cfc9c2;
+  --craft-fg-strong: #ffffff;
+  --craft-muted: #9aa5ce;
+  --craft-muted-soft: #cfc9c255;
+  --craft-placeholder: #cfc9c244;
+  --craft-border: #292e42;
+  --craft-border-soft: #24283b;
+  --craft-accent: #7aa2f7;
+  --craft-accent-soft: #7aa2f712;
+  --craft-accent-bg: #292e42;
+  --craft-accent-border: #7aa2f766;
+  --craft-accent-muted: #7aa2f777;
+  --craft-cyan: #7dcfff;
+  --craft-purple: #bb9af7;
+  --craft-amber: #e0af68;
+  --craft-red: #f7768e;
+  --craft-green: #9ece6a;
+  --craft-inline-bg: #16161e99;
+  --craft-var-bg: #7dcfff18;
+  --craft-tool-bg: #bb9af718;
+  --craft-math-bg: #e0af6814;
+  --craft-quote-border: #7aa2f766;
+  --craft-hr: #ffffff26;
+  --craft-ig: #cfc9c216;
+  --craft-kbd-bg: #25273a;
+  --craft-row-hover: rgba(122, 162, 247, 0.06);
+  --craft-copy-bg: #16161ee6;
+  --craft-shadow: 0 8px 24px #000a;
+}
+
 /* ── 1. Canvas and scroller ─────────────────────────────────────────── */
-html, body { background-color: #1f2030 !important; }
+html, body { background-color: var(--craft-bg) !important; }
 
 div.overflow-y-auto.border.px-3 {        /* the only scroller; was a grey panel */
   background: transparent !important;
@@ -92,30 +138,23 @@ div.overflow-y-auto:hover::-webkit-scrollbar { width: 8px; height: 8px; }
   margin-left: 0 !important;             /* defeats ml-auto on outputs */
   margin-right: 0 !important;
 }
-.editable {
-  margin-block: 0 4px !important;        /* compact dialog cell gap */
-  gap: 0 !important;                     /* input and output are flush */
-}
+.editable { gap: 0 !important; }         /* input and output are flush; margins owned by 07_cell_presentation */
 /* Keep the selection ring, but remove the outer green editing outline. */
 .editable[data-editing] { outline: none !important; }
-/* The green halo was never a border: it is the app's diff tint. Only the
-   `added` state is neutralised; `deleted` (red) and `changed` (yellow) stand. */
+/* Neutralise only `added` diff tint; `deleted` (red) and `changed` (yellow) stand. */
 div.editable[data-diff="added"] { background: transparent !important; }
 .msg-body { padding: 2px 6px !important; }
 .card-out .msg-body { padding-left: 14px !important; }  /* subliminal offset */
-/* Type scale in one place; CRAFT.js reads --craft-code for Monaco editors too. */
-:root { --craft-prose: 11px; --craft-prose-lh: 13px; --craft-code: 10px; --craft-code-lh: 1.2; }
 .msg-content, .msg-content .prose { font-size: var(--craft-prose) !important; line-height: var(--craft-prose-lh) !important; }
 .msg-content pre, .msg-content code { font-size: var(--craft-code) !important; line-height: 1 !important; }
 .msg-content .prose p { margin: 0.15em 0 !important; }
 
 /* ── 3. Surfaces and text ───────────────────────────────────────────── */
-.msg-card { background-color: #1f2030 !important; }
+.msg-card { background-color: var(--craft-bg) !important; }
 .msg-card.card-out { background-color: #25273a !important; }
 
-.msg-content, .msg-content .prose { color: #cfc9c2 !important; }
-.msg-content a { color: #7dcfff !important; }
-
+.msg-content, .msg-content .prose { color: var(--craft-fg) !important; }
+.msg-content a { color: var(--craft-cyan) !important; }
 
 /* Metadata label ("Code:1,257") recedes from the body text */
 .msg-card > .uk-card-header nav > div.grow,
@@ -126,13 +165,11 @@ div.editable[data-diff="added"] { background: transparent !important; }
 /* One tone per card: input code is a plain PRE that paints its own grey */
 .msg-card pre, .msg-card code { background: transparent !important; }
 
-/* Except in prompts and notes, where fenced code sits in a recessed square well.
-   Keep background & padding on <pre> only, and render pre > code as a clean block so
-   inline <code> padding/background never paints over the previous line. */
+/* Except in prompts and notes, where fenced code sits in a recessed square well. */
 .msg-card[data-mtype="prompt"] .msg-content pre,
 .msg-card.card-in[data-mtype="note"] .msg-content pre,
 .msg-card.card-in[data-mtype="prompt"] .msg-content pre {
-  background: #16161e !important;
+  background: var(--craft-recessed) !important;
   border-radius: 0 !important;
   padding: 8px 10px !important;
   border: 0 !important;
@@ -147,10 +184,7 @@ div.editable[data-diff="added"] { background: transparent !important; }
 
 /* ── 4. Card edges: no frame or selection stripe ──────────────────── */
 .msg-card {
-  border-top-color: transparent !important;
-  border-right-color: transparent !important;
-  border-bottom-color: transparent !important;
-  border-left-color: transparent !important;
+  border-color: transparent !important;
   box-shadow: none !important;
 }
 .editable[data-sm="unselected"] .msg-card { border-left-color: transparent !important; }
@@ -184,101 +218,15 @@ div.editable[data-diff="added"] { background: transparent !important; }
 .uk-container > div.flex-none.uk-card.uk-card-body {
   border-radius: 0 !important;
   padding-bottom: 0 !important;
-  background-color: #1f2030 !important;
+  background-color: var(--craft-bg) !important;
 }
 .monaco-editor,                          /* Monaco lives ONLY in the composer */
 .monaco-editor-background,
 .monaco-editor .margin {
-  background-color: #1f2030 !important;
+  background-color: var(--craft-bg) !important;
 }
 
-/* ── 7. Top nav: auto-hiding overlay, floating controls ─────────────── */
-.uk-container > nav.monster-navbar {
-  position: absolute !important;         /* out of flow: scroller keeps the 44px */
-  top: 0; left: 0; right: 0;
-  z-index: 40;
-  height: 31px !important;               /* 0.7 x original */
-  min-height: 0 !important;
-  flex-wrap: nowrap !important;
-  padding-block: 0 !important;
-  background: transparent !important;
-  border: 0 !important;
-  opacity: 0;
-  pointer-events: none;                  /* hidden strip never eats clicks */
-  transition: opacity 0.18s ease;
-}
-/* Visibility is driven by CRAFT.js, which decides when to pin the bar open:
-   pointer inside the trigger band, over the nav, or inside an open uk-drop.
-   :focus-within stays so keyboard tabbing still reveals it. */
-.uk-container > nav.monster-navbar.nav-shown,
-.uk-container > nav.monster-navbar:focus-within {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-/* Children inert only while the bar is hidden */
-.uk-container > nav.monster-navbar > * { pointer-events: none; }
-.uk-container > nav.monster-navbar.nav-shown > *,
-.uk-container > nav.monster-navbar:focus-within > * { pointer-events: auto; }
-
-.uk-container > nav.monster-navbar h2 {
-  font-size: 1.05rem !important;
-  line-height: 1.2 !important;
-}
-.uk-container > nav.monster-navbar span.rounded-full.size-4 {
-  display: none !important;              /* the round status dot */
-}
-/* The brand link (📚 solveit) is removed outright; the dialog name moves into
-   the file tree header — CRAFT.js relocates the live #dlg-name element there,
-   so this navbar-scoped rule hides only the spot it leaves behind (and keeps
-   the navbar clean until the tree is first opened). */
-.uk-container > nav.monster-navbar a:has(> h1),
-.uk-container > nav.monster-navbar h2#dlg-name { display: none !important; }
-
-/* No containers: strip the action wrapper, the chips, and the <select> frame */
-.uk-container > nav.monster-navbar > div.ml-auto,
-.uk-container > nav.monster-navbar .uk-btn,
-.uk-container > nav.monster-navbar .uk-btn-group,
-.uk-container > nav.monster-navbar .uk-btn-group > *,
-.uk-container > nav.monster-navbar select,
-.uk-container > nav.monster-navbar input:checked + label.uk-btn,
-.uk-container > nav.monster-navbar .uk-btn.uk-active {
-  background: transparent !important;
-  background-color: transparent !important;
-  border: 0 !important;
-  border-color: transparent !important;
-  border-radius: 0 !important;
-  box-shadow: none !important;
-  outline: 0 !important;                 /* UIkit draws its chips as inset/groove outlines */
-  outline-color: transparent !important;
-  padding: 0 !important;
-}
-.uk-container > nav.monster-navbar .uk-btn,
-.uk-container > nav.monster-navbar select { color: #cfc9c2 !important; }
-.uk-container > nav.monster-navbar select { padding-inline: 2px !important; }
-.uk-container > nav.monster-navbar .uk-btn:hover { color: #ffffff !important; }
-
-/* Active state lives in the glyph colour plus a light glow, not a chip.
-   The app nests each toggle's hidden checkbox inside its own label (default
-   code, tools, diff) or button (brain), so :has() is what actually matches. */
-.uk-container > nav.monster-navbar :is(label, button):has(input:checked) {
-  color: #7aa2f7 !important;
-  filter: drop-shadow(0 0 4px #7aa2f7cc) drop-shadow(0 0 10px #7aa2f766);
-}
-.uk-container > nav.monster-navbar .uk-btn.uk-active { color: #7aa2f7 !important; }
-
-/* Dropdown list is OS-rendered once the select is transparent */
-.uk-container > nav.monster-navbar select option {
-  background: #16161e !important;
-  color: #cfc9c2 !important;
-}
-
-/* Glyphs stay legible over whatever scrolls beneath */
-.uk-container > nav.monster-navbar svg,
-.uk-container > nav.monster-navbar select,
-.uk-container > nav.monster-navbar h2 {
-  filter: drop-shadow(0 1px 2px #16161e) drop-shadow(0 0 4px #16161e);
-}
+/* %% nbs/craft/01_theme_and_tokens.ipynb #7030195b */
 /* Input code uses --craft-code (section 2); line-height comes from the global rule there */
 .card-in .msg-content pre {
   font-size: var(--craft-code);
@@ -288,9 +236,6 @@ div.editable[data-diff="added"] { background: transparent !important; }
 }
 
 /* ── Compact disclosures: borderless, tight stacking ────────────── */
-/* Expandable boxes (tool calls, [data-panel] details) lose their frame
-   and blend into the containing cell. Collapsed boxes stack with almost
-   no vertical space; a hint of inset remains only while open. */
 .msg-content details[data-panel],
 .msg-content .tool-usage-details {
   border: 0 !important;
@@ -313,12 +258,9 @@ div.editable[data-diff="added"] { background: transparent !important; }
 .msg-content .tool-usage-details[open] { padding: 0.15em 0 !important; }
 
 /* ── Compact typography: minimal line and block spacing ─────────── */
-/* Blank lines in source become paragraph breaks in rendered markdown:
-   their gap stays slightly larger than the gap between wrapped lines. */
 .msg-content .prose { line-height: var(--craft-prose-lh) !important; }
 .msg-content .prose > * + * { margin-top: 0.15em !important; }
-.msg-content .prose h1, .msg-content .prose h2, .msg-content .prose h3,
-.msg-content .prose h4, .msg-content .prose h5, .msg-content .prose h6 {
+.msg-content .prose :is(h1, h2, h3, h4, h5, h6) {
   margin: 0.3em 0 0.12em !important;
   line-height: 1.08 !important;
 }
@@ -328,32 +270,15 @@ div.editable[data-diff="added"] { background: transparent !important; }
 .msg-content .prose h4 { font-size: 1.05em !important; }
 .msg-content .prose h5, .msg-content .prose h6 { font-size: 1em !important; }
 .msg-content .prose ul, .msg-content .prose ol { margin: 0.125em 0 !important; padding-left: 1.35em !important; }
-.msg-content .prose li { margin: 0.05em 0 !important; }
-.msg-content .prose li > p { margin: 0.05em 0 !important; }
+.msg-content .prose li, .msg-content .prose li > p { margin: 0.05em 0 !important; }
 .msg-content .prose hr { margin: 0.5em 0 !important; }
-.msg-content .prose blockquote, .msg-content .prose pre,
-.msg-content .prose table, .msg-content .prose figure { margin: 0.3em 0 !important; }
+.msg-content .prose :is(blockquote, pre, table, figure) { margin: 0.3em 0 !important; }
 
-/* ── Launcher (⌘⇧P) ─────────────────────────────────────────────────── */
-#solveit-launcher { position: fixed; inset: 0; z-index: 1200; display: none; justify-content: center; align-items: flex-start; padding-top: 12vh; background: #0008; }
-#solveit-launcher.open { display: flex; }
-#solveit-launcher .solveit-launcher-card { width: min(640px, 92vw); background: #1f2030; border: 1px solid #ffffff1a; border-radius: 8px; box-shadow: 0 16px 48px #000c; overflow: hidden; }
-#solveit-launcher input { box-sizing: border-box; width: 100%; padding: 10px 14px; border: 0; border-bottom: 1px solid #ffffff14; outline: 0; background: transparent; color: #cfc9c2; font-size: 14px; }
-#solveit-launcher ul { max-height: 50vh; overflow-y: auto; margin: 0; padding: 4px; list-style: none; }
-#solveit-launcher li { display: flex; align-items: baseline; gap: 10px; padding: 5px 10px; border-radius: 4px; color: #cfc9c2; font-size: 12.5px; cursor: pointer; }
-#solveit-launcher li[aria-selected="true"] { background: #2b2e43; }
-#solveit-launcher li .label { flex: 0 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#solveit-launcher li .detail { flex: 1 1 0%; min-width: 0; color: #cfc9c266; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#solveit-launcher li .hint { flex: 0 0 auto; color: #cfc9c288; font: 11px monospace; }
-#solveit-launcher li.kind-dialog .hint { color: #bb9af7; }
-#solveit-launcher li.empty { color: #cfc9c266; cursor: default; }
-
-/* Encode Sans: all non-code UI and prose; remote Google Fonts variable TTF, with a system sans-serif fallback. */
+/* Encode Sans: all non-code UI and prose; condensed + oldstyle numerals scoped to .prose only. */
 @font-face { font-family: 'Craft Encode Sans'; font-style: normal; font-weight: 100 900; font-stretch: 75% 125%; font-display: swap; src: url('https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/encodesans/EncodeSans%5Bwdth%2Cwght%5D.ttf') format('truetype'); }
-:root { --craft-prose-family: 'Craft Encode Sans', -apple-system, sans-serif; }
-html, body { font-family: var(--craft-prose-family) !important; font-weight: 360; font-stretch: 75%; font-feature-settings: "onum" 1; }
-button, input, select, textarea { font-family: inherit; font-stretch: inherit; font-feature-settings: inherit; }
-.msg-content, .msg-content .prose { font-family: var(--craft-prose-family) !important; font-weight: 360 !important; font-stretch: 75% !important; font-feature-settings: "onum" 1 !important; }
+html, body { font-family: var(--craft-prose-family) !important; font-weight: 360; }
+button, input, select, textarea { font-family: inherit; }
+.msg-content .prose { font-family: var(--craft-prose-family) !important; font-weight: 360 !important; font-stretch: 75% !important; font-feature-settings: "onum" 1 !important; }
 .msg-content .prose :is(strong, b, th, h1, h2, h3, h4, h5, h6) { font-weight: 650 !important; }
 
 /* Iosevka: code only; remote font files, with a system monospace fallback. */
@@ -361,10 +286,7 @@ button, input, select, textarea { font-family: inherit; font-stretch: inherit; f
 @font-face { font-family: 'Craft Iosevka'; font-style: italic; font-weight: 400; font-display: swap; src: url('https://iosevka-webfonts.github.io/iosevka/WOFF2/Iosevka-Italic.woff2') format('woff2'); }
 @font-face { font-family: 'Craft Iosevka'; font-style: normal; font-weight: 700; font-display: swap; src: url('https://iosevka-webfonts.github.io/iosevka/WOFF2/Iosevka-Bold.woff2') format('woff2'); }
 @font-face { font-family: 'Craft Iosevka'; font-style: italic; font-weight: 700; font-display: swap; src: url('https://iosevka-webfonts.github.io/iosevka/WOFF2/Iosevka-BoldItalic.woff2') format('woff2'); }
-:root { --craft-code-family: 'Craft Iosevka', monospace; }
 .msg-content pre, .msg-content code { font-family: var(--craft-code-family) !important; font-weight: 400 !important; font-stretch: normal !important; font-feature-settings: normal !important; }
-pre, code, kbd, samp, tt, .font-mono, .monaco-editor, .solveit-tree-shortcut, .solveit-file-tree-path, .solveit-tree-dots, #solveit-launcher li .hint { font-stretch: normal !important; font-feature-settings: normal !important; }
-
 
 /* Compact dialog headers only: preserve action-icon sizes and editor layout. */
 .msg-card > .uk-card-header,
@@ -375,8 +297,405 @@ pre, code, kbd, samp, tt, .font-mono, .monaco-editor, .solveit-tree-shortcut, .s
 html[data-craft-inserting] #full_editor, #full_editor.craft-composer-idle { display: none !important; }
 .msg-card[data-mtype="note"] { background: transparent !important; }
 
+/* %% nbs/craft/01_theme_and_tokens.ipynb #8d5b9ad0 */
+/* ── 13. Tokyo Night cohesion for Solveit-native overlays & panels ─────
+   Base surfaces, borders, buttons, tabs, and inputs now inherit from the
+   remapped FrankenUI/Tailwind theme tokens above; only structural/accent
+   overrides remain here. */
+body:has(.uk-modal.uk-open, .hk-overlay.open, #solveit-launcher.open) :is(#craft-insert-preview, #craft-mobile-toggle) {
+  pointer-events: none;
+  opacity: 0.2;
+}
 
+/* Find / Replace floating bar & modals & #vars-sb sit on the recessed panel tone */
+#find-box,
+.uk-modal .uk-modal-dialog,
+aside#vars-sb {
+  background: var(--craft-recessed) !important;
+  border-color: var(--craft-border) !important;
+  color: var(--craft-fg) !important;
+}
+#find-box {
+  border-radius: 8px !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55) !important;
+}
+#find-box label.uk-btn:has(input:checked) {
+  background: rgba(122, 162, 247, 0.22) !important;
+  border-color: rgba(122, 162, 247, 0.65) !important;
+  color: var(--craft-accent) !important;
+}
+.uk-modal .uk-modal-dialog {
+  border-radius: 10px !important;
+  box-shadow: 0 20px 56px rgba(0, 0, 0, 0.65) !important;
+}
+aside#vars-sb {
+  border-left: 1px solid var(--craft-border) !important;
+  padding-left: 12px !important;
+}
+aside#vars-sb .uk-card { background: transparent !important; }
 
+/* Minimalist empty-dialog cue (only when no cells exist) */
+#dialog-container:not(:has(> .editable)) { position: relative; }
+#dialog-container:not(:has(> .editable))::before {
+  content: "Empty dialog — type below or press Shift+I to compose";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: rgba(207, 201, 194, 0.45);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+/* ── 15. Markdown task lists & Raw cell polish ──────────────────────── */
+.msg-content ul.task-list {
+  list-style: none !important;
+  padding-left: 0.15em !important;
+}
+.msg-content ul.task-list > li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5em;
+  list-style: none !important;
+}
+.msg-content ul.task-list > li::marker { content: none !important; }
+.msg-content ul.task-list input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: none;
+  width: 11px;
+  height: 11px;
+  margin: 0;
+  transform: translateY(1.5px);
+  border: 1px solid #565f89;
+  border-radius: 2.5px;
+  background: var(--craft-recessed);
+  opacity: 1 !important;
+  position: relative;
+}
+.msg-content ul.task-list input[type="checkbox"]:checked {
+  background: rgba(122, 162, 247, 0.22);
+  border-color: var(--craft-accent);
+}
+.msg-content ul.task-list input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 0.5px;
+  width: 3.5px;
+  height: 6.5px;
+  border: solid var(--craft-accent);
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
+}
+
+/* Raw cells: subtle recessed dashed frame, disable ligatures so YAML `---` stays literal */
+.editable > .card-in[data-mtype="raw"] {
+  background: var(--craft-surface) !important;
+  border: 1px dashed var(--craft-border) !important;
+  border-radius: 4px !important;
+}
+.editable > .card-in[data-mtype="raw"] .msg-content :is(pre, code) {
+  font-variant-ligatures: none;
+}
+
+/* ── 17. Accessibility: High-Contrast ANSI Traceback Remapping (dark) ─ */
+html.dark .card-out pre span[style*="rgb(187,0,0)"],
+html.dark .card-out pre span[style*="rgb(187, 0, 0)"],
+html.dark .card-out pre span[style*="rgb(175,0,0)"],
+html.dark .card-out pre span[style*="rgb(135,0,0)"] { color: var(--craft-red) !important; }
+html.dark .card-out pre span[style*="rgb(0,0,187)"],
+html.dark .card-out pre span[style*="rgb(0, 0, 187)"],
+html.dark .card-out pre span[style*="rgb(0,0,135)"],
+html.dark .card-out pre span[style*="rgb(0, 0, 135)"] { color: var(--craft-accent) !important; }
+html.dark .card-out pre span[style*="rgb(0,135,0)"],
+html.dark .card-out pre span[style*="rgb(0, 135, 0)"],
+html.dark .card-out pre span[style*="rgb(0,187,0)"],
+html.dark .card-out pre span[style*="rgb(0, 187, 0)"] { color: var(--craft-green) !important; }
+html.dark .card-out pre span[style*="rgb(0,187,187)"],
+html.dark .card-out pre span[style*="rgb(0, 187, 187)"],
+html.dark .card-out pre span[style*="rgb(0,135,135)"],
+html.dark .card-out pre span[style*="rgb(0, 135, 135)"] { color: var(--craft-cyan) !important; }
+html.dark .card-out pre span[style*="rgb(187,187,0)"],
+html.dark .card-out pre span[style*="rgb(187, 187, 0)"],
+html.dark .card-out pre span[style*="rgb(135,95,0)"] { color: var(--craft-amber) !important; }
+html.dark .card-out pre span[style*="rgb(187,0,187)"],
+html.dark .card-out pre span[style*="rgb(187, 0, 187)"] { color: var(--craft-purple) !important; }
+html.dark .card-out pre span[style*="rgb(102,102,102)"],
+html.dark .card-out pre span[style*="rgb(102, 102, 102)"] { color: var(--craft-muted) !important; }
+/* ── Shared CRAFT UI primitives (used by #| export_ft helpers) ─────── */
+.craft-overlay { position: fixed; inset: 0; z-index: 1200; display: none; justify-content: center; align-items: flex-start; padding-top: 12vh; background: rgba(0,0,0,.55); }
+.craft-overlay.open { display: flex; }
+.craft-card { background: var(--craft-surface); color: var(--craft-fg); border: 1px solid var(--craft-border); border-radius: 10px; box-shadow: 0 18px 48px rgba(0,0,0,.55); }
+.craft-menu { position: fixed; inset: auto; margin: 0; z-index: 1100; padding: 5px; background: var(--craft-bg); color: var(--craft-fg); border: 1px solid var(--craft-border); border-radius: 6px; box-shadow: var(--craft-shadow); font-size: 12px; }
+.craft-menu button { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 6px 10px; border: 0; border-radius: 4px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.craft-menu button:is(:hover, :focus-visible, [aria-pressed="true"]) { background: var(--craft-hover); outline: none; }
+.craft-menu button:disabled { opacity: .4; cursor: default; }
+.craft-menu button:is([data-danger], .danger) { color: var(--craft-red); }
+.craft-menu hr { margin: 4px 2px; border: 0; border-top: 1px solid var(--craft-border); }
+
+/* %% nbs/craft/03_hotkey_manager.ipynb #4ae55718 */
+/* ── Hotkey manager modal (overlay/card/header/body/footer/buttons via FrankenUI + primitives) ── */
+.hk-overlay { z-index: 10000; }
+.hk-modal { width: min(560px, calc(100vw - 32px)); max-height: 74vh; display: flex; flex-direction: column; font-size: 13px; line-height: 1.4; }
+.hk-head { display: flex; align-items: baseline; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--craft-border); }
+.hk-sub { font-size: 11px; opacity: .6; }
+.hk-close { margin-left: auto; background: transparent; border: 0; color: inherit; cursor: pointer; }
+.hk-body { overflow: auto; padding: 4px 16px; }
+.hk-group { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; opacity: .55; margin: 12px 0 4px; }
+.hk-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--craft-border-soft); }
+.hk-row:last-child { border-bottom: 0; }
+.hk-suppress { opacity: .55; }
+.hk-suppress.on { opacity: 1; background: var(--craft-accent); border-color: var(--craft-accent); color: var(--craft-recessed); }
+.hk-label { flex: 1; }
+.hk-combo kbd { background: var(--craft-kbd-bg); border: 1px solid var(--craft-border); border-bottom-width: 2px; border-radius: 4px; padding: 1px 6px; font-family: inherit; font-size: 12px; margin-right: 3px; }
+.hk-combo.hk-capturing { font-style: italic; opacity: .75; }
+.hk-msg { color: var(--craft-red); font-size: 11.5px; max-width: 45%; }
+.hk-modal .uk-btn { height: auto; padding: 2px 10px; font-size: 12px; }
+.hk-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; border-top: 1px solid var(--craft-border); font-size: 11.5px; opacity: .85; }
+
+/* %% nbs/craft/04_cm_core.ipynb #cm6_shared_css */
+/* ── Shared CodeMirror 6 editor base (.craft-cm-host on C2 & Markdown/Raw) ── */
+.craft-cm-host { position: relative; min-height: 18px; }
+.craft-cm-host .cm-editor, .craft-cm-host .cm-editor.cm-focused { background: transparent !important; outline: none !important; }
+.craft-cm-host .cm-scroller { font-family: inherit !important; font-size: inherit !important; overflow: visible !important; }
+.craft-cm-host :is(.cm-cursor, .cm-dropCursor) { border-left: 1.5px solid var(--craft-fg) !important; }
+.craft-cm-host :is(.cm-selectionBackground, .cm-editor.cm-focused .cm-selectionBackground),
+.craft-cm-host ::selection { background: #7aa2f740 !important; }
+.craft-cm-host .cm-selectionMatch { background: #7aa2f722 !important; }
+.craft-cm-host .cm-placeholder { color: var(--craft-placeholder); font-style: italic; pointer-events: none; }
+.craft-cm-host .cm-panels { background: var(--craft-recessed) !important; color: var(--craft-fg); border: 0; border-top: 1px solid var(--craft-border); }
+.craft-cm-host .cm-search { padding: 4px 6px; font-family: var(--craft-prose-family); font-size: 11px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.craft-cm-host .cm-search :is(input, button) { background: var(--craft-bg); color: var(--craft-fg); border: 1px solid var(--craft-border); border-radius: 4px; padding: 2px 6px; font-size: 11px; }
+.craft-cm-host .cm-search button:hover { background: var(--craft-hover); }
+.craft-cm-host .cm-search button[name="close"] { margin-left: auto; border: 0; background: transparent; cursor: pointer; }
+.craft-cm-host .cm-searchMatch { background: #e0af6833; outline: 1px solid #e0af6866; }
+.craft-cm-host .cm-searchMatch-selected { background: #7aa2f744; outline: 1px solid var(--craft-accent); }
+
+/* Shared save-status dot & error bar */
+.editable[data-c2-save="error"] > .card-in[data-mtype="code"],
+.editable > .msg-card[data-md-save="error"] { box-shadow: inset 2px 0 0 var(--craft-amber) !important; }
+.editable[data-c2-save] > .card-in[data-mtype="code"]::after,
+.editable > .msg-card[data-md-save]::after { content: ""; position: absolute; right: 4px; bottom: 3px; width: 5px; height: 5px; border-radius: 50%; pointer-events: none; z-index: 6; }
+.editable[data-c2-save="dirty"] > .card-in[data-mtype="code"]::after,
+.editable > .msg-card[data-md-save="dirty"]::after { background: var(--craft-accent-muted); }
+.editable[data-c2-save="saving"] > .card-in[data-mtype="code"]::after,
+.editable > .msg-card[data-md-save="saving"]::after { background: var(--craft-cyan); animation: craft-c2-pulse 1s ease-in-out infinite; }
+.editable[data-c2-save="error"] > .card-in[data-mtype="code"]::after,
+.editable > .msg-card[data-md-save="error"]::after { background: var(--craft-amber); }
+@keyframes craft-c2-pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+
+/* %% nbs/craft/05_dialog_chrome.ipynb #e965a7e0 */
+/* Reserve top-right space inside desktop top nav so #craft-insert-preview and #craft-mobile-toggle never overlap navbar buttons. */
+html:not(.craft-mobile) .uk-container > nav.monster-navbar {
+  padding-right: 78px !important;
+  box-sizing: border-box;
+}
+
+/* ── 7. Top nav: auto-hiding overlay, floating controls ─────────────── */
+.uk-container > nav.monster-navbar {
+  position: absolute !important;         /* out of flow: scroller keeps the 44px */
+  top: 0; left: 0; right: 0;
+  z-index: 40;
+  height: 31px !important;               /* 0.7 x original */
+  min-height: 0 !important;
+  flex-wrap: nowrap !important;
+  padding-block: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+  opacity: 0;
+  pointer-events: none;                  /* hidden strip never eats clicks */
+  transition: opacity 0.18s ease;
+}
+.uk-container > nav.monster-navbar.nav-shown,
+.uk-container > nav.monster-navbar:focus-within { opacity: 1; pointer-events: auto; }
+.uk-container > nav.monster-navbar > * { pointer-events: none; }
+.uk-container > nav.monster-navbar.nav-shown > *,
+.uk-container > nav.monster-navbar:focus-within > * { pointer-events: auto; }
+
+.uk-container > nav.monster-navbar h2 { font-size: 1.05rem !important; line-height: 1.2 !important; }
+.uk-container > nav.monster-navbar span.rounded-full.size-4,
+.uk-container > nav.monster-navbar a:has(> h1),
+.uk-container > nav.monster-navbar h2#dlg-name { display: none !important; }
+
+/* Strip action wrapper, chips (UIkit paints them as outlines), and <select> frame */
+.uk-container > nav.monster-navbar :is(> div.ml-auto, .uk-btn, .uk-btn-group, .uk-btn-group > *, select, input:checked + label.uk-btn, .uk-btn.uk-active) {
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  outline: 0 !important;
+  padding: 0 !important;
+}
+.uk-container > nav.monster-navbar :is(.uk-btn, select) { color: var(--craft-fg) !important; }
+.uk-container > nav.monster-navbar select { padding-inline: 2px !important; }
+.uk-container > nav.monster-navbar .uk-btn:hover { color: var(--craft-fg-strong) !important; }
+.uk-container > nav.monster-navbar :is(label, button):has(input:checked) {
+  color: var(--craft-accent) !important;
+  filter: drop-shadow(0 0 4px #7aa2f7cc) drop-shadow(0 0 10px #7aa2f766);
+}
+.uk-container > nav.monster-navbar .uk-btn.uk-active { color: var(--craft-accent) !important; }
+.uk-container > nav.monster-navbar select option { background: var(--craft-recessed) !important; color: var(--craft-fg) !important; }
+.uk-container > nav.monster-navbar :is(svg, select, h2) { filter: drop-shadow(0 1px 2px var(--craft-recessed)) drop-shadow(0 0 4px var(--craft-recessed)); }
+
+/* ── Launcher (⌘⇧P) ─────────────────────────────────────────────────── */
+#solveit-launcher .solveit-launcher-card { width: min(640px, 92vw); background: var(--craft-bg); border-radius: 8px; overflow: hidden; }
+#solveit-launcher input { box-sizing: border-box; width: 100%; padding: 10px 14px; border: 0; border-bottom: 1px solid #ffffff14; outline: 0; background: transparent; color: var(--craft-fg); font-size: 14px; }
+#solveit-launcher ul { max-height: 50vh; overflow-y: auto; margin: 0; padding: 4px; list-style: none; }
+#solveit-launcher li { display: flex; align-items: baseline; gap: 10px; padding: 5px 10px; border-radius: 4px; color: var(--craft-fg); font-size: 12.5px; cursor: pointer; }
+#solveit-launcher li[aria-selected="true"] { background: var(--craft-hover); }
+#solveit-launcher li .label { flex: 0 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#solveit-launcher li .detail { flex: 1 1 0%; min-width: 0; color: var(--craft-muted-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#solveit-launcher li .hint { flex: 0 0 auto; color: var(--craft-muted); font: 11px monospace; }
+#solveit-launcher li.kind-dialog .hint { color: var(--craft-purple); }
+#solveit-launcher li.empty { color: var(--craft-muted-soft); cursor: default; }
+
+/* ── Shared floating top-right nav icon buttons (#craft-mobile-toggle & #craft-insert-preview) ── */
+.craft-nav-icon-btn {
+  position: fixed; z-index: 955; width: 28px; height: 26px; display: grid; place-items: center;
+  border: 0; border-radius: 4px; background: transparent; color: #9b9cab; opacity: .4; padding: 0;
+  cursor: pointer; transition: opacity .15s ease, color .15s ease;
+}
+.craft-nav-icon-btn:is(:hover, :focus-visible),
+body:has(nav.monster-navbar.nav-shown) .craft-nav-icon-btn { opacity: 1; color: #e0e0e8; }
+.craft-nav-icon-btn:focus-visible { outline: 1px solid var(--craft-accent); outline-offset: 2px; }
+
+/* %% nbs/craft/06_file_tree.ipynb #445de251 */
+/* ── Lightweight file tree prototype ─────────────────────────────────── */
+.solveit-tree-workspace {
+  display: flex;
+  flex: 1 1 0%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.solveit-tree-workspace > .overflow-y-auto { flex: 1 1 0%; min-width: 0; min-height: 0; }
+#solveit-file-tree-panel {
+  position: relative;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 0;
+  width: 0;
+  min-width: 0;
+  max-width: 90vw;
+  height: 100%;
+  padding: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+  background: var(--craft-surface);
+  color: var(--craft-fg);
+  box-shadow: none;
+  transition: flex-basis .16s ease, padding .16s ease;
+}
+#solveit-file-tree-panel.open {
+  flex: 0 0 auto;
+  width: var(--solveit-tree-w, min(320px, 90vw));
+  min-width: 200px;
+  padding: 10px 10px 0 8px;
+  visibility: visible;
+  pointer-events: auto;
+  border-right: 1px solid #ffffff10;
+  box-shadow: 8px 0 24px #0008;
+}
+#solveit-file-tree-panel.resizing { transition: none; user-select: none; }
+#solveit-file-tree-panel > :not(#solveit-file-tree):not(.solveit-tree-resizer) { flex: 0 0 auto; }
+#solveit-file-tree-panel .solveit-tree-resizer {
+  position: absolute; top: 0; right: -2px; bottom: 0; width: 6px; z-index: 60;
+  cursor: col-resize; background: transparent; transition: background .12s ease;
+}
+#solveit-file-tree-panel .solveit-tree-resizer:hover,
+#solveit-file-tree-panel.resizing .solveit-tree-resizer { background: #7aa2f788; }
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-resizer { display: none; }
+#solveit-file-tree-panel > header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+#solveit-file-tree-panel .solveit-tree-brand { display: flex; align-items: baseline; gap: 6px; margin-bottom: 6px; min-width: 0; }
+#solveit-file-tree-panel .solveit-tree-appname { flex: 0 0 auto; font-weight: 700; font-size: 13px; letter-spacing: .02em; color: var(--craft-fg); }
+#solveit-file-tree-panel h2#dlg-name { flex: 1 1 0%; min-width: 0; font-size: 12.5px !important; line-height: 1.3 !important; font-weight: 400 !important; padding: 0 !important; color: #cfc9c2cc !important; }
+#solveit-file-tree-panel > header button { display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: inherit; font-size: 1.25rem; line-height: 1; padding: 2px; cursor: pointer; }
+#solveit-file-tree-panel .solveit-tree-shortcut { margin-left: auto; color: #cfc9c288; font: 11px monospace; }
+#solveit-file-tree-panel .solveit-tree-refresh { margin-left: 6px; }
+#solveit-file-tree-panel .treeview-node-content:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--craft-accent); background: #30364d; }
+#solveit-file-tree-panel .solveit-tree-close { margin-left: 6px; }
+#solveit-file-tree-panel .solveit-tree-back { margin-left: auto; }
+#solveit-file-tree-panel .solveit-tree-back:disabled { opacity: .35; cursor: default; }
+#solveit-file-tree-panel .solveit-tree-up { margin-left: 6px; }
+.solveit-file-tree-path { color: #cfc9c299; font: 12px monospace; margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; }
+#solveit-file-tree-panel .custom-treeview-wrapper > ul { padding-left: 0; }
+#solveit-file-tree-panel .custom-treeview-wrapper ul ul {
+  padding-left: 13px;
+  margin-left: 7px;
+  border-left: 1px solid #ffffff12;
+}
+#solveit-file-tree-panel .custom-treeview-wrapper li { margin: 2px 0; color: var(--craft-fg); }
+#solveit-file-tree-panel .custom-treeview-wrapper .treeview-node-content { padding: 4px; border-radius: 4px; }
+#solveit-file-tree-panel .custom-treeview-wrapper .treeview-node-content:hover { background: #222434; }
+#solveit-file-tree-panel .treeview-expander {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 14px; flex: 0 0 14px; margin-right: 2px; padding: 0;
+  color: #787c99; font-size: 10px; line-height: 1;
+  transition: transform .12s ease, color .12s ease;
+}
+#solveit-file-tree-panel .treeview-expander::before { content: "▸"; }
+#solveit-file-tree-panel .treeview-expander > * { display: none; }
+#solveit-file-tree-panel li.expanded > .treeview-node-content > .treeview-expander { transform: rotate(90deg); color: #a9b1d6; }
+#solveit-file-tree-panel .treeview-expander-placeholder { width: 14px; flex: 0 0 14px; margin-right: 2px; padding: 0; }
+#solveit-file-tree-panel .solveit-tree-new { margin-left: 6px; font-weight: 600; color: var(--craft-accent); }
+#solveit-file-tree-panel .solveit-tree-new:hover { color: #c0caf5; }
+#solveit-file-tree-panel img.solveit-tree-icon { width: 16px !important; height: 16px !important; max-width: 16px !important; max-height: 16px !important; flex: 0 0 16px; object-fit: contain; margin-right: 7px; }
+
+#solveit-file-tree-panel .solveit-tree-filter { margin: 8px 0; height: auto; padding: 5px 8px; background: var(--craft-recessed); }
+#solveit-file-tree-panel .solveit-tree-status { color: #cfc9c299; font-size: 12px; }
+#solveit-temp-editor { z-index: 1000; padding-top: 0; flex-direction: column; align-items: stretch; justify-content: flex-start; background: var(--craft-recessed); color: var(--craft-fg); }
+body:has(#solveit-temp-editor.open) #solveit-file-tree-panel.open {
+  position: fixed;
+  inset-block: 0;
+  left: 0;
+  height: auto;
+  z-index: 1010;
+}
+#solveit-temp-editor .solveit-temp-editor-bar { display: flex; flex: 0 0 36px; align-items: center; justify-content: space-between; padding: 0 12px; background: var(--craft-surface); border-bottom: 1px solid #ffffff22; }
+#solveit-temp-editor .solveit-temp-editor-bar button { border: 0; background: transparent; color: inherit; font-size: 1.4rem; cursor: pointer; }
+#solveit-temp-editor iframe { flex: 1; width: 100%; min-height: 0; border: 0; background: var(--craft-recessed); }
+
+/* ── File tree: header toggles, context menu ───────────────────────── */
+#solveit-file-tree-panel .solveit-tree-upload,
+#solveit-file-tree-panel .solveit-tree-collapse { margin-left: 6px; color: #cfc9c2aa; }
+#solveit-file-tree-panel .solveit-tree-upload:hover,
+#solveit-file-tree-panel .solveit-tree-collapse:hover { color: var(--craft-fg); }
+#solveit-file-tree-panel .solveit-tree-dots { margin-left: 6px; font: 600 .95rem monospace; color: #cfc9c288; }
+#solveit-file-tree-panel .solveit-tree-dots[aria-pressed="true"] { color: var(--craft-accent); filter: drop-shadow(0 0 4px #7aa2f7aa); }
+#solveit-file-tree-panel .solveit-tree-home { margin-left: 6px; }
+.solveit-tree-menu { min-width: 170px; }
+#solveit-file-tree-panel .solveit-tree-rootbar { display: flex; align-items: center; gap: 6px; padding: 4px; margin-bottom: 4px; border-radius: 4px; font: 11.5px monospace; color: #cfc9c299; background: #16161e88; border: 1px solid transparent; user-select: none; cursor: default; }
+#solveit-file-tree-panel .solveit-tree-rootbar:hover { background: #222434; color: var(--craft-fg); }
+#solveit-file-tree-panel .solveit-tree-rootbar-hint { margin-left: auto; font-size: 10px; color: #cfc9c255; }
+#solveit-file-tree-panel .solveit-tree-row-upload { opacity: 0; pointer-events: none; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin-left: 4px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: #cfc9c299; cursor: pointer; }
+#solveit-file-tree-panel .treeview-node-content:is(:hover, :focus-within) .solveit-tree-row-upload,
+#solveit-file-tree-panel .solveit-tree-rootbar:is(:hover, :focus-within) .solveit-tree-row-upload { opacity: 1; pointer-events: auto; }
+#solveit-file-tree-panel .solveit-tree-row-upload:is(:hover, :focus-visible) { background: #30364d; color: var(--craft-accent); outline: none; }
+@media (hover: none) { #solveit-file-tree-panel .solveit-tree-row-upload { opacity: 1; pointer-events: auto; } }
+.solveit-tree-upload-pop { position: fixed; z-index: 1100; width: 230px; padding: 8px; border-radius: 6px; font-size: 12px; }
+.solveit-tree-upload-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.solveit-tree-upload-dest { flex: 1 1 0%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px monospace; color: #cfc9c2cc; }
+.solveit-tree-upload-x { flex: 0 0 auto; border: 0; background: transparent; color: #cfc9c299; font-size: 15px; line-height: 1; cursor: pointer; padding: 0 2px; }
+.solveit-tree-upload-x:hover { color: var(--craft-fg); }
+.solveit-tree-upload-drop { padding: 12px 8px; margin-bottom: 8px; border: 1px dashed #ffffff2e; border-radius: 4px; background: var(--craft-recessed); color: #cfc9c288; text-align: center; font-size: 11.5px; }
+.solveit-tree-upload-drop.dragover { border-color: var(--craft-accent); background: #7aa2f71c; color: var(--craft-fg); }
+.solveit-tree-upload-actions { display: flex; gap: 6px; }
+.solveit-tree-upload-actions button { flex: 1 1 0%; height: auto; padding: 5px 8px; font-size: 12px; }
+#solveit-file-tree { flex: 1 1 0%; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 40px; }
+#solveit-file-tree .treeview-node-content.solveit-tree-current { background: #7aa2f71c; box-shadow: inset 2px 0 0 var(--craft-accent); }
+#solveit-file-tree li.solveit-tree-dragging { opacity: .4; }
+#solveit-file-tree-panel .solveit-tree-drop-target { background: #7aa2f728 !important; box-shadow: inset 0 0 0 1.5px var(--craft-accent) !important; color: var(--craft-fg) !important; }
+#solveit-file-tree .solveit-tree-create { margin: 3px 4px 5px; }
+#solveit-file-tree li > .solveit-tree-create { margin-left: 14px; }
+#solveit-file-tree .solveit-tree-create input { height: auto; padding: 4px 6px; border-color: var(--craft-accent); background: var(--craft-recessed); font: inherit; }
+#solveit-file-tree .solveit-tree-create input[aria-invalid="true"] { border-color: var(--craft-red); }
+#solveit-tree-create-error:not(:empty) { margin-top: 4px; color: var(--craft-red); font-size: 11px; overflow-wrap: anywhere; }
+
+/* %% nbs/craft/07_cell_presentation.ipynb #86a51619 */
 .editable.craft-chain-next { margin-bottom: 0 !important; padding-bottom: 0 !important; border-bottom-left-radius: 0 !important; border-bottom-right-radius: 0 !important; }
 .editable.craft-chain-prev { margin-top: 0 !important; padding-top: 0 !important; border-top-left-radius: 0 !important; border-top-right-radius: 0 !important; }
 .editable.craft-chain-next > .msg-card { border-bottom-left-radius: 0 !important; border-bottom-right-radius: 0 !important; }
@@ -384,7 +703,7 @@ html[data-craft-inserting] #full_editor, #full_editor.craft-composer-idle { disp
 .editable.craft-chain-prev > .card-in:is([data-mtype="prompt"], [data-mtype="code"]) > .uk-card-header [data-tokens] { display: none !important; }
 
 .editable:not(.craft-chain-next) { margin-bottom: 25px !important; }
-.editable > .msg-card[data-mtype="prompt"] { background: #1f2030 !important; }
+.editable > .msg-card[data-mtype="prompt"] { background: var(--craft-bg) !important; }
 .editable > .card-out[data-mtype="prompt"] { padding-top: 0px !important; }
 .editable.craft-chain-prev > .card-in[data-mtype="prompt"] { padding-top: 0px !important; }
 .editable > .card-out[data-mtype="code"] { background: transparent !important; padding-top: 2px !important; padding-bottom: 2px !important; }
@@ -410,9 +729,10 @@ html[data-craft-inserting] #full_editor, #full_editor.craft-composer-idle { disp
 }
 
 #dialog-container { padding-top: 24px !important; }
-#dialog-container .editable { border-radius: 0 !important; }
 #dialog-container > .editable[data-sm]:not([data-sm="unselected"]) { position: relative; z-index: 2; box-shadow: none !important; }
-#dialog-container > .editable[data-sm]:not([data-sm="unselected"])::after { content: ""; position: absolute; inset: 0; border: 2px solid oklch(62.3% 0.214 259.815); border-radius: 0 !important; pointer-events: none; z-index: 100; }
+#dialog-container > .editable[data-sm]:not([data-sm="unselected"])::after { content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 100; }
+html.craft-mobile #dialog-container .editable { border-radius: 0 !important; }
+html.craft-mobile #dialog-container > .editable[data-sm]:not([data-sm="unselected"])::after { border: 2px solid oklch(62.3% 0.214 259.815); border-radius: 0 !important; }
 
 .editable.dot-prompt-response:not([data-editing="true"]) > .card-in { display: none !important; }
 .editable.dot-prompt-response:not([data-editing="true"]) > .card-out { padding-top: 0 !important; }
@@ -422,11 +742,7 @@ html[data-craft-inserting] #full_editor, #full_editor.craft-composer-idle { disp
 .craft-action-source, .craft-old-action-toggle { display: none !important; }
 .msg-card .craft-action-trigger { opacity: 0; pointer-events: none; width: 28px; height: 22px; flex: 0 0 28px; padding: 0 !important; background: transparent !important; border: 0 !important; color: #a9b1d6; font-size: 20px; line-height: 20px; cursor: pointer; }
 .msg-card:hover .craft-action-trigger, .msg-card:focus-within .craft-action-trigger, .craft-action-trigger[aria-expanded="true"] { opacity: 1; pointer-events: auto; }
-.craft-action-menu { position: fixed; inset: auto; margin: 0; width: 260px; max-width: calc(100vw - 16px); max-height: min(70vh, 540px); overflow: auto; padding: 6px; background: #242638; color: #cfc9c2; border: 1px solid #ffffff24; border-radius: 6px; box-shadow: 0 8px 28px #0008; }
-.craft-action-menu button { display: block; width: 100%; padding: 7px 9px; text-align: left; background: transparent; color: inherit; border: 0; border-radius: 3px; font: inherit; cursor: pointer; }
-.craft-action-menu button:is(:hover,:focus-visible) { background: #34374f; outline: 1px solid #7aa2f7; }
-.craft-action-menu button:disabled { opacity: .4; cursor: default; }
-.craft-action-menu button[data-danger] { color: #f7768e; }
+.craft-action-menu { width: 260px; max-width: calc(100vw - 16px); max-height: min(70vh, 540px); overflow: auto; }
 @media (hover: none) { .msg-card .craft-action-trigger { opacity: 1; pointer-events: auto; } }
 
 /* Code-cell header floats as a hover chip over the top-right corner, beside the copy button, so hovering never changes layout. */
@@ -439,7 +755,7 @@ html[data-craft-inserting] #full_editor, #full_editor.craft-composer-idle { disp
     width: auto !important;
     max-width: calc(100% - 40px);
     padding: 0 2px 0 4px !important;
-    background: #1f2030 !important;
+    background: var(--craft-bg) !important;
     border: 0 !important;
     border-radius: 0 0 4px 4px;
     opacity: 0;
@@ -467,177 +783,27 @@ html[data-craft-inserting] #full_editor, #full_editor.craft-composer-idle { disp
 
 .editable.craft-omitted { display: none !important; }
 .craft-omit-marker { display: block; flex: none; width: fit-content; margin: 2px 0; padding: 1px 6px; border: 0; border-radius: 3px; background: transparent; color: #9a9eb5; font: inherit; font-size: 11px; line-height: 18px; cursor: pointer; }
-.craft-omit-marker:hover { color: #cfc9c2; }
-.craft-omit-marker:focus-visible { outline: 1px solid #7aa2f7; outline-offset: 1px; }
+.craft-omit-marker:hover { color: var(--craft-fg); }
+.craft-omit-marker:focus-visible { outline: 1px solid var(--craft-accent); outline-offset: 1px; }
 
 
 .msg-card.craft-part-hidden { display: none !important; }
 .craft-part-restore { justify-self: start; margin: 0; padding: 0 6px; border: 0; border-radius: 3px; background: transparent; color: #9a9eb5; font: inherit; line-height: 18px; cursor: pointer; }
-.craft-part-restore:hover { color: #cfc9c2; }
-.craft-part-restore:focus-visible { outline: 1px solid #7aa2f7; }
-
-/* ── 13. Tokyo Night cohesion for Solveit-native overlays & panels ───── */
-body:has(.uk-modal.uk-open, .hk-overlay.open, #solveit-launcher.open) :is(#craft-insert-preview, #craft-mobile-toggle) {
-  pointer-events: none;
-  opacity: 0.2;
-}
-
-/* Find / Replace floating bar */
-#find-box {
-  background: #16161e !important;
-  border: 1px solid #292e42 !important;
-  border-radius: 8px !important;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55) !important;
-  color: #cfc9c2 !important;
-  font-feature-settings: normal !important;
-}
-#find-box .uk-btn,
-#find-box button,
-#find-box label.uk-btn {
-  background: #1f2030 !important;
-  border-color: #292e42 !important;
-  color: #a9b1d6 !important;
-}
-#find-box .uk-btn:hover,
-#find-box button:hover,
-#find-box label.uk-btn:hover {
-  background: #292e42 !important;
-  color: #e0e0e8 !important;
-}
-#find-box label.uk-btn:has(input:checked) {
-  background: rgba(122, 162, 247, 0.22) !important;
-  border-color: rgba(122, 162, 247, 0.65) !important;
-  color: #7aa2f7 !important;
-}
-#find-box input[type="text"],
-#find-box input[type="search"],
-#find-box input.uk-input {
-  background: #1f2030 !important;
-  border: 1px solid #292e42 !important;
-  color: #cfc9c2 !important;
-  border-radius: 5px !important;
-}
-#find-box input:focus {
-  border-color: #7aa2f7 !important;
-  outline: none !important;
-  box-shadow: 0 0 0 1px rgba(122, 162, 247, 0.35) !important;
-}
-
-/* Settings & Solveit UIkit modals */
-.uk-modal .uk-modal-dialog {
-  background: #16161e !important;
-  border: 1px solid #292e42 !important;
-  border-radius: 10px !important;
-  box-shadow: 0 20px 56px rgba(0, 0, 0, 0.65) !important;
-  color: #cfc9c2 !important;
-  font-feature-settings: normal !important;
-}
-.uk-modal .uk-modal-dialog :is(h1, h2, h3, h4, button, a, label, th, td, p) {
-  font-feature-settings: normal !important;
-}
-.uk-modal .uk-modal-title {
-  color: #e0e0e8 !important;
-}
-.uk-modal .uk-tab-alt {
-  background: #1f2030 !important;
-  border: 1px solid #292e42 !important;
-  border-radius: 6px !important;
-}
-.uk-modal .uk-tab-alt > li > a {
-  color: #9a9eb5 !important;
-}
-.uk-modal .uk-tab-alt > li.uk-active > a {
-  background: #292e42 !important;
-  color: #e0e0e8 !important;
-  border-radius: 4px !important;
-}
-.uk-modal .uk-modal-dialog .uk-btn-primary,
-.uk-modal .uk-modal-dialog a.uk-btn-primary {
-  background: rgba(122, 162, 247, 0.16) !important;
-  border: 1px solid rgba(122, 162, 247, 0.45) !important;
-  color: #c0caf5 !important;
-}
-.uk-modal .uk-modal-dialog .uk-btn-primary:hover,
-.uk-modal .uk-modal-dialog a.uk-btn-primary:hover {
-  background: rgba(122, 162, 247, 0.28) !important;
-  border-color: #7aa2f7 !important;
-  color: #ffffff !important;
-}
-.uk-modal .uk-modal-dialog .uk-btn-default,
-.uk-modal .uk-modal-dialog .uk-modal-close {
-  background: #1f2030 !important;
-  border: 1px solid #292e42 !important;
-  color: #a9b1d6 !important;
-}
-.uk-modal .uk-modal-dialog .uk-btn-default:hover,
-.uk-modal .uk-modal-dialog .uk-modal-close:hover {
-  background: #292e42 !important;
-  color: #e0e0e8 !important;
-}
-.uk-modal .uk-modal-dialog hr,
-.uk-modal .uk-modal-dialog .border-b,
-.uk-modal .uk-modal-dialog .border-t {
-  border-color: #292e42 !important;
-}
-
-/* Variable / TOC sidebar (#vars-sb) */
-aside#vars-sb {
-  background: #16161e !important;
-  border-left: 1px solid #292e42 !important;
-  padding-left: 12px !important;
-  color: #cfc9c2 !important;
-  font-feature-settings: normal !important;
-}
-aside#vars-sb * {
-  font-feature-settings: normal !important;
-}
-aside#vars-sb .uk-card,
-aside#vars-sb .border,
-aside#vars-sb .border-b,
-aside#vars-sb hr {
-  background: transparent !important;
-  border-color: #292e42 !important;
-}
-aside#vars-sb a:hover,
-aside#vars-sb button:hover {
-  color: #7aa2f7 !important;
-}
-aside#vars-sb .uk-close,
-aside#vars-sb button[aria-label="Close"] {
-  background: #1f2030 !important;
-  border: 1px solid #292e42 !important;
-  color: #a9b1d6 !important;
-}
-
-/* Minimalist empty-dialog cue (only when no cells exist) */
-#dialog-container:not(:has(> .editable)) {
-  position: relative;
-}
-#dialog-container:not(:has(> .editable))::before {
-  content: "Empty dialog — type below or press Shift+I to compose";
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  color: rgba(207, 201, 194, 0.45);
-  font-size: 12px;
-  font-feature-settings: normal;
-  pointer-events: none;
-}
-
+.craft-part-restore:hover { color: var(--craft-fg); }
+.craft-part-restore:focus-visible { outline: 1px solid var(--craft-accent); }
 
 /* ── 14. Minimalist cell state indicators (Pinned, Exported, Hidden) ── */
 /* Pinned: quiet Tokyo Night gold 2px left accent */
 .editable:has(button[hx-post="/toggle_pin_"] use[href="#lc-pin"]) > .card-in {
-  box-shadow: inset 2px 0 0 #e0af68 !important;
+  box-shadow: inset 2px 0 0 var(--craft-amber) !important;
 }
 /* Exported: quiet Tokyo Night cyan 2px left accent */
 .editable:has(button[hx-post="/toggle_export_"] use[href="#lc-bookmark-check"]) > .card-in {
-  box-shadow: inset 2px 0 0 #7dcfff !important;
+  box-shadow: inset 2px 0 0 var(--craft-cyan) !important;
 }
 /* Both Pinned and Exported: dual 2px+2px left accent */
 .editable:has(button[hx-post="/toggle_pin_"] use[href="#lc-pin"]):has(button[hx-post="/toggle_export_"] use[href="#lc-bookmark-check"]) > .card-in {
-  box-shadow: inset 2px 0 0 #e0af68, inset 4px 0 0 #7dcfff !important;
+  box-shadow: inset 2px 0 0 var(--craft-amber), inset 4px 0 0 var(--craft-cyan) !important;
 }
 /* Hidden from AI (skipped): dimmed at rest, recovers on hover/focus, dashed left bar */
 .editable:has(button[hx-post="/toggle_skip_"] use[href="#lc-eye-off"]) {
@@ -650,251 +816,6 @@ aside#vars-sb button[aria-label="Close"] {
 .editable:has(button[hx-post="/toggle_skip_"] use[href="#lc-eye-off"]) > .card-in {
   border-left: 2px dashed rgba(154, 158, 181, 0.5) !important;
 }
-
-
-/* ── 15. Markdown task lists & Raw cell polish ──────────────────────── */
-.msg-content ul.task-list {
-  list-style: none !important;
-  padding-left: 0.15em !important;
-}
-.msg-content ul.task-list > li {
-  display: flex;
-  align-items: baseline;
-  gap: 0.5em;
-  list-style: none !important;
-}
-.msg-content ul.task-list > li::marker {
-  content: none !important;
-}
-.msg-content ul.task-list input[type="checkbox"] {
-  appearance: none;
-  -webkit-appearance: none;
-  flex: none;
-  width: 11px;
-  height: 11px;
-  margin: 0;
-  transform: translateY(1.5px);
-  border: 1px solid #565f89;
-  border-radius: 2.5px;
-  background: #16161e;
-  opacity: 1 !important;
-  position: relative;
-}
-.msg-content ul.task-list input[type="checkbox"]:checked {
-  background: rgba(122, 162, 247, 0.22);
-  border-color: #7aa2f7;
-}
-.msg-content ul.task-list input[type="checkbox"]:checked::after {
-  content: "";
-  position: absolute;
-  left: 3px;
-  top: 0.5px;
-  width: 3.5px;
-  height: 6.5px;
-  border: solid #7aa2f7;
-  border-width: 0 1.5px 1.5px 0;
-  transform: rotate(45deg);
-}
-
-/* Raw cells: subtle recessed dashed frame, disable ligatures so YAML `---` stays literal */
-.editable > .card-in[data-mtype="raw"] {
-  background: #1a1b2a !important;
-  border: 1px dashed #292e42 !important;
-  border-radius: 4px !important;
-}
-.editable > .card-in[data-mtype="raw"] .msg-content :is(pre, code) {
-  font-variant-ligatures: none;
-}
-
-/* ── 16. Cohesive Tabular Output (Markdown, pandas, polars, DuckDB) ─── */
-.editable > .msg-card,
-.editable > .msg-card > .msg-body,
-.editable > .msg-card .msg-content,
-.editable > .msg-card .msg-content .prose { min-width: 0; max-width: 100%; }
-.craft-table-wrap {
-  position: relative;
-  width: fit-content;
-  max-width: 100%;
-  max-height: 480px;
-  overflow: auto;
-  -webkit-overflow-scrolling: touch;
-  margin: 0.4em 0 !important;
-  border: 1px solid #292e42;
-  border-radius: 5px;
-  background: #1a1b2a;
-}
-.craft-table-wrap:focus-visible {
-  outline: 1.5px solid #7aa2f7;
-  outline-offset: 1px;
-}
-.msg-content table {
-  border-collapse: separate !important;
-  border-spacing: 0 !important;
-  width: auto !important;
-  margin: 0 !important;
-  border: 0 !important;
-  background: transparent !important;
-  font-family: var(--craft-prose-family) !important;
-  font-size: 11px !important;
-  line-height: 1.4 !important;
-  font-feature-settings: "tnum" 1, "lnum" 1, "onum" 0, "c2sc" 0 !important;
-  font-variant-numeric: tabular-nums lining-nums !important;
-  color: #cfc9c2 !important;
-}
-.msg-content table :is(th, td) {
-  font-feature-settings: "tnum" 1, "lnum" 1, "onum" 0, "c2sc" 0 !important;
-  font-variant-numeric: tabular-nums lining-nums !important;
-  border-top: 0 !important;
-  border-left: 0 !important;
-  border-right: 0 !important;
-}
-.msg-content table thead {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-}
-.msg-content table thead tr {
-  text-align: left !important;
-}
-.msg-content table thead th {
-  background: #16161e !important;
-  color: #c0caf5 !important;
-  font-weight: 600 !important;
-  padding: 5px 10px !important;
-  border-bottom: 1px solid #3b4261 !important;
-  text-align: left !important;
-  vertical-align: bottom !important;
-  white-space: nowrap;
-}
-.msg-content table thead tr:not(:last-child) th {
-  border-bottom-color: #292e42 !important;
-}
-.msg-content table tbody th {
-  background: #181926 !important;
-  color: #9aa5ce !important;
-  font-weight: 500 !important;
-  padding: 4px 10px !important;
-  border-bottom: 1px solid #24283b !important;
-  border-right: 1px solid #292e42 !important;
-  text-align: left !important;
-  vertical-align: top !important;
-  white-space: nowrap;
-}
-.msg-content table tbody td {
-  padding: 4px 10px !important;
-  border-bottom: 1px solid #24283b !important;
-  color: #cfc9c2 !important;
-  text-align: left !important;
-  vertical-align: top !important;
-}
-.msg-content table tbody tr:last-child > :is(th, td) {
-  border-bottom: 0 !important;
-}
-.msg-content table tbody tr:hover > td {
-  background: rgba(122, 162, 247, 0.06) !important;
-}
-.msg-content table :is(th, td).craft-num {
-  text-align: right !important;
-  white-space: nowrap;
-}
-.msg-content table thead th.craft-sort {
-  cursor: pointer;
-  user-select: none;
-  padding-right: 18px !important;
-  position: relative;
-}
-.msg-content table thead th.craft-sort:hover {
-  background: #1d1f2e !important;
-  color: #e1e4e8 !important;
-}
-.msg-content table thead th.craft-sort:focus-visible {
-  outline: 1.5px solid #7aa2f7;
-  outline-offset: -1.5px;
-}
-.msg-content table thead th.craft-sort::after {
-  content: "";
-  position: absolute;
-  right: 5px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 8px;
-  color: #7aa2f7;
-  opacity: 0;
-}
-.msg-content table thead th.craft-sort[aria-sort="ascending"]::after {
-  content: "\25B2";
-  opacity: 1;
-}
-.msg-content table thead th.craft-sort[aria-sort="descending"]::after {
-  content: "\25BC";
-  opacity: 1;
-}
-.craft-table-copy {
-  position: sticky;
-  float: right;
-  top: 3px;
-  right: 4px;
-  z-index: 4;
-  margin-left: -60px;
-  padding: 1px 6px;
-  border: 1px solid #292e42;
-  border-radius: 3px;
-  background: #16161ee6;
-  color: #9aa5ce;
-  font-family: var(--craft-prose-family);
-  font-size: 9.5px;
-  line-height: 16px;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.12s ease, color 0.12s ease, border-color 0.12s ease;
-}
-.craft-table-wrap:hover .craft-table-copy,
-.craft-table-wrap:focus-within .craft-table-copy,
-.craft-table-copy.is-copied {
-  opacity: 1;
-}
-.craft-table-copy:hover {
-  color: #e1e4e8;
-  border-color: #7aa2f788;
-}
-.craft-table-copy.is-copied {
-  color: #9ece6a;
-  border-color: #9ece6a66;
-}
-/* Light theme table overrides */
-html:not(.dark) .craft-table-wrap { border-color: #d0d7de; background: #ffffff; }
-html:not(.dark) .msg-content table { color: #24292e !important; }
-html:not(.dark) .msg-content table thead th { background: #f6f8fa !important; color: #24292e !important; border-bottom-color: #d0d7de !important; }
-html:not(.dark) .msg-content table tbody th { background: #f6f8fa !important; color: #57606a !important; border-bottom-color: #eaeef2 !important; border-right-color: #d0d7de !important; }
-html:not(.dark) .msg-content table tbody td { color: #24292e !important; border-bottom-color: #eaeef2 !important; }
-html:not(.dark) .msg-content table tbody tr:hover > td { background: rgba(9, 105, 218, 0.05) !important; }
-html:not(.dark) .msg-content table thead th.craft-sort:hover { background: #eaeef2 !important; }
-html:not(.dark) .craft-table-copy { background: #f6f8fae6; border-color: #d0d7de; color: #57606a; }
-
-/* ── 17. Accessibility: High-Contrast ANSI Traceback Remapping (dark) ─ */
-html.dark .card-out pre span[style*="rgb(187,0,0)"],
-html.dark .card-out pre span[style*="rgb(187, 0, 0)"],
-html.dark .card-out pre span[style*="rgb(175,0,0)"],
-html.dark .card-out pre span[style*="rgb(135,0,0)"] { color: #f7768e !important; }
-html.dark .card-out pre span[style*="rgb(0,0,187)"],
-html.dark .card-out pre span[style*="rgb(0, 0, 187)"],
-html.dark .card-out pre span[style*="rgb(0,0,135)"],
-html.dark .card-out pre span[style*="rgb(0, 0, 135)"] { color: #7aa2f7 !important; }
-html.dark .card-out pre span[style*="rgb(0,135,0)"],
-html.dark .card-out pre span[style*="rgb(0, 135, 0)"],
-html.dark .card-out pre span[style*="rgb(0,187,0)"],
-html.dark .card-out pre span[style*="rgb(0, 187, 0)"] { color: #9ece6a !important; }
-html.dark .card-out pre span[style*="rgb(0,187,187)"],
-html.dark .card-out pre span[style*="rgb(0, 187, 187)"],
-html.dark .card-out pre span[style*="rgb(0,135,135)"],
-html.dark .card-out pre span[style*="rgb(0, 135, 135)"] { color: #7dcfff !important; }
-html.dark .card-out pre span[style*="rgb(187,187,0)"],
-html.dark .card-out pre span[style*="rgb(187, 187, 0)"],
-html.dark .card-out pre span[style*="rgb(135,95,0)"] { color: #e0af68 !important; }
-html.dark .card-out pre span[style*="rgb(187,0,187)"],
-html.dark .card-out pre span[style*="rgb(187, 0, 187)"] { color: #bb9af7 !important; }
-html.dark .card-out pre span[style*="rgb(102,102,102)"],
-html.dark .card-out pre span[style*="rgb(102, 102, 102)"] { color: #9aa5ce !important; }
 
 /* ── Desktop border refinement, hover outlines & hover-edge drag-to-insert ── */
 @media (hover: hover) {
@@ -921,6 +842,60 @@ html:not(.craft-mobile) #dialog-container > .editable:is([data-c2-editing="true"
   box-shadow: 0 0 0 3px #9ece6a18;
   pointer-events: none; z-index: 100;
 }
+
+/* %% nbs/craft/08_tables.ipynb #e0f93c6f */
+/* ── 16. Cohesive Tabular Output (FrankenUI .uk-table* + CRAFT sticky/sort/TSV) ── */
+.editable > .msg-card,
+.editable > .msg-card > .msg-body,
+.editable > .msg-card .msg-content,
+.editable > .msg-card .msg-content .prose { min-width: 0; max-width: 100%; }
+.craft-table-wrap {
+  position: relative; width: fit-content; max-width: 100%; max-height: 480px;
+  overflow: auto; -webkit-overflow-scrolling: touch; margin: 0.4em 0 !important;
+  border: 1px solid var(--craft-border); border-radius: 5px; background: var(--craft-surface);
+}
+.craft-table-wrap:focus-visible { outline: 1.5px solid var(--craft-accent); outline-offset: 1px; }
+.msg-content table {
+  --uk-table-width: auto;
+  --uk-table-collapse: separate;
+  --uk-table-cell-padding: 4px 10px;
+  --uk-table-header-font-size: 11px;
+  --uk-table-divider-border: 1px solid var(--craft-border-soft);
+  --uk-table-hover-bg: var(--craft-row-hover);
+  margin: 0 !important; border: 0 !important; background: transparent !important;
+  font-family: var(--craft-prose-family) !important; font-size: 11px !important; line-height: 1.4 !important;
+  font-stretch: normal !important; font-feature-settings: "tnum" 1, "lnum" 1, "onum" 0 !important;
+  font-variant-numeric: tabular-nums lining-nums !important; color: var(--craft-fg) !important;
+}
+.msg-content table thead { position: sticky; top: 0; z-index: 2; }
+.msg-content table thead th {
+  background: var(--craft-recessed) !important; color: var(--craft-fg-strong) !important;
+  font-weight: 600 !important; padding: 5px 10px !important;
+  border-bottom: 1px solid var(--craft-border) !important; vertical-align: bottom !important; white-space: nowrap;
+}
+.msg-content table tbody th {
+  background: var(--craft-surface-alt) !important; color: var(--craft-muted) !important;
+  font-weight: 500 !important; border-right: 1px solid var(--craft-border) !important; white-space: nowrap;
+}
+.msg-content table :is(th, td).craft-num { text-align: right !important; white-space: nowrap; }
+.msg-content table thead th.craft-sort { cursor: pointer; user-select: none; padding-right: 18px !important; position: relative; }
+.msg-content table thead th.craft-sort:hover { background: var(--craft-hover) !important; }
+.msg-content table thead th.craft-sort:focus-visible { outline: 1.5px solid var(--craft-accent); outline-offset: -1.5px; }
+.msg-content table thead th.craft-sort::after { content: ""; position: absolute; right: 5px; top: 50%; transform: translateY(-50%); font-size: 8px; color: var(--craft-accent); opacity: 0; }
+.msg-content table thead th.craft-sort[aria-sort="ascending"]::after { content: "\25B2"; opacity: 1; }
+.msg-content table thead th.craft-sort[aria-sort="descending"]::after { content: "\25BC"; opacity: 1; }
+.craft-table-copy {
+  position: sticky; float: right; top: 3px; right: 4px; z-index: 4; margin-left: -60px;
+  padding: 1px 6px; border: 1px solid var(--craft-border); border-radius: 3px;
+  background: var(--craft-copy-bg); color: var(--craft-muted);
+  font-family: var(--craft-prose-family); font-size: 9.5px; line-height: 16px;
+  cursor: pointer; opacity: 0; transition: opacity 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.craft-table-wrap:is(:hover, :focus-within) .craft-table-copy, .craft-table-copy.is-copied { opacity: 1; }
+.craft-table-copy:hover { color: var(--craft-fg-strong); border-color: var(--craft-accent-border); }
+.craft-table-copy.is-copied { color: var(--craft-green); border-color: var(--craft-green); }
+
+/* %% nbs/craft/09_cell_insertion.ipynb #fc377b4a */
 html:not(.craft-mobile) #dialog-container > .editable.craft-desk-host {
   position: relative;
   overflow: visible !important; content-visibility: visible !important; contain: none !important;
@@ -937,7 +912,7 @@ html:not(.craft-mobile) #dialog-container > .editable.craft-desk-host:has(> .cra
   -webkit-mask-repeat: no-repeat;
   -webkit-mask-composite: xor;
 }
-.craft-desk-edge, #craft-desk-picker { display: none; }
+.craft-desk-edge { display: none; }
 html:not(.craft-mobile) .craft-desk-edge {
   display: flex; align-items: center; justify-content: center;
   position: absolute; left: 50%; z-index: 110;
@@ -947,259 +922,83 @@ html:not(.craft-mobile) .craft-desk-edge {
   user-select: none; cursor: grab;
 }
 html:not(.craft-mobile) .craft-desk-edge[data-edge="below"] { bottom: -11px; }
-html:not(.craft-mobile) .craft-desk-edge:is([data-near], :hover, :focus-visible, [data-active="true"]) {
-  opacity: 1; pointer-events: auto;
-}
+html:not(.craft-mobile) .craft-desk-edge:is([data-near], :hover, :focus-visible, [data-active="true"]) { opacity: 1; pointer-events: auto; }
 html:not(.craft-mobile) .craft-desk-edge-pill {
   display: inline-flex; align-items: center; gap: 3px;
   height: 18px; padding: 0 7px; border-radius: 999px;
-  background: #1a1b26; border: 1px solid #7aa2f766; color: #7aa2f7;
+  background: var(--craft-surface); border: 1px solid var(--craft-accent-border); color: var(--craft-accent);
   box-shadow: 0 2px 8px #0008;
   transition: transform .1s ease, background .1s ease, border-color .1s ease, color .1s ease;
 }
 html:not(.craft-mobile) .craft-desk-edge-kind { display: inline-flex; align-items: center; opacity: .75; }
 html:not(.craft-mobile) .craft-desk-edge:hover .craft-desk-edge-pill,
 html:not(.craft-mobile) .craft-desk-edge[data-active="true"] .craft-desk-edge-pill {
-  background: #24283b; border-color: #7aa2f7; color: #c0caf5; transform: scale(1.06);
+  background: var(--craft-border-soft); border-color: var(--craft-accent); color: #c0caf5; transform: scale(1.06);
 }
-html:not(.craft-mobile) #craft-desk-picker {
+
+/* Shared desktop (#craft-desk-picker) & mobile (#craft-edge-picker) blurred type-picker shell */
+.craft-type-picker {
   display: none; position: fixed; z-index: 1250;
   padding: 6px 8px 8px;
   background: #16161ef2; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
   border: 1px solid #7aa2f755; border-radius: 10px;
-  box-shadow: 0 12px 32px #000c; user-select: none;
+  box-shadow: 0 12px 32px #000c; user-select: none; -webkit-user-select: none;
 }
-html:not(.craft-mobile) #craft-desk-picker.open { display: block; }
-html:not(.craft-mobile) #craft-desk-picker .craft-desk-picker-head {
-  font: 500 10px/1 var(--craft-prose-family); color: #9aa5ce;
+.craft-type-picker.open { display: block; }
+.craft-type-picker-head {
+  font: 500 10px/1 var(--craft-prose-family); color: var(--craft-muted);
   text-align: center; margin-bottom: 6px; letter-spacing: .03em; text-transform: uppercase;
 }
-html:not(.craft-mobile) #craft-desk-picker .craft-desk-picker-opts { display: flex; gap: 5px; }
-html:not(.craft-mobile) #craft-desk-picker button {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 6px 9px; border: 1px solid #ffffff16; border-radius: 7px;
-  background: #242638; color: #cfc9c2; font: 500 11.5px/1 var(--craft-prose-family);
-  cursor: pointer; transition: transform .08s ease, background .08s ease, border-color .08s ease;
+.craft-type-picker-opts { display: flex; gap: 5px; }
+.craft-type-picker button {
+  gap: 5px; height: auto; padding: 6px 9px; border-radius: 7px;
+  font: 500 11.5px/1 var(--craft-prose-family); -webkit-tap-highlight-color: transparent;
+  transition: transform .08s ease, background .08s ease, border-color .08s ease, color .08s ease;
 }
-html:not(.craft-mobile) #craft-desk-picker button svg { color: #7aa2f7; }
-html:not(.craft-mobile) #craft-desk-picker button kbd {
-  font: 600 9.5px/1 var(--craft-code-family); color: #9aa5ce; opacity: .75;
-  padding: 1px 4px; border-radius: 3px; background: #16161e;
+.craft-type-picker button svg { color: var(--craft-accent); }
+#craft-desk-picker button kbd {
+  font: 600 9.5px/1 var(--craft-code-family); color: var(--craft-muted); opacity: .75;
+  padding: 1px 4px; border-radius: 3px; background: var(--craft-recessed);
 }
-html:not(.craft-mobile) #craft-desk-picker button:is(:hover, [data-hot]) {
-  background: #7aa2f733; border-color: #7aa2f7; color: #ffffff; transform: translateY(-1px);
+.craft-type-picker button:is(:hover, [data-hot], :active) {
+  background: #7aa2f733; border-color: var(--craft-accent); color: var(--craft-fg-strong); transform: translateY(-1px);
 }
-
-/* ── Mobile view toggle & Insert preview controls (moved from inline JS <style>) ── */
-#craft-mobile-toggle { position: fixed; z-index: 955; width: 28px; height: 26px; display: grid; place-items: center; border: 0; border-radius: 4px; background: transparent; color: #9b9cab; opacity: .4; padding: 0; cursor: pointer; transition: opacity .15s ease, color .15s ease; }
-#craft-mobile-toggle:hover, #craft-mobile-toggle:focus-visible, body:has(nav.monster-navbar.nav-shown) #craft-mobile-toggle { opacity: 1; }
-#craft-mobile-toggle:hover, #craft-mobile-toggle:focus-visible { color: #e0e0e8; }
-#craft-mobile-toggle:focus-visible { outline: 1px solid #7aa2f7; outline-offset: 2px; }
-html.craft-mobile #craft-mobile-toggle { top: 8px !important; left: auto !important; right: 10px !important; z-index: 950; background: #16161ecc; border: 1px solid #ffffff1a; }
 
 #dialog-container.craft-insert-preview { box-sizing: border-box; margin-right: 0 !important; min-width: 0; }
-#craft-insert-preview { position: fixed; z-index: 955; width: 28px; height: 26px; display: grid; place-items: center; border: 0; border-radius: 4px; background: transparent; color: #9b9cab; opacity: .4; padding: 0; cursor: pointer; transition: opacity .15s ease, color .15s ease; }
 #craft-insert-preview[hidden] { display: none; }
-#craft-insert-preview:hover, #craft-insert-preview:focus-visible, body:has(nav.monster-navbar.nav-shown) #craft-insert-preview { opacity: 1; color: #e0e0e8; }
-.craft-insert-placeholder { height: 3px; margin: 4px 0; border-radius: 999px; background: linear-gradient(90deg, #7aa2f722, #7aa2f7, #7dcfff, #7aa2f722); background-size: 200% 100%; animation: craft-ins-shimmer 1s linear infinite; pointer-events: none; }
+.craft-insert-placeholder { height: 3px; margin: 4px 0; border-radius: 999px; background: linear-gradient(90deg, #7aa2f722, var(--craft-accent), var(--craft-cyan), #7aa2f722); background-size: 200% 100%; animation: craft-ins-shimmer 1s linear infinite; pointer-events: none; }
 @keyframes craft-ins-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
-#craft-insert-preview-menu { position: fixed; inset: auto; margin: 0; padding: 5px; border: 1px solid #414251; border-radius: 4px; background: #1f2030; color: #cfc9c2; font: 12px system-ui; }
-#craft-insert-preview-menu button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 10px; border: 0; background: transparent; color: inherit; cursor: pointer; }
-#craft-insert-preview-menu button:hover, #craft-insert-preview-menu button[aria-pressed=true] { background: #343649; }
+
 #craft-insert-preview-menu small { display: block; padding: 4px 10px; color: #9b9cab; }
 
-/* %% nbs/craft/03_file_tree.ipynb #445de251 */
-/* ── Lightweight file tree prototype ─────────────────────────────────── */
-.solveit-tree-workspace {
-  display: flex;
-  flex: 1 1 0%;
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-}
-.solveit-tree-workspace > .overflow-y-auto { flex: 1 1 0%; min-width: 0; min-height: 0; }
-#solveit-file-tree-panel {
-  position: relative;
-  z-index: 50;
-  display: flex;
-  flex-direction: column;
-  flex: 0 0 0;
-  width: 0;
-  min-width: 0;
-  max-width: 90vw;
-  height: 100%;
-  padding: 0;
-  box-sizing: border-box;
-  overflow: hidden;
-  visibility: hidden;
-  pointer-events: none;
-  background: #1a1b26;
-  color: #cfc9c2;
-  box-shadow: none;
-  transition: flex-basis .16s ease, padding .16s ease;
-}
-#solveit-file-tree-panel.open {
-  flex: 0 0 auto;
-  width: var(--solveit-tree-w, min(320px, 90vw));
-  min-width: 200px;
-  padding: 10px 10px 0 8px;
-  visibility: visible;
-  pointer-events: auto;
-  border-right: 1px solid #ffffff10;
-  box-shadow: 8px 0 24px #0008;
-}
-#solveit-file-tree-panel.resizing { transition: none; user-select: none; }
-#solveit-file-tree-panel > :not(#solveit-file-tree):not(.solveit-tree-resizer) { flex: 0 0 auto; }
-#solveit-file-tree-panel .solveit-tree-resizer {
-  position: absolute; top: 0; right: -2px; bottom: 0; width: 6px; z-index: 60;
-  cursor: col-resize; background: transparent; transition: background .12s ease;
-}
-#solveit-file-tree-panel .solveit-tree-resizer:hover,
-#solveit-file-tree-panel.resizing .solveit-tree-resizer { background: #7aa2f788; }
-html.craft-mobile #solveit-file-tree-panel .solveit-tree-resizer { display: none; }
-#solveit-file-tree-panel > header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-#solveit-file-tree-panel .solveit-tree-brand { display: flex; align-items: baseline; gap: 6px; margin-bottom: 6px; min-width: 0; }
-#solveit-file-tree-panel .solveit-tree-appname { flex: 0 0 auto; font-weight: 700; font-size: 13px; letter-spacing: .02em; color: #cfc9c2; }
-#solveit-file-tree-panel h2#dlg-name { flex: 1 1 0%; min-width: 0; font-size: 12.5px !important; line-height: 1.3 !important; font-weight: 400 !important; padding: 0 !important; color: #cfc9c2cc !important; }
-#solveit-file-tree-panel > header button { display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: inherit; font-size: 1.25rem; line-height: 1; padding: 2px; cursor: pointer; }
-#solveit-file-tree-panel .solveit-tree-shortcut { margin-left: auto; color: #cfc9c288; font: 11px monospace; }
-#solveit-file-tree-panel .solveit-tree-refresh { margin-left: 6px; }
-#solveit-file-tree-panel .treeview-node-content:focus-visible { outline: none; box-shadow: inset 0 0 0 2px #7aa2f7; background: #30364d; }
-#solveit-file-tree-panel .solveit-tree-close { margin-left: 6px; }
-#solveit-file-tree-panel .solveit-tree-back { margin-left: auto; }
-#solveit-file-tree-panel .solveit-tree-back:disabled { opacity: .35; cursor: default; }
-#solveit-file-tree-panel .solveit-tree-up { margin-left: 6px; }
-.solveit-file-tree-path { color: #cfc9c299; font: 12px monospace; margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; }
-#solveit-file-tree-panel .custom-treeview-wrapper { max-width: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
-#solveit-file-tree-panel .custom-treeview-wrapper > ul { padding-left: 0; }
-#solveit-file-tree-panel .custom-treeview-wrapper ul ul {
-  padding-left: 13px;
-  margin-left: 7px;
-  border-left: 1px solid #ffffff12;
-}
-#solveit-file-tree-panel .custom-treeview-wrapper li { margin: 2px 0; color: #cfc9c2; }
-#solveit-file-tree-panel .custom-treeview-wrapper .treeview-node-content { padding: 4px; border-radius: 4px; }
-#solveit-file-tree-panel .custom-treeview-wrapper .treeview-node-content:hover { background: #222434; }
-#solveit-file-tree-panel .treeview-expander {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 14px; flex: 0 0 14px; margin-right: 2px; padding: 0;
-  color: #787c99; font-size: 10px; line-height: 1;
-  transition: transform .12s ease, color .12s ease;
-}
-#solveit-file-tree-panel .treeview-expander::before { content: "▸"; }
-#solveit-file-tree-panel .treeview-expander > * { display: none; }
-#solveit-file-tree-panel li.expanded > .treeview-node-content > .treeview-expander { transform: rotate(90deg); color: #a9b1d6; }
-#solveit-file-tree-panel .treeview-expander-placeholder { width: 14px; flex: 0 0 14px; margin-right: 2px; padding: 0; }
-#solveit-file-tree-panel .solveit-tree-new { margin-left: 6px; font-weight: 600; color: #7aa2f7; }
-#solveit-file-tree-panel .solveit-tree-new:hover { color: #c0caf5; }
-#solveit-file-tree-panel img.solveit-tree-icon { width: 16px !important; height: 16px !important; max-width: 16px !important; max-height: 16px !important; flex: 0 0 16px; object-fit: contain; margin-right: 7px; }
-
-#solveit-file-tree-panel .solveit-tree-filter { box-sizing: border-box; width: 100%; margin: 8px 0; padding: 6px 8px; border: 1px solid #ffffff22; border-radius: 4px; background: #16161e; color: #cfc9c2; }
-#solveit-file-tree-panel .solveit-tree-status { color: #cfc9c299; font-size: 12px; }
-#solveit-temp-editor { position: fixed; inset: 0; z-index: 1000; display: none; flex-direction: column; background: #16161e; color: #cfc9c2; }
-#solveit-temp-editor.open { display: flex; }
-body:has(#solveit-temp-editor.open) #solveit-file-tree-panel.open {
-  position: fixed;
-  inset-block: 0;
-  left: 0;
-  height: auto;
-  z-index: 1010;
-}
-#solveit-temp-editor .solveit-temp-editor-bar { display: flex; flex: 0 0 36px; align-items: center; justify-content: space-between; padding: 0 12px; background: #1a1b26; border-bottom: 1px solid #ffffff22; }
-#solveit-temp-editor .solveit-temp-editor-bar button { border: 0; background: transparent; color: inherit; font-size: 1.4rem; cursor: pointer; }
-#solveit-temp-editor iframe { flex: 1; width: 100%; min-height: 0; border: 0; background: #16161e; }
-
-/* ── File tree: header toggles, context menu ───────────────────────── */
-#solveit-file-tree-panel .solveit-tree-upload,
-#solveit-file-tree-panel .solveit-tree-collapse { margin-left: 6px; color: #cfc9c2aa; }
-#solveit-file-tree-panel .solveit-tree-upload:hover,
-#solveit-file-tree-panel .solveit-tree-collapse:hover { color: #cfc9c2; }
-#solveit-file-tree-panel .solveit-tree-dots { margin-left: 6px; font: 600 .95rem monospace; color: #cfc9c288; }
-#solveit-file-tree-panel .solveit-tree-dots[aria-pressed="true"] { color: #7aa2f7; filter: drop-shadow(0 0 4px #7aa2f7aa); }
-#solveit-file-tree-panel .solveit-tree-home { margin-left: 6px; }
-.solveit-tree-menu { position: fixed; z-index: 1100; min-width: 170px; padding: 4px; background: #1f2030; border: 1px solid #ffffff1a; border-radius: 6px; box-shadow: 0 8px 24px #000a; }
-.solveit-tree-menu button { display: block; width: 100%; text-align: left; padding: 5px 10px; border: 0; border-radius: 4px; background: transparent; color: #cfc9c2; font-size: 12px; cursor: pointer; }
-.solveit-tree-menu button:hover:not(:disabled), .solveit-tree-menu button:focus-visible { background: #2b2e43; outline: none; }
-.solveit-tree-menu button:disabled { color: #cfc9c255; cursor: default; }
-.solveit-tree-menu button.danger { color: #f7768e; }
-.solveit-tree-menu hr.solveit-tree-menu-sep { margin: 4px 2px; border: 0; border-top: 1px solid #ffffff16; }
-#solveit-file-tree-panel .solveit-tree-rootbar { display: flex; align-items: center; gap: 6px; padding: 4px; margin-bottom: 4px; border-radius: 4px; font: 11.5px monospace; color: #cfc9c299; background: #16161e88; border: 1px solid transparent; user-select: none; cursor: default; }
-#solveit-file-tree-panel .solveit-tree-rootbar:hover { background: #222434; color: #cfc9c2; }
-#solveit-file-tree-panel .solveit-tree-rootbar-hint { margin-left: auto; font-size: 10px; color: #cfc9c255; }
-#solveit-file-tree-panel .solveit-tree-row-upload { opacity: 0; pointer-events: none; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin-left: 4px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: #cfc9c299; cursor: pointer; }
-#solveit-file-tree-panel .treeview-node-content:is(:hover, :focus-within) .solveit-tree-row-upload,
-#solveit-file-tree-panel .solveit-tree-rootbar:is(:hover, :focus-within) .solveit-tree-row-upload { opacity: 1; pointer-events: auto; }
-#solveit-file-tree-panel .solveit-tree-row-upload:is(:hover, :focus-visible) { background: #30364d; color: #7aa2f7; outline: none; }
-@media (hover: none) { #solveit-file-tree-panel .solveit-tree-row-upload { opacity: 1; pointer-events: auto; } }
-.solveit-tree-upload-pop { position: fixed; z-index: 1100; width: 230px; padding: 8px; background: #1f2030; border: 1px solid #ffffff1a; border-radius: 6px; box-shadow: 0 8px 24px #000a; color: #cfc9c2; font-size: 12px; }
-.solveit-tree-upload-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
-.solveit-tree-upload-dest { flex: 1 1 0%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px monospace; color: #cfc9c2cc; }
-.solveit-tree-upload-x { flex: 0 0 auto; border: 0; background: transparent; color: #cfc9c299; font-size: 15px; line-height: 1; cursor: pointer; padding: 0 2px; }
-.solveit-tree-upload-x:hover { color: #cfc9c2; }
-.solveit-tree-upload-drop { padding: 12px 8px; margin-bottom: 8px; border: 1px dashed #ffffff2e; border-radius: 4px; background: #16161e; color: #cfc9c288; text-align: center; font-size: 11.5px; }
-.solveit-tree-upload-drop.dragover { border-color: #7aa2f7; background: #7aa2f71c; color: #cfc9c2; }
-.solveit-tree-upload-actions { display: flex; gap: 6px; }
-.solveit-tree-upload-actions button { flex: 1 1 0%; padding: 5px 8px; border: 1px solid #ffffff1f; border-radius: 4px; background: #242638; color: #cfc9c2; font-size: 12px; cursor: pointer; }
-.solveit-tree-upload-actions button:is(:hover, :focus-visible) { background: #30364d; border-color: #7aa2f7; outline: none; }
-#solveit-file-tree { flex: 1 1 0%; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 40px; }
-#solveit-file-tree .treeview-node-content.solveit-tree-current { background: #7aa2f71c; box-shadow: inset 2px 0 0 #7aa2f7; }
-#solveit-file-tree li.solveit-tree-dragging { opacity: .4; }
-#solveit-file-tree-panel .solveit-tree-drop-target { background: #7aa2f728 !important; box-shadow: inset 0 0 0 1.5px #7aa2f7 !important; color: #cfc9c2 !important; }
-#solveit-file-tree .solveit-tree-create { margin: 3px 4px 5px; }
-#solveit-file-tree li > .solveit-tree-create { margin-left: 14px; }
-#solveit-file-tree .solveit-tree-create input { box-sizing: border-box; width: 100%; min-width: 0; padding: 4px 6px; border: 1px solid #7aa2f7; border-radius: 4px; background: #16161e; color: #cfc9c2; font: inherit; }
-#solveit-file-tree .solveit-tree-create input:focus-visible { outline: 1px solid #7aa2f7; outline-offset: 1px; }
-#solveit-file-tree .solveit-tree-create input[aria-invalid="true"] { border-color: #f7768e; }
-#solveit-tree-create-error:not(:empty) { margin-top: 4px; color: #f7768e; font-size: 11px; overflow-wrap: anywhere; }
-
-/* %% nbs/craft/04_craft_c2.ipynb #95488b8b */
-/* ── C2 inline CodeMirror 6 cells ──────────────────────────────────── */
+/* %% nbs/craft/10_code_editor_c2.ipynb #95488b8b */
+/* ── C2 inline CodeMirror 6 cells (base .cm-* & save-dot in 04_cm_core) ── */
 .editable.craft-c2 .card-in[data-mtype="code"] .msg-content pre {
   padding: 4px 15px 4px 4px !important;
   min-height: 18px;
   cursor: text;
 }
 .editable.craft-c2 .card-in[data-mtype="code"].craft-c2-mounted .msg-content { display: none !important; }
-.craft-c2-host { position: relative; min-height: 18px; }
 .craft-c2-host .cm-editor {
-  background: transparent !important;
-  color: #cfc9c2;
+  color: var(--craft-fg);
   font-family: var(--craft-code-family) !important;
   font-size: var(--craft-code) !important;
   line-height: var(--craft-code-lh) !important;
   font-weight: 400 !important;
-  font-stretch: normal !important;
-  font-feature-settings: normal !important;
-  outline: none !important;
 }
-.craft-c2-host .cm-editor.cm-focused { outline: none !important; }
-.craft-c2-host .cm-scroller {
-  font-family: inherit !important;
-  font-size: inherit !important;
-  line-height: var(--craft-code-lh) !important;
-  overflow: visible !important;
-}
-.craft-c2-host .cm-content {
-  padding: 4px 15px 4px 0 !important;
-  caret-color: #cfc9c2;
-  tab-size: 4;
-  min-height: 18px;
-}
+.craft-c2-host .cm-scroller { line-height: var(--craft-code-lh) !important; }
+.craft-c2-host .cm-content { padding: 4px 15px 4px 0 !important; caret-color: var(--craft-fg); tab-size: 4; min-height: 18px; }
 .craft-c2-host .cm-line { padding: 0 0 0 4px !important; line-height: var(--craft-code-lh) !important; }
 .craft-c2-host .cm-activeLine, .craft-c2-host .cm-activeLineGutter { background: transparent !important; }
-.craft-c2-host .cm-editor.cm-focused .cm-activeLine { background: #7aa2f712 !important; }
-.craft-c2-host .cm-cursor, .craft-c2-host .cm-dropCursor { border-left: 1.5px solid #cfc9c2 !important; }
-.craft-c2-host .cm-selectionBackground,
-.craft-c2-host .cm-editor.cm-focused .cm-selectionBackground,
-.craft-c2-host ::selection { background: #7aa2f740 !important; }
-.craft-c2-host .cm-matchingBracket { background: #7aa2f728 !important; outline: 1px solid #7aa2f766; color: inherit !important; }
-.craft-c2-host .cm-selectionMatch { background: #7aa2f722 !important; }
+.craft-c2-host .cm-editor.cm-focused .cm-activeLine { background: var(--craft-accent-soft) !important; }
+.craft-c2-host .cm-matchingBracket { background: #7aa2f728 !important; outline: 1px solid var(--craft-accent-border); color: inherit !important; }
+.craft-c2-host .cm-editor.cm-focused .cm-placeholder { opacity: 0 !important; }
 :is(.craft-c2-host, .craft-c2-tooltips) .cm-tooltip {
-  background: #1a1b26 !important;
-  border: 1px solid #2f3044 !important;
+  background: var(--craft-surface) !important;
+  border: 1px solid var(--craft-border) !important;
   border-radius: 6px;
-  box-shadow: 0 8px 24px #000a;
-  color: #cfc9c2;
+  box-shadow: var(--craft-shadow);
+  color: var(--craft-fg);
   font-family: var(--craft-code-family);
   font-size: 11px;
   line-height: 1.35;
@@ -1207,96 +1006,46 @@ body:has(#solveit-temp-editor.open) #solveit-file-tree-panel.open {
 }
 :is(.craft-c2-host, .craft-c2-tooltips) .cm-tooltip-autocomplete > ul { max-height: 220px; max-width: min(560px, 90vw); }
 :is(.craft-c2-host, .craft-c2-tooltips) .cm-tooltip-autocomplete > ul > li { padding: 2px 8px; display: flex; align-items: baseline; gap: 8px; }
-:is(.craft-c2-host, .craft-c2-tooltips) .cm-tooltip-autocomplete > ul > li[aria-selected] { background: #292e42 !important; color: #e1e4e8 !important; }
-:is(.craft-c2-host, .craft-c2-tooltips) .cm-completionDetail { color: #cfc9c288; margin-left: auto; font-style: normal; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 340px; }
-:is(.craft-c2-host, .craft-c2-tooltips) .cm-completionMatchedText { color: #7aa2f7; text-decoration: none; font-weight: 600; }
-.craft-c2-host .cm-panels { background: #16161e !important; color: #cfc9c2; border: 0; border-top: 1px solid #ffffff14; }
-.craft-c2-host .cm-search { padding: 4px 6px; font-family: var(--craft-prose-family); font-size: 11px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
-.craft-c2-host .cm-search input, .craft-c2-host .cm-search button {
-  background: #1f2030;
-  color: #cfc9c2;
-  border: 1px solid #ffffff22;
-  border-radius: 4px;
-  padding: 2px 6px;
-  font-size: 11px;
-}
-.craft-c2-host .cm-search button:hover { background: #292e42; }
-.craft-c2-host .cm-search button[name="close"] { margin-left: auto; border: 0; background: transparent; cursor: pointer; }
-.craft-c2-host .cm-searchMatch { background: #e0af6833; outline: 1px solid #e0af6866; }
-.craft-c2-host .cm-searchMatch-selected { background: #7aa2f744; outline: 1px solid #7aa2f7; }
+:is(.craft-c2-host, .craft-c2-tooltips) .cm-tooltip-autocomplete > ul > li[aria-selected] { background: var(--craft-accent-bg) !important; color: var(--craft-fg-strong) !important; }
+:is(.craft-c2-host, .craft-c2-tooltips) .cm-completionDetail { color: var(--craft-muted); margin-left: auto; font-style: normal; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 340px; }
+:is(.craft-c2-host, .craft-c2-tooltips) .cm-completionMatchedText { color: var(--craft-accent); text-decoration: none; font-weight: 600; }
 .craft-c2-ghost { color: #787c99; opacity: .7; white-space: pre; pointer-events: none; }
 .craft-c2-sighelp { max-width: min(560px, 90vw); padding: 6px 8px; }
 .craft-c2-sig-head { display: flex; align-items: baseline; gap: 8px; font-weight: 500; }
 .craft-c2-sig-label { overflow-wrap: anywhere; }
-.craft-c2-sig-active { color: #7aa2f7; font-weight: 700; text-decoration: underline; }
-.craft-c2-sig-nav { margin-left: auto; flex: none; font-size: 10px; color: #cfc9c288; }
+.craft-c2-sig-active { color: var(--craft-accent); font-weight: 700; text-decoration: underline; }
+.craft-c2-sig-nav { margin-left: auto; flex: none; font-size: 10px; color: var(--craft-muted); }
 .craft-c2-sig-nav button { border: 0; background: transparent; color: inherit; cursor: pointer; padding: 0 2px; }
-.craft-c2-sig-meta { margin-top: 4px; font-size: 10px; color: #cfc9c2bb; }
-.craft-c2-sig-meta kbd { padding: 0 3px; border-radius: 3px; background: #25273a; color: #cfc9c2; }
-.craft-c2-sig-doc { margin: 4px 0 0; max-height: 180px; overflow: auto; white-space: pre-wrap; font-size: 10px; line-height: 1.3; color: #cfc9c2cc; }
-.craft-c2-ai-form { box-sizing: border-box; padding: 4px; margin: 2px 0; background: #16161e; border: 1px solid #7aa2f766; border-radius: 4px; }
-.craft-c2-ai-input { box-sizing: border-box; width: 100%; padding: 3px 6px; background: #1f2030; color: #cfc9c2; border: 1px solid #ffffff22; border-radius: 3px; font-family: var(--craft-code-family); font-size: 11px; outline: none; }
-.craft-c2-ai-input:focus { border-color: #7aa2f7; }
+.craft-c2-sig-meta { margin-top: 4px; font-size: 10px; color: var(--craft-muted); }
+.craft-c2-sig-meta kbd { padding: 0 3px; border-radius: 3px; background: var(--craft-kbd-bg); color: var(--craft-fg); }
+.craft-c2-sig-doc { margin: 4px 0 0; max-height: 180px; overflow: auto; white-space: pre-wrap; font-size: 10px; line-height: 1.3; color: var(--craft-fg); }
+.craft-c2-ai-form { box-sizing: border-box; padding: 4px; margin: 2px 0; background: var(--craft-recessed); border: 1px solid var(--craft-accent-border); border-radius: 4px; }
+.craft-c2-ai-input { height: auto; padding: 3px 6px; font-family: var(--craft-code-family); font-size: 11px; }
 .craft-c2-spinner { position: absolute; top: 3px; left: 3px; z-index: 20; pointer-events: none; }
-html:not(.dark) .craft-c2-host .cm-editor { color: #24292e; }
-html:not(.dark) .craft-c2-host .cm-content { caret-color: #24292e; }
-html:not(.dark) .craft-c2-host .cm-cursor, html:not(.dark) .craft-c2-host .cm-dropCursor { border-left-color: #24292e !important; }
-html:not(.dark) :is(.craft-c2-host, .craft-c2-tooltips) .cm-tooltip { background: #ffffff !important; border-color: #d0d7de !important; color: #24292e; box-shadow: 0 6px 18px #0002; }
-html:not(.dark) :is(.craft-c2-host, .craft-c2-tooltips) .cm-tooltip-autocomplete > ul > li[aria-selected] { background: #ddf4ff !important; color: #24292e !important; }
-html:not(.dark) :is(.craft-c2-host, .craft-c2-tooltips) .cm-completionDetail { color: #57606a; }
-html:not(.dark) .craft-c2-host .cm-panels { background: #f6f8fa !important; color: #24292e; border-top-color: #d0d7de; }
-html:not(.dark) .craft-c2-host .cm-search input, html:not(.dark) .craft-c2-host .cm-search button { background: #ffffff; color: #24292e; border-color: #d0d7de; }
-html:not(.dark) .craft-c2-sig-meta { color: #57606a; }
-html:not(.dark) .craft-c2-sig-meta kbd { background: #eaeef2; color: #24292e; }
-html:not(.dark) .craft-c2-sig-doc { color: #24292e; }
-html:not(.dark) .craft-c2-ai-form { background: #f6f8fa; border-color: #0969da66; }
-html:not(.dark) .craft-c2-ai-input { background: #ffffff; color: #24292e; border-color: #d0d7de; }
 
 .craft-action-sep { margin: 4px 0; border: 0; border-top: 1px solid #ffffff1a; }
-.craft-c2-host .cm-gutters { background: transparent !important; border: 0 !important; color: #cfc9c255 !important; padding: 4px 4px 4px 2px; }
+.craft-c2-host .cm-gutters { background: transparent !important; border: 0 !important; color: var(--craft-muted-soft) !important; padding: 4px 4px 4px 2px; }
 .craft-c2-host .cm-lineNumbers .cm-gutterElement { min-width: 22px; padding: 0 4px 0 2px; font-size: var(--craft-code); line-height: var(--craft-code-lh); text-align: right; }
 .craft-c2-host:not(.craft-c2-has-ln) .cm-gutters { position: absolute !important; left: -6px; top: 0; bottom: 0; width: 10px; padding: 4px 0 !important; z-index: 4; pointer-events: none; }
 .craft-c2-host .cm-foldGutter { width: 10px; min-width: 10px; }
 .craft-c2-host .cm-foldGutter .cm-gutterElement { padding: 0 !important; display: flex; align-items: center; justify-content: center; }
-.craft-c2-fold { opacity: 0; pointer-events: auto; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; width: 10px; font-size: 9px; line-height: var(--craft-code-lh); color: #7aa2f799; transition: opacity .12s ease, color .12s ease; user-select: none; }
+.craft-c2-fold { opacity: 0; pointer-events: auto; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; width: 10px; font-size: 9px; line-height: var(--craft-code-lh); color: var(--craft-accent-muted); transition: opacity .12s ease, color .12s ease; user-select: none; }
 .craft-c2-host:hover .craft-c2-fold, .craft-c2-fold.is-closed, .craft-c2-fold:hover { opacity: 1; }
-.craft-c2-fold:hover { color: #7aa2f7; }
-.craft-c2-host .cm-foldPlaceholder { display: inline-block; padding: 0 4px; margin: 0 2px; border: 1px solid #7aa2f744 !important; border-radius: 3px; background: #292e42 !important; color: #7aa2f7 !important; font-size: 9px; line-height: 1; cursor: pointer; }
-.craft-c2-host .cm-foldPlaceholder:hover { background: #343b58 !important; border-color: #7aa2f788 !important; }
+.craft-c2-fold:hover { color: var(--craft-accent); }
+.craft-c2-host .cm-foldPlaceholder { display: inline-block; padding: 0 4px; margin: 0 2px; border: 1px solid var(--craft-accent-border) !important; border-radius: 3px; background: var(--craft-kbd-bg) !important; color: var(--craft-accent) !important; font-size: 9px; line-height: 1; cursor: pointer; }
+.craft-c2-host .cm-foldPlaceholder:hover { background: var(--craft-hover) !important; border-color: var(--craft-accent) !important; }
 
-/* Active editing, save status, traceback accent, placeholder, indent guides, rainbow brackets */
+/* Traceback accent, indent guides, rainbow brackets */
 .editable.craft-c2 > .card-in[data-mtype="code"] { position: relative; }
-.editable[data-c2-save="error"] > .card-in[data-mtype="code"] { box-shadow: inset 2px 0 0 #e0af68 !important; }
-.editable[data-c2-save] > .card-in[data-mtype="code"]::after { content: ""; position: absolute; right: 4px; bottom: 3px; width: 5px; height: 5px; border-radius: 50%; pointer-events: none; z-index: 6; }
-.editable[data-c2-save="dirty"] > .card-in[data-mtype="code"]::after { background: #7aa2f799; }
-.editable[data-c2-save="saving"] > .card-in[data-mtype="code"]::after { background: #7dcfff; animation: craft-c2-pulse 1s ease-in-out infinite; }
-.editable[data-c2-save="error"] > .card-in[data-mtype="code"]::after { background: #e0af68; }
-@keyframes craft-c2-pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
-.card-out.craft-c2-traceback { box-shadow: inset 2px 0 0 #f7768e88 !important; }
-.craft-c2-host .cm-placeholder { color: #cfc9c244; font-style: italic; pointer-events: none; }
-.craft-c2-host .cm-editor.cm-focused .cm-placeholder { opacity: 0 !important; }
-.craft-c2-ig { box-shadow: inset 1px 0 0 #cfc9c216; }
-.craft-c2-br-0 { color: #e0af68 !important; }
-.craft-c2-br-1 { color: #bb9af7 !important; }
-.craft-c2-br-2 { color: #7dcfff !important; }
-.craft-c2-br-err { color: #f7768e !important; text-decoration: underline wavy #f7768e88; }
+.card-out.craft-c2-traceback { box-shadow: inset 2px 0 0 var(--craft-red) !important; }
+.craft-c2-ig { box-shadow: inset 1px 0 0 var(--craft-ig); }
+.craft-c2-br-0 { color: var(--craft-amber) !important; }
+.craft-c2-br-1 { color: var(--craft-purple) !important; }
+.craft-c2-br-2 { color: var(--craft-cyan) !important; }
+.craft-c2-br-err { color: var(--craft-red) !important; text-decoration: underline wavy var(--craft-red); }
 
-html:not(.dark) .craft-c2-host .cm-editor.cm-focused .cm-activeLine { background: #0969da10 !important; }
-html:not(.dark) .craft-c2-host .cm-gutters { color: #57606a88 !important; }
-html:not(.dark) .craft-c2-fold { color: #0969da99; }
-html:not(.dark) .craft-c2-fold:hover { color: #0969da; }
-html:not(.dark) .craft-c2-host .cm-foldPlaceholder { background: #eaeef2 !important; border-color: #0969da44 !important; color: #0969da !important; }
-html:not(.dark) .editable[data-c2-save="error"] > .card-in[data-mtype="code"] { box-shadow: inset 2px 0 0 #9a6700 !important; }
-html:not(.dark) .card-out.craft-c2-traceback { box-shadow: inset 2px 0 0 #cf222e88 !important; }
-html:not(.dark) .craft-c2-host .cm-placeholder { color: #57606a66; }
-html:not(.dark) .craft-c2-ig { box-shadow: inset 1px 0 0 #24292e16; }
-html:not(.dark) .craft-c2-br-0 { color: #9a6700 !important; }
-html:not(.dark) .craft-c2-br-1 { color: #8250df !important; }
-html:not(.dark) .craft-c2-br-2 { color: #0550ae !important; }
-html:not(.dark) .craft-c2-br-err { color: #cf222e !important; }
-
-/* %% nbs/craft/05_craft_md.ipynb #4bbf1253 */
-/* ── Inline Markdown & Raw CM6 cells (craft_md.js) ─────────────────── */
+/* %% nbs/craft/11_markdown_editor.ipynb #4bbf1253 */
+/* ── Inline Markdown & Raw CM6 cells (base .cm-* & save-dot in 04_cm_core) ── */
 .editable > .card-in:is([data-mtype="note"], [data-mtype="prompt"], [data-mtype="raw"]),
 .editable > .card-out[data-mtype="prompt"] { position: relative; }
 .editable > .card-in:is([data-mtype="note"], [data-mtype="prompt"], [data-mtype="raw"]) .msg-content { cursor: text; min-height: 18px; }
@@ -1305,43 +1054,25 @@ html:not(.dark) .craft-c2-br-err { color: #cf222e !important; }
 .editable.dot-prompt-response[data-md-editing="true"] > .card-in { display: block !important; }
 .editable:is([data-c2-editing="true"], [data-md-editing="true"]) { content-visibility: visible !important; }
 
-.craft-md-host { position: relative; min-height: 18px; }
-.craft-md-host .cm-editor { background: transparent !important; outline: none !important; }
-.craft-md-host .cm-editor.cm-focused { outline: none !important; }
-.craft-md-host .cm-scroller { font-family: inherit !important; font-size: inherit !important; line-height: inherit !important; overflow: visible !important; }
-.craft-md-host .cm-cursor, .craft-md-host .cm-dropCursor { border-left: 1.5px solid #cfc9c2 !important; }
-.craft-md-host .cm-selectionBackground,
-.craft-md-host .cm-editor.cm-focused .cm-selectionBackground,
-.craft-md-host ::selection { background: #7aa2f740 !important; }
-.craft-md-host .cm-selectionMatch { background: #7aa2f722 !important; }
-.craft-md-host .cm-placeholder { color: #cfc9c244; font-style: italic; pointer-events: none; }
+.craft-md-host .cm-scroller { line-height: inherit !important; }
 .craft-md-host.craft-md-raw .cm-editor.cm-focused .cm-placeholder { opacity: 0 !important; }
-.craft-md-host .cm-panels { background: #16161e !important; color: #cfc9c2; border: 0; border-top: 1px solid #ffffff14; }
-.craft-md-host .cm-search { padding: 4px 6px; font-family: var(--craft-prose-family); font-size: 11px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
-.craft-md-host .cm-search input, .craft-md-host .cm-search button { background: #1f2030; color: #cfc9c2; border: 1px solid #ffffff22; border-radius: 4px; padding: 2px 6px; font-size: 11px; }
-.craft-md-host .cm-search button:hover { background: #292e42; }
-.craft-md-host .cm-search button[name="close"] { margin-left: auto; border: 0; background: transparent; cursor: pointer; }
-.craft-md-host .cm-searchMatch { background: #e0af6833; outline: 1px solid #e0af6866; }
-.craft-md-host .cm-searchMatch-selected { background: #7aa2f744; outline: 1px solid #7aa2f7; }
 
 /* Raw cells: lean monospace matching C2 */
 .craft-md-host.craft-md-mono .cm-editor {
-  color: #cfc9c2;
+  color: var(--craft-fg);
   font-family: var(--craft-code-family) !important;
   font-size: var(--craft-code) !important;
   line-height: 1 !important;
   font-weight: 400 !important;
-  font-stretch: normal !important;
-  font-feature-settings: normal !important;
 }
-.craft-md-host.craft-md-mono .cm-content { padding: 4px 15px 4px 0 !important; caret-color: #cfc9c2; tab-size: 4; min-height: 18px; }
+.craft-md-host.craft-md-mono .cm-content { padding: 4px 15px 4px 0 !important; caret-color: var(--craft-fg); tab-size: 4; min-height: 18px; }
 .craft-md-host.craft-md-mono .cm-line { padding: 0 0 0 4px !important; line-height: 1 !important; }
 .craft-md-host.craft-md-mono .cm-activeLine { background: transparent !important; }
-.craft-md-host.craft-md-mono .cm-editor.cm-focused .cm-activeLine { background: #7aa2f712 !important; }
+.craft-md-host.craft-md-mono .cm-editor.cm-focused .cm-activeLine { background: var(--craft-accent-soft) !important; }
 
 /* Note & Prompt cells: prose typography matching .prose */
 .craft-md-host.craft-md-prose .cm-editor {
-  color: #cfc9c2;
+  color: var(--craft-fg);
   font-family: var(--craft-prose-family) !important;
   font-size: var(--craft-prose) !important;
   line-height: var(--craft-prose-lh) !important;
@@ -1350,34 +1081,26 @@ html:not(.dark) .craft-c2-br-err { color: #cf222e !important; }
   font-feature-settings: "onum" 1;
 }
 .craft-md-host.craft-md-prompt .cm-editor { color: #e0dcd5; }
-.craft-md-host.craft-md-output .cm-editor { color: #cfc9c2; }
-.craft-md-host.craft-md-prose .cm-content { padding: 2px 4px 2px 0 !important; caret-color: #cfc9c2; tab-size: 2; min-height: 18px; }
-.craft-md-host.craft-md-prose .cm-line { padding: 1px 0 !important; }
+.craft-md-host.craft-md-output .cm-editor { color: var(--craft-fg); }
+.craft-md-host.craft-md-prose .cm-content { padding: 0 !important; caret-color: var(--craft-fg); tab-size: 2; min-height: 18px; }
+.craft-md-host.craft-md-prose .cm-line { padding: 0 !important; }
+.craft-md-host.craft-md-prose .cm-widgetBuffer { height: 0.7em !important; vertical-align: baseline !important; }
 
 /* Live Preview typography & syntax tokens */
-.craft-md-syntax { color: #7aa2f777 !important; font-family: var(--craft-code-family); font-weight: 400; font-style: normal; font-stretch: normal; font-feature-settings: normal; }
-.craft-md-url { color: #7dcfff88 !important; font-family: var(--craft-code-family); font-size: 0.92em; font-stretch: normal; font-feature-settings: normal; }
-.craft-md-h { color: #ffffff !important; font-weight: 650 !important; }
-.craft-md-h1 { font-size: 1.65em !important; line-height: 1.08 !important; padding-top: 3px !important; padding-bottom: 1px !important; }
-.craft-md-h2 { font-size: 1.32em !important; line-height: 1.08 !important; padding-top: 2px !important; padding-bottom: 1px !important; }
-.craft-md-h3 { font-size: 1.15em !important; line-height: 1.1 !important; padding-top: 2px !important; padding-bottom: 1px !important; }
-.craft-md-h4 { font-size: 1.05em !important; line-height: 1.12 !important; }
-.craft-md-h5, .craft-md-h6 { font-size: 1em !important; color: #a9b1d6 !important; }
-.craft-md-strong { font-weight: 650 !important; color: #ffffff; }
+.craft-md-syntax { color: var(--craft-accent-muted) !important; font-family: var(--craft-code-family); font-weight: 400; font-style: normal; font-stretch: normal; font-feature-settings: normal; }
+.craft-md-h .craft-md-syntax { font-size: 0.85em; line-height: 1 !important; }
+.craft-md-url { color: var(--craft-cyan) !important; opacity: 0.7; font-family: var(--craft-code-family); font-size: 0.92em; font-stretch: normal; font-feature-settings: normal; }
+.craft-md-host.craft-md-prose .cm-line.craft-md-h { color: var(--craft-fg-strong) !important; font-weight: 650 !important; line-height: 1.08 !important; padding-top: 0.14em !important; padding-bottom: 0.12em !important; }
+.craft-md-host.craft-md-prose .cm-line.craft-md-h:first-child { padding-top: 0.3em !important; }
+.craft-md-h1 { font-size: 1.65em !important; }
+.craft-md-h2 { font-size: 1.32em !important; }
+.craft-md-h3 { font-size: 1.15em !important; }
+.craft-md-h4 { font-size: 1.05em !important; }
+.craft-md-h5, .craft-md-h6 { font-size: 1em !important; color: var(--craft-muted) !important; }
+.craft-md-strong { font-weight: 650 !important; color: var(--craft-fg-strong); }
 .craft-md-em { font-style: italic; }
 .craft-md-strike { text-decoration: line-through; opacity: .65; }
-.craft-md-inline-code {
-  font-family: var(--craft-code-family) !important;
-  font-size: var(--craft-code) !important;
-  font-weight: 400;
-  font-stretch: normal;
-  font-feature-settings: normal;
-  color: #ffffff;
-  background: #16161e99;
-  padding: 0 3px;
-  border-radius: 3px;
-}
-.craft-md-var, .craft-md-tool {
+.craft-md-inline-code, .craft-md-var, .craft-md-tool, .craft-md-msgref, .craft-md-math {
   font-family: var(--craft-code-family) !important;
   font-size: var(--craft-code) !important;
   font-weight: 400;
@@ -1386,39 +1109,21 @@ html:not(.dark) .craft-c2-br-err { color: #cf222e !important; }
   padding: 0 3px;
   border-radius: 3px;
 }
-.craft-md-var { color: #7dcfff !important; background: #7dcfff18; }
-.craft-md-tool { color: #bb9af7 !important; background: #bb9af718; }
-.craft-md-msgref {
-  font-family: var(--craft-code-family) !important;
-  font-size: var(--craft-code) !important;
-  font-stretch: normal;
-  font-feature-settings: normal;
-  color: #7dcfff !important;
-  background: #7dcfff14;
-  padding: 0 3px;
-  border-radius: 3px;
-  cursor: pointer;
-}
-.craft-md-math {
-  font-family: var(--craft-code-family) !important;
-  font-size: var(--craft-code) !important;
-  font-stretch: normal;
-  font-feature-settings: normal;
-  color: #e0af68 !important;
-  background: #e0af6814;
-  padding: 0 2px;
-  border-radius: 3px;
-}
-.craft-md-link { color: #7dcfff !important; text-decoration: underline; text-decoration-color: #7dcfff55; text-underline-offset: 2px; cursor: pointer; }
-.craft-md-img-label { color: #9ece6a !important; background: #9ece6a18; padding: 0 4px; border-radius: 3px; }
-.craft-md-bullet { color: #7aa2f7; font-weight: 700; display: inline-block; width: 0.9em; text-align: center; }
-.craft-md-list-num { color: #7aa2f7bb; font-variant-numeric: tabular-nums; }
-.craft-md-task { width: 11px; height: 11px; margin: 0 3px 0 0; vertical-align: -1.5px; accent-color: #7aa2f7; cursor: pointer; }
+.craft-md-inline-code { color: var(--craft-fg-strong); background: var(--craft-inline-bg); }
+.craft-md-var { color: var(--craft-cyan) !important; background: var(--craft-var-bg); }
+.craft-md-tool { color: var(--craft-purple) !important; background: var(--craft-tool-bg); }
+.craft-md-msgref { color: var(--craft-cyan) !important; background: var(--craft-var-bg); cursor: pointer; }
+.craft-md-math { color: var(--craft-amber) !important; background: var(--craft-math-bg); padding: 0 2px; }
+.craft-md-link { color: var(--craft-cyan) !important; text-decoration: underline; text-decoration-color: var(--craft-cyan); text-underline-offset: 2px; cursor: pointer; }
+.craft-md-img-label { color: var(--craft-green) !important; background: #9ece6a18; padding: 0 4px; border-radius: 3px; }
+.craft-md-bullet { color: var(--craft-accent); font-weight: 700; display: inline-block; width: 0.9em; text-align: center; }
+.craft-md-list-num { color: var(--craft-accent); opacity: 0.8; font-variant-numeric: tabular-nums; }
+.craft-md-task { width: 11px; height: 11px; margin: 0 3px 0 0; vertical-align: -1.5px; accent-color: var(--craft-accent); cursor: pointer; }
 .craft-md-task-done { opacity: .6; text-decoration: line-through; }
-.craft-md-quote-line { border-left: 3px solid #7aa2f766 !important; padding-left: 10px !important; color: #cfc9c2cc; }
-.craft-md-hr { display: inline-block; width: 100%; height: 1px; background: #ffffff26; vertical-align: middle; }
+.craft-md-quote-line { border-left: 3px solid var(--craft-quote-border) !important; padding-left: 10px !important; color: var(--craft-muted); }
+.craft-md-hr { display: inline-block; width: 100%; height: 1px; background: var(--craft-hr); vertical-align: middle; }
 .craft-md-codeblock-line {
-  background: #16161e !important;
+  background: var(--craft-recessed) !important;
   font-family: var(--craft-code-family) !important;
   font-size: var(--craft-code) !important;
   line-height: 1.25 !important;
@@ -1430,8 +1135,8 @@ html:not(.dark) .craft-c2-br-err { color: #cf222e !important; }
 }
 .craft-md-codeblock-first { padding-top: 3px !important; }
 .craft-md-codeblock-last { padding-bottom: 3px !important; }
-.craft-md-fence-hidden { font-size: 8.5px !important; line-height: 1.1 !important; color: #cfc9c255 !important; }
-.craft-md-fence-label { display: inline-block; width: 100%; text-align: right; font-size: 8.5px; letter-spacing: 0.04em; text-transform: uppercase; color: #cfc9c255; user-select: none; }
+.craft-md-fence-hidden { font-size: 8.5px !important; line-height: 1.1 !important; color: var(--craft-muted-soft) !important; }
+.craft-md-fence-label { display: inline-block; width: 100%; text-align: right; font-size: 8.5px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--craft-muted-soft); user-select: none; }
 .craft-md-table-line {
   font-family: var(--craft-code-family) !important;
   font-size: var(--craft-code) !important;
@@ -1439,36 +1144,10 @@ html:not(.dark) .craft-c2-br-err { color: #cf222e !important; }
   font-stretch: normal !important;
   font-feature-settings: normal !important;
 }
-.craft-md-table-head { font-weight: 650; color: #ffffff; }
-.craft-md-table-delim { color: #7aa2f766; }
+.craft-md-table-head { font-weight: 650; color: var(--craft-fg-strong); }
+.craft-md-table-delim { color: var(--craft-accent-border); }
 
-/* Save status dot matching C2 */
-.editable > .msg-card[data-md-save="error"] { box-shadow: inset 2px 0 0 #e0af68 !important; }
-.editable > .msg-card[data-md-save]::after { content: ""; position: absolute; right: 4px; bottom: 3px; width: 5px; height: 5px; border-radius: 50%; pointer-events: none; z-index: 6; }
-.editable > .msg-card[data-md-save="dirty"]::after { background: #7aa2f799; }
-.editable > .msg-card[data-md-save="saving"]::after { background: #7dcfff; animation: craft-c2-pulse 1s ease-in-out infinite; }
-.editable > .msg-card[data-md-save="error"]::after { background: #e0af68; }
-
-/* Light mode */
-html:not(.dark) .craft-md-host .cm-editor { color: #24292e; }
-html:not(.dark) .craft-md-host .cm-content { caret-color: #24292e; }
-html:not(.dark) .craft-md-host .cm-cursor, html:not(.dark) .craft-md-host .cm-dropCursor { border-left-color: #24292e !important; }
-html:not(.dark) .craft-md-host .cm-panels { background: #f6f8fa !important; color: #24292e; border-top-color: #d0d7de; }
-html:not(.dark) .craft-md-host .cm-search input, html:not(.dark) .craft-md-host .cm-search button { background: #ffffff; color: #24292e; border-color: #d0d7de; }
-html:not(.dark) .craft-md-host .cm-placeholder { color: #57606a66; }
-html:not(.dark) .craft-md-h, html:not(.dark) .craft-md-strong, html:not(.dark) .craft-md-table-head { color: #1f2328 !important; }
-html:not(.dark) .craft-md-syntax { color: #0969da77 !important; }
-html:not(.dark) .craft-md-link, html:not(.dark) .craft-md-msgref { color: #0969da !important; }
-html:not(.dark) .craft-md-inline-code { color: #1f2328; background: #eaeef2; }
-html:not(.dark) .craft-md-var { color: #0550ae !important; background: #ddf4ff; }
-html:not(.dark) .craft-md-tool { color: #8250df !important; background: #fbefff; }
-html:not(.dark) .craft-md-math { color: #9a6700 !important; background: #fff8c5; }
-html:not(.dark) .craft-md-codeblock-line { background: #f6f8fa !important; }
-html:not(.dark) .craft-md-quote-line { border-left-color: #0969da66 !important; color: #57606a; }
-html:not(.dark) .craft-md-hr { background: #d0d7de; }
-html:not(.dark) .editable > .msg-card[data-md-save="error"] { box-shadow: inset 2px 0 0 #9a6700 !important; }
-
-/* %% nbs/craft/06_mobile.ipynb #f1cee8d4 */
+/* %% nbs/craft/12_mobile.ipynb #bc5b5037 */
 /* ══ Mobile ══════════════════════════════════════════════════════════════
    Everything below is scoped to `html.craft-mobile`, which CRAFT.js sets for
    touch-only devices (or when toggled manually). Desktop never matches these rules.
@@ -1476,7 +1155,7 @@ html:not(.dark) .editable > .msg-card[data-md-save="error"] { box-shadow: inset 
    top/bottom cell-edge drag-to-insert bulges, bottom-sheet menus, slide-in file
    drawer, tap-to-open top nav (housing the view toggle), and reading ergonomics.
    ──────────────────────────────────────────────────────────────────────── */
-#craft-mbar, #craft-mobile-backdrop, #craft-edge-picker, #craft-scroll-bottom, #craft-empty-add,
+#craft-mbar, #craft-scroll-bottom, #craft-empty-add,
 .craft-edge-bulge, .solveit-tree-row-more { display: none; }
 
 html.craft-mobile {
@@ -1508,8 +1187,8 @@ html.craft-mobile #dialog-container .editable > .msg-card:not(.collapsed) .msg-c
 html.craft-mobile .craft-table-wrap {
   width: fit-content; max-width: 100%; max-height: 60dvh;
   background-image:
-    linear-gradient(to right, #1f2030 30%, #1f203000),
-    linear-gradient(to left, #1f2030 30%, #1f203000),
+    linear-gradient(to right, var(--craft-bg) 30%, #1f203000),
+    linear-gradient(to left, var(--craft-bg) 30%, #1f203000),
     radial-gradient(farthest-side at 0 50%, #0008, #0000),
     radial-gradient(farthest-side at 100% 50%, #0008, #0000);
   background-position: left center, right center, left center, right center;
@@ -1534,10 +1213,10 @@ html.craft-mobile .msg-card .craft-action-trigger {
 }
 html.craft-mobile .editable:is([data-sm="primary"], [data-sm="secondary"], :focus-within) .craft-action-trigger,
 html.craft-mobile .msg-card .craft-action-trigger[aria-expanded="true"] { opacity: 1; }
-html.craft-mobile .craft-action-menu {
+html.craft-mobile .craft-menu {
   position: fixed !important;
   left: 0 !important; right: 0 !important; bottom: 0 !important; top: auto !important;
-  width: 100% !important; max-width: 100% !important; max-height: 70dvh;
+  width: 100% !important; min-width: 0 !important; max-width: 100% !important; max-height: 70dvh; overflow-y: auto;
   margin: 0 !important;
   padding: 10px 12px calc(14px + env(safe-area-inset-bottom, 0px)) !important;
   border: 0 !important; border-top: 1px solid #ffffff1c !important;
@@ -1545,17 +1224,18 @@ html.craft-mobile .craft-action-menu {
   box-shadow: 0 -12px 36px #000b !important;
   box-sizing: border-box;
 }
-html.craft-mobile .craft-action-menu::before {
+html.craft-mobile .craft-menu::before {
   content: ""; display: block; width: 36px; height: 4px; margin: 0 auto 10px;
   border-radius: 999px; background: #ffffff30;
 }
 html.craft-mobile .craft-action-menu::backdrop { background: #0009; }
-html.craft-mobile .craft-action-menu button { padding: 12px 14px; font-size: 15px; border-radius: 8px; }
+html.craft-mobile .craft-menu button { padding: 12px 14px; font-size: 15px; border-radius: 8px; }
 html.craft-mobile .msg-card > .uk-card-header nav > div.grow > p,
 html.craft-mobile .msg-card[data-mtype="prompt"] > .uk-card-header nav > div.grow > p > span { opacity: 1; }
 html.craft-mobile .craft-omit-marker, html.craft-mobile .craft-part-restore { padding: 6px 10px; font-size: 13px; }
 html.craft-mobile .msg-card .uk-card-header :is(button, .uk-btn, a) { min-height: 28px; }
 
+/* %% nbs/craft/12_mobile.ipynb #dcf12f8d */
 /* ── Top/bottom brace-style cell-edge bulges & drag-to-insert picker ── */
 html.craft-mobile #dialog-container > .editable.craft-bulge-host {
   position: relative; z-index: 2;
@@ -1593,37 +1273,14 @@ html.craft-mobile .craft-edge-bulge svg { display: block; overflow: visible; tra
 html.craft-mobile .craft-edge-bulge .craft-edge-stroke {
   fill: none; stroke: oklch(62.3% 0.214 259.815); stroke-width: 2; stroke-linecap: round;
 }
-html.craft-mobile .craft-edge-bulge[data-active="true"] .craft-edge-stroke { stroke: #9ece6a; stroke-width: 2.5; }
+html.craft-mobile .craft-edge-bulge[data-active="true"] .craft-edge-stroke { stroke: var(--craft-green); stroke-width: 2.5; }
 
-html.craft-mobile #craft-edge-picker {
-  display: none; position: fixed; z-index: 1050;
-  padding: 6px 8px 8px;
-  background: #16161ef2; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-  border: 1px solid #7aa2f755; border-radius: 14px;
-  box-shadow: 0 12px 32px #000c;
-  user-select: none; -webkit-user-select: none;
-}
-html.craft-mobile #craft-edge-picker.open { display: block; }
-html.craft-mobile #craft-edge-picker .craft-edge-picker-head {
-  font: 500 10.5px/1 var(--craft-prose-family); color: #9aa5ce;
-  text-align: center; margin-bottom: 6px; letter-spacing: .03em; text-transform: uppercase;
-}
-html.craft-mobile #craft-edge-picker .craft-edge-picker-opts {
-  display: flex; align-items: stretch; gap: 6px;
-}
-html.craft-mobile #craft-edge-picker button {
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
-  min-width: 60px; padding: 8px 6px; border: 1px solid #ffffff16; border-radius: 10px;
-  background: #242638; color: #cfc9c2;
-  font: 500 11.5px/1 var(--craft-prose-family); font-stretch: 100%;
-  -webkit-tap-highlight-color: transparent; cursor: pointer;
-  transition: transform .1s ease, background .1s ease, border-color .1s ease, color .1s ease;
-}
-html.craft-mobile #craft-edge-picker button svg { color: #7aa2f7; }
-html.craft-mobile #craft-edge-picker button[data-hot],
-html.craft-mobile #craft-edge-picker button:active {
-  background: #7aa2f733; border-color: #7aa2f7; color: #ffffff; transform: scale(1.06);
-}
+/* Mobile geometry overrides for shared #craft-edge-picker (base in 09_cell_insertion) */
+html.craft-mobile #craft-edge-picker { z-index: 1050; border-radius: 14px; }
+html.craft-mobile #craft-edge-picker .craft-edge-picker-head { font-size: 10.5px; }
+html.craft-mobile #craft-edge-picker .craft-edge-picker-opts { align-items: stretch; gap: 6px; }
+html.craft-mobile #craft-edge-picker button { flex-direction: column; justify-content: center; gap: 3px; min-width: 60px; padding: 8px 6px; border-radius: 10px; }
+html.craft-mobile #craft-edge-picker button:is([data-hot], :active) { transform: scale(1.06); }
 
 /* Empty dialog starter row */
 html.craft-mobile #craft-empty-add {
@@ -1631,14 +1288,10 @@ html.craft-mobile #craft-empty-add {
   margin: 32px auto; padding: 14px; max-width: 340px;
   background: #16161e99; border: 1px dashed #ffffff24; border-radius: 12px;
 }
-html.craft-mobile #craft-empty-add .craft-empty-add-label { font-size: 12px; color: #9aa5ce; }
+html.craft-mobile #craft-empty-add .craft-empty-add-label { font-size: 12px; color: var(--craft-muted); }
 html.craft-mobile #craft-empty-add .craft-empty-add-btns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
-html.craft-mobile #craft-empty-add button {
-  display: inline-flex; align-items: center; gap: 5px; padding: 8px 12px;
-  border: 1px solid #ffffff1a; border-radius: 8px; background: #242638; color: #cfc9c2;
-  font: 500 13px/1 var(--craft-prose-family); cursor: pointer;
-}
-html.craft-mobile #craft-empty-add button svg { color: #7aa2f7; }
+html.craft-mobile #craft-empty-add button { gap: 5px; height: auto; padding: 8px 12px; font-size: 13px; }
+html.craft-mobile #craft-empty-add button svg { color: var(--craft-accent); }
 
 /* ── Inline editors (C2 code, notes, prompts, raw) ── */
 html.craft-mobile .craft-c2-host .cm-editor,
@@ -1648,14 +1301,15 @@ html.craft-mobile .craft-c2-host .cm-lineNumbers .cm-gutterElement,
 html.craft-mobile .craft-md-host.craft-md-mono .cm-editor,
 html.craft-mobile .craft-md-host.craft-md-mono .cm-line { line-height: 1.4 !important; }
 /* Soft-wrap long lines (CM6 reads white-space from the DOM, so this is a real wrap, not a clip). */
-html.craft-mobile :is(.craft-c2-host, .craft-md-host) .cm-content { white-space: pre-wrap !important; overflow-wrap: anywhere; word-break: normal; flex-shrink: 1 !important; min-width: 0; }
+html.craft-mobile .craft-cm-host .cm-content { white-space: pre-wrap !important; overflow-wrap: anywhere; word-break: normal; flex-shrink: 1 !important; min-width: 0; }
 html.craft-mobile .craft-c2-host .cm-content, html.craft-mobile .craft-md-host.craft-md-mono .cm-content { padding-block: 6px !important; }
 html.craft-mobile :is(.craft-c2-host, .craft-c2-tooltips) .cm-tooltip { font-size: 13px; }
 html.craft-mobile :is(.craft-c2-host, .craft-c2-tooltips) .cm-tooltip-autocomplete > ul > li { padding: 6px 10px; }
 html.craft-mobile :is(.craft-c2-host, .craft-c2-tooltips) .cm-completionDetail { max-width: 40vw; }
-html.craft-mobile :is(.craft-c2-host, .craft-md-host) .cm-search :is(input, button) { font-size: 14px; padding: 6px 8px; }
+html.craft-mobile .craft-cm-host .cm-search :is(input, button) { font-size: 14px; padding: 6px 8px; }
 html.craft-mobile .craft-c2-ai-input { font-size: 16px; padding: 8px; }
 
+/* %% nbs/craft/12_mobile.ipynb #9d851ab8 */
 /* ── Bottom toolbar: floating scroll-hiding pill when idle, full-width bar when editing ── */
 html.craft-mobile #craft-mbar {
   display: block; position: fixed; z-index: 990;
@@ -1680,7 +1334,7 @@ html.craft-mobile #craft-mbar[data-mode="edit"] {
   left: 0; right: 0; bottom: 0;
   height: var(--craft-mbar-space);
   padding: 0 4px env(safe-area-inset-bottom, 0px);
-  background: #16161e; border-top: 1px solid #ffffff14;
+  background: var(--craft-recessed); border-top: 1px solid #ffffff14;
   transform: translateY(calc(-1 * var(--craft-kb, 0px)));
 }
 html.craft-mobile #craft-mbar .craft-mbar-row { display: none; align-items: stretch; gap: 4px; }
@@ -1690,7 +1344,7 @@ html.craft-mobile #craft-mbar .craft-mbar-spacer { flex: 1 1 auto; }
 html.craft-mobile #craft-mbar button {
   display: flex; align-items: center; justify-content: center;
   border: 0; background: transparent; color: #a9b1d6;
-  font: 500 11.5px/1 var(--craft-prose-family); font-stretch: 100%; letter-spacing: .01em;
+  font: 500 11.5px/1 var(--craft-prose-family); letter-spacing: .01em;
   -webkit-tap-highlight-color: transparent; cursor: pointer;
 }
 html.craft-mobile #craft-mbar .craft-mbar-row[data-row="idle"] button {
@@ -1703,11 +1357,11 @@ html.craft-mobile #craft-mbar .craft-mbar-row[data-row="edit"] button {
 }
 html.craft-mobile #craft-mbar button[hidden] { display: none; }
 html.craft-mobile #craft-mbar button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
-html.craft-mobile #craft-mbar button:active { background: #2b2e43; color: #ffffff; }
+html.craft-mobile #craft-mbar button:active { background: var(--craft-hover); color: var(--craft-fg-strong); }
 html.craft-mobile #craft-mbar button[aria-pressed="true"],
-html.craft-mobile body:has(#solveit-file-tree-panel.open) #craft-mbar button[data-act="files"] { color: #7aa2f7; background: #7aa2f71c; }
-html.craft-mobile #craft-mbar button[data-act="run"] { background: #7aa2f726; color: #7aa2f7; }
-html.craft-mobile #craft-mbar button[data-act="done"] { color: #9ece6a; }
+html.craft-mobile body:has(#solveit-file-tree-panel.open) #craft-mbar button[data-act="files"] { color: var(--craft-accent); background: #7aa2f71c; }
+html.craft-mobile #craft-mbar button[data-act="run"] { background: #7aa2f726; color: var(--craft-accent); }
+html.craft-mobile #craft-mbar button[data-act="done"] { color: var(--craft-green); }
 
 /* ── Jump-to-bottom floating button ── */
 html.craft-mobile #craft-scroll-bottom {
@@ -1715,13 +1369,13 @@ html.craft-mobile #craft-scroll-bottom {
   position: fixed; right: 14px; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); z-index: 985;
   width: 40px; height: 40px; padding: 0; border-radius: 999px;
   background: #16161ee6; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-  border: 1px solid #ffffff22; color: #cfc9c2; box-shadow: 0 6px 20px #000a;
+  border: 1px solid #ffffff22; color: var(--craft-fg); box-shadow: 0 6px 20px #000a;
   opacity: 0; pointer-events: none; transform: translateY(12px) scale(.92);
   transition: opacity .18s ease, transform .18s ease;
   -webkit-tap-highlight-color: transparent; cursor: pointer;
 }
 html.craft-mobile #craft-scroll-bottom.visible { opacity: 1; pointer-events: auto; transform: none; }
-html.craft-mobile #craft-scroll-bottom:active { background: #2b2e43; color: #7aa2f7; }
+html.craft-mobile #craft-scroll-bottom:active { background: var(--craft-hover); color: var(--craft-accent); }
 
 /* ── Top nav: hidden until Menu, then a solid wrapping bar housing the view toggle ── */
 html.craft-mobile .uk-container > nav.monster-navbar {
@@ -1729,7 +1383,7 @@ html.craft-mobile .uk-container > nav.monster-navbar {
   height: auto !important; min-height: 48px !important;
   display: flex !important; flex-wrap: wrap !important; align-items: center; gap: 6px 14px;
   padding: calc(6px + env(safe-area-inset-top, 0px)) 54px 6px 12px !important;
-  background: #16161e !important; border-bottom: 1px solid #ffffff14 !important;
+  background: var(--craft-recessed) !important; border-bottom: 1px solid #ffffff14 !important;
   box-shadow: 0 8px 24px #0009;
   opacity: 0; pointer-events: none; transform: translateY(-100%);
   transition: opacity .16s ease, transform .16s ease;
@@ -1754,7 +1408,7 @@ html.craft-mobile #craft-mobile-toggle {
   left: auto !important; right: 10px !important; z-index: 970 !important;
   width: 36px !important; height: 36px !important; border-radius: 8px !important;
   background: #242638 !important; border: 1px solid #ffffff28 !important;
-  color: #cfc9c2 !important;
+  color: var(--craft-fg) !important;
   opacity: 0 !important; pointer-events: none !important; transform: translateY(-100%);
   transition: opacity .16s ease, transform .16s ease;
 }
@@ -1774,13 +1428,11 @@ html.craft-mobile #solveit-file-tree-panel {
   box-shadow: none;
 }
 html.craft-mobile #solveit-file-tree-panel.open { transform: none; box-shadow: 8px 0 32px #000a; }
-html.craft-mobile body:has(#solveit-file-tree-panel.open) #craft-mobile-backdrop {
-  display: block; position: fixed; inset: 0; z-index: 970; background: #0009;
-}
+html.craft-mobile body:has(#solveit-file-tree-panel.open) #craft-mobile-backdrop { display: block; z-index: 970; background: #0009; }
 html.craft-mobile #solveit-file-tree-panel > header { flex-wrap: wrap; gap: 2px; }
 html.craft-mobile #solveit-file-tree-panel > header strong { font-size: 15px; margin-right: auto; }
 html.craft-mobile #solveit-file-tree-panel > header button { min-width: 40px; min-height: 40px; margin-left: 0; font-size: 1.35rem; border-radius: 6px; }
-html.craft-mobile #solveit-file-tree-panel > header button:active { background: #2b2e43; }
+html.craft-mobile #solveit-file-tree-panel > header button:active { background: var(--craft-hover); }
 html.craft-mobile #solveit-file-tree-panel .solveit-tree-shortcut,
 html.craft-mobile #solveit-file-tree-panel .solveit-tree-rootbar-hint { display: none; }
 html.craft-mobile #solveit-file-tree-panel .solveit-tree-appname { font-size: 15px; }
@@ -1805,25 +1457,10 @@ html.craft-mobile #solveit-file-tree-panel .solveit-tree-row-more {
 }
 html.craft-mobile #solveit-file-tree-panel .solveit-tree-rootbar .solveit-tree-row-upload { margin-left: auto; }
 html.craft-mobile #solveit-file-tree-panel .solveit-tree-row-more:active,
-html.craft-mobile #solveit-file-tree-panel .solveit-tree-row-upload:active { background: #30364d; color: #7aa2f7; }
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-row-upload:active { background: #30364d; color: var(--craft-accent); }
 html.craft-mobile #solveit-file-tree { padding-bottom: 24px; }
 html.craft-mobile #solveit-file-tree .solveit-tree-create input { font-size: 16px; padding: 8px 10px; }
 html.craft-mobile #solveit-tree-create-error:not(:empty) { font-size: 13px; }
-html.craft-mobile .solveit-tree-menu {
-  position: fixed !important;
-  left: 0 !important; right: 0 !important; bottom: 0 !important; top: auto !important;
-  width: 100% !important; min-width: 0 !important; max-width: 100% !important; max-height: 70dvh;
-  overflow-y: auto; box-sizing: border-box;
-  padding: 10px 12px calc(14px + env(safe-area-inset-bottom, 0px)) !important;
-  border: 0 !important; border-top: 1px solid #ffffff1c !important;
-  border-radius: 16px 16px 0 0 !important;
-  box-shadow: 0 -12px 36px #000b !important;
-}
-html.craft-mobile .solveit-tree-menu::before {
-  content: ""; display: block; width: 36px; height: 4px; margin: 0 auto 10px;
-  border-radius: 999px; background: #ffffff30;
-}
-html.craft-mobile .solveit-tree-menu button { padding: 12px 14px; font-size: 15px; border-radius: 8px; }
 html.craft-mobile .solveit-tree-upload-pop { width: min(320px, calc(100vw - 24px)); padding: 12px; font-size: 14px; }
 html.craft-mobile .solveit-tree-upload-dest { font-size: 13px; }
 html.craft-mobile .solveit-tree-upload-x { font-size: 22px; padding: 4px 8px; }
