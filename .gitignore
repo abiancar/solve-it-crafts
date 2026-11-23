@@ -1,1 +1,13 @@
 CRAFT.ipynb
+.auth/
+.venv/
+.craft-debug/
+dist/
+.pytest_cache/
+__pycache__/
+*.pyc
+_docs/
+_proc/
+*.egg-info/
+
+
