@@ -10,8 +10,9 @@ __all__ = ['REPO_ROOT', 'DEFAULT_AUTH_FILE', 'DEFAULT_CONFIG_FILE', 'DEFAULT_CHR
            'import_cookies_json', 'cookies_for_cdp', 'alogin', 'login', 'ensure_auth']
 
 # %% ../nbs/00_auth.ipynb #6ba9755d
-import asyncio, time
+import asyncio, json, shutil, tempfile, time
 from urllib.parse import urlparse
+from fastcore.meta import delegates
 from fastcore.net import urljson
 from fastcore.utils import *
 
@@ -34,15 +35,35 @@ VIVALDI_MAC_PATH = Path('/Applications/Vivaldi.app/Contents/MacOS/Vivaldi')
 CHROME_MAC_PATH = Path('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
 
 # %% ../nbs/00_auth.ipynb #2d0d882f
-def load_saved_config():
-    try: return DEFAULT_CONFIG_FILE.read_json()
+def _write_private(path, text):
+    "Atomically write `text` to `path` with `0o600` permissions, creating parent dirs."
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile('w', dir=p.parent, prefix=f'.{p.name}.', delete=False, encoding='utf-8') as f:
+        tmp = Path(f.name)
+        try:
+            f.write(text)
+            f.flush()
+            os.chmod(tmp, 0o600)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
+    os.replace(tmp, p)
+    return p
+
+def load_saved_config(config_file=DEFAULT_CONFIG_FILE):
+    "Load saved `.auth/config.json` settings, returning `{}` if absent or invalid."
+    try: return Path(config_file).read_json()
     except Exception: return {}
 
-def save_config(updates):
-    cfg = merge(load_saved_config(), filter_values(updates, lambda v: v is not None))
-    DEFAULT_CONFIG_FILE.write_json(cfg, indent=2)
+def save_config(updates, config_file=DEFAULT_CONFIG_FILE):
+    "Merge non-None `updates` into `config_file` with `0o600` permissions."
+    cfg = merge(load_saved_config(config_file), filter_values(updates, lambda v: v is not None))
+    _write_private(config_file, json.dumps(cfg, indent=2))
 
-def default_target_url(): return os.environ.get('SOLVEIT_TEST_URL') or load_saved_config().get('default_url')
+def default_target_url():
+    "Return the default Solveit URL from `SOLVEIT_TEST_URL` or saved `.auth/config.json`."
+    return os.environ.get('SOLVEIT_TEST_URL') or load_saved_config().get('default_url')
 
 # %% ../nbs/00_auth.ipynb #bf58bc1d
 def _check_executable(executable_path):
@@ -50,21 +71,29 @@ def _check_executable(executable_path):
     if not path.is_file(): raise SystemExit(f"Browser executable not found: {path}")
     return path
 
+_BROWSER_BINS = {'chrome': (CHROME_MAC_PATH, 'google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser'),
+    'vivaldi': (VIVALDI_MAC_PATH, 'vivaldi', 'vivaldi-stable')}
+
+def _find_browser(browser='chrome'):
+    for cand in _BROWSER_BINS.get(browser, ()):
+        if isinstance(cand, Path):
+            if cand.is_file(): return cand
+        elif hit := shutil.which(cand): return Path(hit)
+    return None
+
 def detect_native_browser(browser='chrome', executable_path=None):
     "Find a real desktop Chromium-based browser (Chrome by default, or Vivaldi) for seamless Google OAuth."
     if executable_path: return _check_executable(executable_path)
-    cands = [VIVALDI_MAC_PATH, CHROME_MAC_PATH] if browser == 'vivaldi' else [CHROME_MAC_PATH, VIVALDI_MAC_PATH]
-    if p := first(p for p in cands if p.is_file()): return p
+    order = ('vivaldi', 'chrome') if browser == 'vivaldi' else ('chrome', 'vivaldi')
+    if p := first(_find_browser(b) for b in order): return p
     raise SystemExit("Could not find Google Chrome or Vivaldi. Pass --executable-path to specify your browser.")
 
 def resolve_browser_executable(browser='chrome', executable_path=None):
     "Resolve optional browser executable path for `fastcdp` (`chrome`, `vivaldi`, or `chromium` default)."
     if executable_path: return str(_check_executable(executable_path))
     if browser == 'chromium': return None
-    target = VIVALDI_MAC_PATH if browser == 'vivaldi' else CHROME_MAC_PATH
-    if not target.is_file():
-        raise SystemExit(f"{browser.title()} not found at {target}. Pass --executable-path to specify its location.")
-    return str(target)
+    if p := _find_browser(browser): return str(p)
+    raise SystemExit(f"{browser.title()} not found. Pass --executable-path to specify its location.")
 
 # %% ../nbs/00_auth.ipynb #19c50408
 _LOGIN_PATHS = ('/login', '/signin', '/auth', '/oauth')
@@ -85,13 +114,10 @@ async def is_authenticated_page(page, status=None):
     return True
 
 # %% ../nbs/00_auth.ipynb #e39e42ea
-_SAME_SITE_MAP = {'strict': 'Strict', 'lax': 'Lax', 'none': 'None', 'no_restriction': 'None', 'unspecified': 'Lax'}
+_SAME_SITE_MAP = dict(strict='Strict', lax='Lax', none='None', no_restriction='None', unspecified='Lax')
 
 def _write_storage_state(cookies, auth_file):
-    auth_file = Path(auth_file)
-    auth_file.parent.mkdir(parents=True, exist_ok=True)
-    auth_file.write_json({'cookies': cookies, 'origins': []}, indent=2)
-    os.chmod(auth_file, 0o600)
+    _write_private(auth_file, json.dumps({'cookies': cookies, 'origins': []}, indent=2))
     return cookies
 
 def parse_cookie_header(header, url):
@@ -119,26 +145,25 @@ def parse_cookie_header(header, url):
         if not part or '=' not in part: continue
         name, value = part.split('=', 1)
         if not (name := name.strip()): continue
-        cookies.append({'name': name, 'value': value.strip(), 'domain': domain, 'path': '/',
-                        'expires': -1, 'httpOnly': False, 'secure': secure, 'sameSite': 'Lax'})
+        cookies.append(dict(name=name, value=value.strip(), domain=domain, path='/', expires=-1, httpOnly=False, secure=secure, sameSite='Lax'))
     return cookies
 
 def save_cookie_header(header, url, auth_file=DEFAULT_AUTH_FILE):
+    "Parse and save a raw HTTP `Cookie` header to `auth_file`."
     cookies = parse_cookie_header(header, url)
     if not cookies: raise ValueError("Could not parse any name=value cookies from input.")
     return _write_storage_state(cookies, auth_file)
 
+# %% ../nbs/00_auth.ipynb #85a164ef
 def import_cookies_json(cookies_path, auth_file=DEFAULT_AUTH_FILE):
+    "Import exported browser cookies JSON into `.auth/` storage state."
     raw = Path(cookies_path).read_json()
     if isinstance(raw, dict) and 'cookies' in raw: cookies = raw['cookies']
     elif isinstance(raw, list): cookies = raw
     else: raise ValueError("Expected a JSON list of cookies or a storage_state object.")
-    normalized = [{
-        'name': c['name'], 'value': c['value'], 'domain': c['domain'], 'path': c.get('path', '/'),
-        'expires': float(c.get('expires', c.get('expirationDate', -1))),
-        'httpOnly': bool(c.get('httpOnly', False)), 'secure': bool(c.get('secure', True)),
-        'sameSite': _SAME_SITE_MAP.get(str(c.get('sameSite', 'Lax')).lower(), 'Lax'),
-    } for c in cookies]
+    normalized = [dict(name=c['name'], value=c['value'], domain=c['domain'], path=c.get('path', '/'),
+        expires=float(c.get('expires', c.get('expirationDate', -1))), httpOnly=bool(c.get('httpOnly', False)),
+        secure=bool(c.get('secure', True)), sameSite=_SAME_SITE_MAP.get(str(c.get('sameSite', 'Lax')).lower(), 'Lax')) for c in cookies]
     return _write_storage_state(normalized, auth_file)
 
 def cookies_for_cdp(auth_file):
@@ -172,6 +197,7 @@ def _ws_from_cdp_url(cdp_url):
     if cdp_url.startswith('ws'): return cdp_url
     return urljson(f"{cdp_url.rstrip('/')}/json/version")['webSocketDebuggerUrl']
 
+# %% ../nbs/00_auth.ipynb #01591fd1
 async def alogin(
     url=None, # Optional Solveit URL (defaults to `https://solve.it.com/dashboard` for account-wide `.solve.it.com` auth)
     *,
@@ -227,9 +253,10 @@ async def alogin(
     if _is_instance_url(target_url): save_config({'default_url': target_url})
     return auth_file
 
-def login(*args, **kwargs):
+@delegates(alogin)
+def login(url=None, **kwargs):
     "Synchronous wrapper around `alogin`."
-    return asyncio.run(alogin(*args, **kwargs))
+    return asyncio.run(alogin(url=url, **kwargs))
 
 def ensure_auth(auth_file=DEFAULT_AUTH_FILE, *, auto_login=False, url=None):
     "Return `auth_file` if present; optionally trigger Chrome login when missing."

@@ -7,39 +7,42 @@ __all__ = ['cmd_auth', 'cmd_auth_cookie', 'cmd_auth_import', 'cmd_auth_status', 
            'cmd_tunnel', 'cmd_deploy', 'build_parser', 'main']
 
 # %% ../nbs/02_cli.ipynb #5494c3cf
-import argparse, json, subprocess
+import argparse, json, shutil, subprocess
 from dataclasses import asdict
 from urllib.parse import urlparse
 from fastcore.utils import *
 
-from craft_dev.auth import (
-    DEFAULT_AUTH_FILE, DEFAULT_CHROME_PROFILE, DEFAULT_SOLVEIT_URL, REPO_ROOT,
-    default_target_url, import_cookies_json, login, save_cookie_header,
-)
+from .auth import (
+    DEFAULT_AUTH_FILE, DEFAULT_CHROME_PROFILE, DEFAULT_SOLVEIT_URL,
+    default_target_url, import_cookies_json, login, save_cookie_header,)
 from .build import DEFAULT_CRAFT_NBS_DIR, DEFAULT_DIST_DIR, build_dist
 from .cdp import inspect_dialog, smoke_dialog
 from .tunnel import DEFAULT_RG_TOKEN_FILE, DEFAULT_TS_TAG, deploy_dist, ensure_local_tailscale, ensure_tunnel
 
 # %% ../nbs/02_cli.ipynb #84e32d7a
 def cmd_auth(args):
-    auth_file = login(
-        url=args.url, auth_file=Path(args.auth_file), profile_dir=Path(args.profile_dir),
-        browser=args.browser, executable_path=args.executable_path, cdp_url=args.cdp_url, timeout=args.timeout)
+    auth_file = login(url=args.url, auth_file=Path(args.auth_file), profile_dir=Path(args.profile_dir), browser=args.browser,
+        executable_path=args.executable_path, cdp_url=args.cdp_url, timeout=args.timeout)
     n = len(auth_file.read_json().get('cookies', []))
     print(f"Saved {n} cookies to {auth_file} (mode 0600).")
     return 0
 
+_CLIPBOARD_CMDS = (('pbpaste',), ('wl-paste', '--no-newline'), ('xclip', '-selection', 'clipboard', '-o'), ('xsel', '--clipboard', '--output'))
+
+def _read_clipboard():
+    cmd = first(c for c in _CLIPBOARD_CMDS if shutil.which(c[0]))
+    if not cmd: raise SystemExit("No clipboard utility found (tried pbpaste, wl-paste, xclip, xsel).")
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode: raise SystemExit(f"{cmd[0]} failed: {res.stderr.strip()}")
+    return res.stdout.strip()
+
 def cmd_auth_cookie(args):
-    if args.from_clipboard:
-        res = subprocess.run(['pbpaste'], capture_output=True, text=True)
-        if res.returncode: raise SystemExit(f"pbpaste failed: {res.stderr}")
-        header = res.stdout.strip()
+    if args.from_clipboard: header = _read_clipboard()
     elif sys.stdin.isatty():
         print(f"Paste the Cookie header (or Copy as cURL) for {args.url}, then press Enter:")
         header = sys.stdin.readline().strip()
         if header.lower() == 'cookie:': header = sys.stdin.readline().strip()
-    else:
-        header = sys.stdin.read().strip()
+    else: header = sys.stdin.read().strip()
 
     if not header: raise SystemExit("No Cookie header provided.")
     cookies = save_cookie_header(header, args.url, auth_file=Path(args.auth_file))
@@ -53,7 +56,8 @@ def cmd_auth_import(args):
     return 0
 
 def cmd_auth_status(args):
-    report = inspect_dialog(url=args.url, auth_file=Path(args.auth_file), mode='live', wait_ms=1000)
+    report = inspect_dialog(url=args.url, auth_file=Path(args.auth_file), mode='live', wait_ms=1000,
+        browser_name=args.browser, executable_path=args.executable_path)
     if report.authenticated:
         print(f"OK: authenticated at {report.final_url} (title: {report.title!r})")
         return 0
@@ -67,8 +71,7 @@ def _print_inspect_report(report):
     print(f"Authenticated:  {report.authenticated}")
     print(f"Mode:           {report.mode} ({report.assets_dir})")
     print(f"Intercepted:    {len(report.intercepted)} CRAFT requests")
-    for rec in report.intercepted:
-        print(f"  - [{rec.action}] {rec.url}" + (f" -> {rec.local_path}" if rec.local_path else ''))
+    for rec in report.intercepted: print(f"  - [{rec.action}] {rec.url}" + (f" -> {rec.local_path}" if rec.local_path else ''))
     if report.craft_health:
         h = report.craft_health
         active_globals = [k for k, v in h.get('globals', {}).items() if v is not None]
@@ -85,7 +88,7 @@ def _print_inspect_report(report):
 
 def cmd_inspect(args):
     report = inspect_dialog(
-        url=args.url, auth_file=Path(args.auth_file), mode=args.mode, assets_dir=Path(args.assets_dir).resolve(),
+        url=args.url, auth_file=Path(args.auth_file), mode=args.mode, assets_dir=Path(args.assets_dir).resolve() if args.assets_dir else None,
         wait_ms=args.wait_ms, eval_js=args.eval, screenshot=Path(args.screenshot) if args.screenshot else None,
         headed=args.headed, browser_name=args.browser, executable_path=args.executable_path, mobile=args.mobile)
     if args.json: print(json.dumps(asdict(report), indent=2, default=str))
@@ -94,19 +97,18 @@ def cmd_inspect(args):
 
 def cmd_smoke(args):
     checks = smoke_dialog(
-        url=args.url, auth_file=Path(args.auth_file), mode=args.mode, assets_dir=Path(args.assets_dir).resolve(),
+        url=args.url, auth_file=Path(args.auth_file), mode=args.mode, assets_dir=Path(args.assets_dir).resolve() if args.assets_dir else None,
         wait_ms=args.wait_ms, screenshot_dir=Path(args.screenshot_dir) if args.screenshot_dir else None,
         headed=args.headed, browser_name=args.browser, executable_path=args.executable_path, mobile=args.mobile)
-    for name, ok, detail in checks:
-        print(f"[{'PASS' if ok else 'FAIL'}] {name}" + (f" — {detail}" if detail else ''))
+    for name, ok, detail in checks: print(f"[{'PASS' if ok else 'FAIL'}] {name}" + (f" — {detail}" if detail else ''))
     failed = [c for c in checks if not c[1]]
     print(f"\nSummary: {len(checks) - len(failed)}/{len(checks)} passed.")
     return 0 if not failed else 1
 
+# %% ../nbs/02_cli.ipynb #fdefd1bb
 def cmd_build(args):
     rep = build_dist(out_dir=Path(args.out), nbs_dir=Path(args.nbs_dir), check_js=not args.no_check)
-    for name, info in sorted(rep.items()):
-        print(f"  [{info['source']:6s}] {name} ({info['lines']} lines)")
+    for name, info in sorted(rep.items()): print(f"  [{info['source']:6s}] {name} ({info['lines']} lines)")
     print(f"Built {len(rep)} assets into {args.out}")
     return 0
 
@@ -115,9 +117,8 @@ def cmd_tunnel(args):
         ensure_local_tailscale(down=True)
         print("Local Tailscale disconnected.")
         return 0
-    res = ensure_tunnel(
-        name=args.name, url=args.url, auth_file=Path(args.auth_file),
-        rg_token_file=Path(args.rg_token_file), tag=args.tag, force=args.force)
+    res = ensure_tunnel(name=args.name, url=args.url, auth_file=Path(args.auth_file), rg_token_file=Path(args.rg_token_file), tag=args.tag,
+        force=args.force)
     if res['status'] == 'needs-login':
         print(f"One-time Tailscale approval required for {res['name']}:\n  {res['auth_url']}\nApprove in your browser, then re-run `craft-cdp tunnel`.")
         return 0
@@ -134,7 +135,7 @@ def cmd_deploy(args):
 def _add_dialog_args(p, saved_url):
     p.add_argument('--url', default=saved_url, required=not saved_url)
     p.add_argument('--mode', choices=['local', 'live', 'vanilla'], default='local')
-    p.add_argument('--assets-dir', default=str(REPO_ROOT))
+    p.add_argument('--assets-dir', default=None)
     p.add_argument('--wait-ms', type=int, default=2000)
     p.add_argument('--headed', action='store_true')
     p.add_argument('--mobile', action='store_true')

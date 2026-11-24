@@ -2,6 +2,8 @@
 window.__craftTpl = Object.assign(window.__craftTpl || {}, {"hk_overlay": "<div class=\"craft-overlay hk-overlay\"><div class=\"uk-card craft-card hk-modal\" role=\"dialog\" aria-modal=\"true\" aria-label=\"Keyboard shortcuts\" tabindex=\"-1\"><header class=\"uk-modal-header hk-head\"><strong>Keyboard shortcuts</strong><span class=\"hk-sub\">Click Change to rebind · Esc cancels · ⊘ also disables a Solveit row's original key</span><button class=\"hk-close\" type=\"button\" aria-label=\"Close\">×</button></header><div class=\"uk-modal-body hk-body\"></div><footer class=\"uk-modal-footer hk-foot\"><span>Overrides are saved in this browser.</span><button class=\"uk-btn uk-btn-default uk-btn-sm hk-reset-all\" type=\"button\">Reset all</button></footer></div></div>"});
 
 /* %% nbs/craft/03_hotkey_manager.ipynb #8b08b80e */
+(() => { /* iife:hotkeyManager */
+/* #8b08b80e */
 /* ── Hotkey manager ───────────────────────────────────────────────────
    Shared registry for page-level shortcuts, plus a settings modal that
    lists them all and lets you rebind them (press '?', or solveit's own
@@ -24,8 +26,8 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"hk_overlay": "<div 
      the new combo re-fires the original keys on the same target so solveit's
      own handler runs the action; ⊘ on a menu row additionally swallows the
      original combo. Plain keys are never intercepted inside editors. */
-(() => {
-  if (window.solveitHotkeys) return;
+  window.solveitHotkeys?.disable?.();
+  const ac = new AbortController(), cap = {capture: true, signal: ac.signal};
   const {el: mkEl, mountTpl, qs, qsa, on, store} = window.__craftCMCore;
   const STORAGE_KEY = 'solveit-hotkeys:v1';
   const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
@@ -158,7 +160,8 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"hk_overlay": "<div 
     qsa('[data-hotkey]').forEach(el => { el.textContent = formatCombo(effective(el.dataset.hotkey)) || ''; });
   }
 
-  /* ── settings modal ── */
+/* #753cf37d */
+/* ── settings modal ── */
 
   function buildMenu() {
     menuRefs = mountTpl('hk_overlay', {refs: {reset: '.hk-reset-all', body: '.hk-body', modal: '.hk-modal'}});
@@ -222,7 +225,7 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"hk_overlay": "<div 
       if (!c) return;  // bare modifier press: keep listening
       const conflict = order.find(other => other !== capturing && sameCombo(c, parseCombo(effective(other))));
       if (conflict) {
-        const msg = qs(`.hk-row[data-id="${capturing}"] .hk-msg`, overlay);
+        const msg = qs(`.hk-row[data-id="${CSS.escape(capturing)}"] .hk-msg`, overlay);
         if (msg) msg.textContent = `In use by “${actions.get(conflict).label}”`;
         return;  // stay in capture mode so they can try another key
       }
@@ -238,7 +241,7 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"hk_overlay": "<div 
       return;  // no page shortcuts while menu is open; focused buttons keep native Enter/Space
     }
     if (dispatch(e)) { e.preventDefault(); e.stopImmediatePropagation(); }
-  }, true);
+  }, cap);
 
 
   /* Solveit's own shortcuts-help control(s) open this menu instead.
@@ -252,7 +255,7 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"hk_overlay": "<div 
     if (!el || el.closest('.hk-overlay, .solveit-tree-hotkeys')) return;
     e.preventDefault(); e.stopImmediatePropagation();
     openMenu();
-  }, true);
+  }, cap);
 
   function register(spec) {
     if (!spec?.id || typeof spec.combo !== 'string' || typeof spec.handler !== 'function') { console.warn('hotkey_manager: bad registration', spec); return; }
@@ -271,7 +274,15 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"hk_overlay": "<div 
     return spec.handler() === true;
   }
 
-  window.solveitHotkeys = {register, dispatch, openMenu, effective, formatCombo, refreshChips, list, run};
+  function disable() {
+    closeMenu();
+    ac.abort();
+    overlay?.remove();
+    overlay = null;
+    menuRefs = null;
+  }
+
+  window.solveitHotkeys = {register, dispatch, openMenu, effective, formatCombo, refreshChips, list, run, disable};
 
   register({id: 'hotkeys-menu', label: 'Show this shortcuts menu', group: 'Hotkey manager', combo: '?', handler: openMenu});
   (window.__hotkeyQueue || []).splice(0).forEach(register);  // replay early registrations

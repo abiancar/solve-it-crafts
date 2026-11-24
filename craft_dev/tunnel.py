@@ -9,12 +9,11 @@ __all__ = ['DEFAULT_RG_TOKEN_FILE', 'DEFAULT_TS_TAG', 'GATEWAYS_TOML', 'REMOTE_T
 
 # %% ../nbs/04_tunnel.ipynb #43bc6c70
 import asyncio, base64, io, json, secrets, subprocess, tomllib, zipfile
-from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 from fastcore.utils import *
 
-from .auth import DEFAULT_AUTH_FILE, REPO_ROOT, default_target_url, ensure_auth
-from .build import CRAFT_ASSET_FILES, DEFAULT_DIST_DIR
+from .auth import DEFAULT_AUTH_FILE, REPO_ROOT, _write_private, default_target_url
+from .build import CRAFT_ASSET_FILES, CRAFT_ROOT_ASSETS, DEFAULT_DIST_DIR
 from .cdp import open_solveit
 
 # %% ../nbs/04_tunnel.ipynb #13b702a6
@@ -81,12 +80,12 @@ echo "TUNNEL_OK mode=$MODE ip=$TS_IP dns=$TS_DNS"
 # %% ../nbs/04_tunnel.ipynb #95952403
 def _load_or_create_token(path=DEFAULT_RG_TOKEN_FILE):
     p = Path(path)
-    if p.is_file() and len(p.read_text().strip()) >= 32: tok = p.read_text().strip()
+    if p.is_file() and len(p.read_text().strip()) >= 32:
+        tok = p.read_text().strip()
+        os.chmod(p, 0o600)
     else:
-        p.parent.mkdir(parents=True, exist_ok=True)
         tok = secrets.token_hex(32)
-        p.write_text(tok + '\n')
-    os.chmod(p, 0o600)
+        _write_private(p, tok + '\n')
     return tok
 
 def ensure_local_tailscale(down=False):
@@ -96,6 +95,7 @@ def ensure_local_tailscale(down=False):
     if res.returncode: raise RuntimeError(f"{' '.join(cmd)} failed: {res.stderr.strip() or res.stdout.strip()}")
     return not down
 
+# %% ../nbs/04_tunnel.ipynb #88641c3a
 def read_gateway_entry(name='craft-test', path=GATEWAYS_TOML):
     "Read `[gateways.<name>]` from `gateways.toml`, or `None` if absent."
     p = Path(path)
@@ -103,25 +103,28 @@ def read_gateway_entry(name='craft-test', path=GATEWAYS_TOML):
     return tomllib.loads(p.read_text()).get('gateways', {}).get(name)
 
 def write_gateway_entry(name, url, token, path=GATEWAYS_TOML):
-    "Upsert `[gateways.<name>]` in `gateways.toml` with `0600` permissions, preserving other entries."
+    "Upsert `[gateways.<name>]` in `gateways.toml` with `0600` permissions, preserving other sections and comments."
     p = Path(path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    gws = tomllib.loads(p.read_text()).get('gateways', {}) if p.is_file() else {}
-    gws[name] = {'url': url, 'token': token}
-    lines = []
-    for k, v in gws.items():
-        lines.append(f"[gateways.{k}]")
-        for fk, fv in v.items():
-            lines.append(f"{fk} = {json.dumps(fv)}" if isinstance(fv, (str, bool, int)) else f"{fk} = {fv}")
-        lines.append('')
-    p.write_text('\n'.join(lines))
-    os.chmod(p, 0o600)
+    hdr = f"[gateways.{name}]" if re.fullmatch(r'[A-Za-z0-9_-]+', name) else f"[gateways.{json.dumps(name)}]"
+    block = [hdr, f"url = {json.dumps(url)}", f"token = {json.dumps(token)}"]
+    lines = p.read_text().splitlines() if p.is_file() else []
+    tbl_re = re.compile(r'^\s*\[([^\]]+)\]\s*(?:#.*)?$')
+    start = next((i for i, ln in enumerate(lines)
+        if (m := tbl_re.match(ln)) and m.group(1).strip() in (f"gateways.{name}", f"gateways.{json.dumps(name)}")), None)
+    if start is not None:
+        end = next((i for i in range(start + 1, len(lines)) if tbl_re.match(lines[i])), len(lines))
+        tail = lines[end:]
+        out = lines[:start] + block + ([''] + tail if tail else [])
+    else:
+        while lines and not lines[-1].strip(): lines.pop()
+        out = (lines + [''] if lines else []) + block
+    _write_private(p, '\n'.join(out).rstrip() + '\n')
     return p
 
 def tunnel_healthy(url, token, timeout=4.0):
     "Return `True` if `rustygate` responds at `url` with valid bearer auth."
     req = Request(url.rstrip('/') + '/mcp', data=b'{}',
-                  headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'})
+        headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'})
     try:
         with urlopen(req, timeout=timeout) as r: return r.status < 500
     except Exception as e:
@@ -130,13 +133,12 @@ def tunnel_healthy(url, token, timeout=4.0):
 
 # %% ../nbs/04_tunnel.ipynb #d0c30167
 def _parse_tunnel_ok(text):
-    if m_auth := re.search(r'TUNNEL_AUTH_URL\s+url=(\S+)', text or ''):
-        return {'status': 'needs-login', 'auth_url': m_auth.group(1)}
+    if m_auth := re.search(r'TUNNEL_AUTH_URL\s+url=(\S+)', text or ''): return {'status': 'needs-login', 'auth_url': m_auth.group(1)}
     m = re.search(r'TUNNEL_OK\s+mode=(\S+)\s+ip=(\S+)\s+dns=(\S*)', text or '')
     if not m: raise RuntimeError(f"Remote tunnel bootstrap did not report TUNNEL_OK:\n{text}")
     mode, ip, dns = m.groups()
     url = f"https://{dns}:8787" if mode == 'https' and dns else f"http://{ip}:8787"
-    return {'status': 'started', 'mode': mode, 'ip': ip, 'dns': dns, 'url': url}
+    return dict(status='started', mode=mode, ip=ip, dns=dns, url=url)
 
 def ensure_tunnel(
     name='craft-test', # Gateway name in `~/.config/clikernel/gateways.toml` and Tailscale hostname
@@ -152,21 +154,27 @@ def ensure_tunnel(
     ensure_local_tailscale(down=False)
     existing = read_gateway_entry(name, gateways_path)
     if not force and existing and tunnel_healthy(existing['url'], existing.get('token', '')):
-        return {'status': 'already-up', 'name': name, 'url': existing['url']}
+        return dict(status='already-up', name=name, url=existing['url'])
 
     rg_tok = _load_or_create_token(rg_token_file)
     target_url = url or default_target_url()
     if not target_url: raise SystemExit("Pass --url or save a default Solveit dialog URL in .auth/config.json.")
 
     setup_py = (
-        f"import os, subprocess\nfrom pathlib import Path\n"
-        f"tok = Path('/app/data/.rustygate-token')\n"
-        f"if not tok.is_file(): tok.write_text({rg_tok!r} + '\\n'); os.chmod(tok, 0o600)\n"
+        "import os, subprocess, tempfile\nfrom pathlib import Path\n"
+        f"rg_tok = {rg_tok!r}\n"
+        "tok = Path('/app/data/.rustygate-token')\n"
+        "if not tok.is_file() or tok.read_text().strip() != rg_tok:\n"
+        "    with tempfile.NamedTemporaryFile('w', dir=tok.parent, prefix='.rg-tok-', delete=False) as f:\n"
+        "        tmp = Path(f.name); f.write(rg_tok + '\\n'); f.flush(); os.chmod(tmp, 0o600)\n"
+        "    os.replace(tmp, tok)\n"
+        "    subprocess.run(['pkill', '-f', 'rustygate.*--port 8787'], check=False)\n"
+        "else:\n"
+        "    os.chmod(tok, 0o600)\n"
         f"p = Path('/app/data/.craft-tunnel.sh'); p.write_text({REMOTE_TUNNEL_SCRIPT!r}); os.chmod(p, 0o700)\n"
         f"r = subprocess.run(['bash', str(p), {name!r}, {tag or ''!r}], capture_output=True, text=True, timeout=90)\n"
-        f"print('RC:', r.returncode); print(r.stdout)\n"
-        f"if r.stderr: print('ERR:', r.stderr)\n"
-    )
+        "print('RC:', r.returncode); print(r.stdout)\n"
+        "if r.stderr: print('ERR:', r.stderr)\n")
 
     async def _run_bootstrap():
         async with open_solveit(url=target_url, mode='vanilla', auth_file=auth_file, wait_ms=1500) as (page, _, _):
@@ -174,18 +182,26 @@ def ensure_tunnel(
                 raise SystemExit(
                     f"Solveit instance {name!r} appears to be powered off (no dialog found at {target_url}).\n"
                     f"Turn on {name!r} at https://solve.it.com/dashboard and re-run `craft-cdp tunnel`.")
-            cell_id = await page.eval("""(() => {
-              const c = [...document.querySelectorAll('#dialog-container > .editable[id]')]
-                .find(el => (el.querySelector('.card-in')?.dataset?.mtype || el.dataset?.mtype) === 'code');
-              return c ? c.id.replace(/^_/, '') : null;
-            })()""")
-            if not cell_id: raise RuntimeError("Target Solveit dialog needs at least one code cell to bootstrap the tunnel.")
-            prev_src = await page.eval(f"document.querySelector('#_{cell_id} .card-in')?.innerText || ''")
-            cid_js, code_js = json.dumps(cell_id), json.dumps(setup_py)
+            before_ids = await page.eval(
+                "[...document.querySelectorAll('#dialog-container > .editable[id]')].map(el => el.id)")
+            code_js, before_js = json.dumps(setup_py), json.dumps(before_ids)
+            await page.eval(f"""(async () => {{
+              const kid = document.getElementById('kid').value;
+              await window.htmx.ajax('POST', '/upsert_msg_', {{source: '#kid', swap: 'none', values: {{kid, id_: '', msg_type: 'code', is_input: '1', content: {code_js}}}}});
+            }})()""")
+            await page.wait_for(
+                f"(() => {{ const before = new Set({before_js}); return [...document.querySelectorAll('#dialog-container > .editable[id]')].some(el => !before.has(el.id)); }})()",
+                timeout=15)
+            cell_id = await page.eval(f"""(() => {{
+              const before = new Set({before_js});
+              const el = [...document.querySelectorAll('#dialog-container > .editable[id]')].find(x => !before.has(x.id));
+              return el ? el.id.replace(/^_/, '') : null;
+            }})()""")
+            if not cell_id: raise RuntimeError("Could not locate temporary tunnel bootstrap cell.")
+            cid_js = json.dumps(cell_id)
             try:
                 await page.eval(f"""(async () => {{
                   const kid = document.getElementById('kid').value;
-                  await window.htmx.ajax('POST', '/upsert_msg_', {{source: '#kid', swap: 'none', values: {{kid, id_: {cid_js}, msg_type: 'code', is_input: '1', content: {code_js}}}}});
                   await window.htmx.ajax('POST', '/add_runq_', {{source: '#kid', swap: 'none', values: {{kid, id_: {cid_js}, cmd: 'run'}}}});
                 }})()""")
                 await page.wait_for(
@@ -193,10 +209,9 @@ def ensure_tunnel(
                     timeout=95)
                 return await page.eval(f"document.querySelector('#_{cell_id} .card-out, #_{cell_id} .msg-output')?.innerText || ''")
             finally:
-                restore_js = json.dumps(prev_src.strip() or 'print("hello from craft-test")')
                 await page.eval(f"""(async () => {{
                   const kid = document.getElementById('kid').value;
-                  await window.htmx.ajax('POST', '/upsert_msg_', {{source: '#kid', swap: 'none', values: {{kid, id_: {cid_js}, msg_type: 'code', is_input: '1', content: {restore_js}}}}});
+                  await window.htmx.ajax('POST', '/rm_msg_', {{source: '#kid', swap: 'none', values: {{kid, id_: {cid_js}, ids: {cid_js}}}}});
                 }})()""")
     out = asyncio.run(_run_bootstrap())
 
@@ -214,23 +229,26 @@ def build_deploy_zip(dist_dir=DEFAULT_DIST_DIR):
         for name in CRAFT_ASSET_FILES:
             p = dist_dir/name
             if not p.is_file(): continue
-            arc = name if name in ('CRAFT.css', 'CRAFT.js') else f".craft-assets/{name}"
-            zf.write(p, arc); count += 1
+            arc = name if name in CRAFT_ROOT_ASSETS else f".craft-assets/{name}"
+            zf.write(p, arc)
+            count += 1
         icons = dist_dir/'vscode-icons'
         if icons.is_dir():
             for p in sorted(icons.rglob('*')):
-                if p.is_file(): zf.write(p, f".craft-assets/vscode-icons/{p.relative_to(icons)}"); count += 1
+                if p.is_file():
+                    zf.write(p, f".craft-assets/vscode-icons/{p.relative_to(icons)}")
+                    count += 1
     return buf.getvalue(), count
 
+# %% ../nbs/04_tunnel.ipynb #ece84ff5
 def _rg_mcp_call(mcp_url, token, method, params=None, sid=None, rid=1, timeout=30):
     hdrs = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream'}
     if sid: hdrs['Mcp-Session-Id'] = sid
-    body = json.dumps({'jsonrpc': '2.0', 'id': rid, 'method': method, 'params': params or {}}).encode()
+    body = json.dumps(dict(jsonrpc='2.0', id=rid, method=method, params=params or {})).encode()
     with urlopen(Request(mcp_url, data=body, headers=hdrs), timeout=timeout) as r:
         new_sid = r.headers.get('Mcp-Session-Id') or sid
         raw = r.read().decode()
-    if raw.startswith('data:'):
-        raw = '\n'.join(ln[5:].strip() for ln in raw.splitlines() if ln.startswith('data:'))
+    if raw.startswith('data:'): raw = '\n'.join(ln[5:].strip() for ln in raw.splitlines() if ln.startswith('data:'))
     data = json.loads(raw) if raw.strip() else {}
     if 'error' in data: raise RuntimeError(f"rustygate MCP {method} failed: {data['error']}")
     return new_sid, data.get('result', {})
@@ -248,28 +266,37 @@ def deploy_dist(
     if not gw or not tunnel_healthy(gw['url'], gw.get('token', '')):
         res = ensure_tunnel(name=name, url=url, auth_file=auth_file, gateways_path=gateways_path)
         if res['status'] == 'needs-login':
-            raise SystemExit(f"Approve Tailscale login first:\n  {res['auth_url']}\nThen re-run `craft-pw deploy`.")
+            raise SystemExit(f"Approve Tailscale login first:\n  {res['auth_url']}\nThen re-run `craft-cdp deploy`.")
         gw = read_gateway_entry(name, gateways_path)
 
     mcp_url, token = gw['url'].rstrip('/') + '/mcp', gw['token']
     zbytes, count = build_deploy_zip(dist_dir)
     b64 = base64.b64encode(zbytes).decode('ascii')
     unpack_code = (
-        "import asyncio, base64, io, zipfile\nfrom pathlib import Path\n"
+        "import base64, io, os, shutil, tempfile, zipfile\nfrom pathlib import Path\n"
         f"raw = base64.b64decode({b64!r})\n"
-        "dst = Path('/app/data')\n"
-        "with zipfile.ZipFile(io.BytesIO(raw)) as zf:\n"
-        "    for m in zf.infolist():\n"
-        "        out = dst / m.filename\n"
+        "dst = Path('/app/data').resolve()\n"
+        "stage = Path(tempfile.mkdtemp(prefix='.craft-deploy-', dir=dst))\n"
+        "try:\n"
+        "    staged = []\n"
+        "    with zipfile.ZipFile(io.BytesIO(raw)) as zf:\n"
+        "        for m in zf.infolist():\n"
+        "            if m.is_dir(): continue\n"
+        "            rel = Path(m.filename)\n"
+        "            if rel.is_absolute() or '..' in rel.parts: raise ValueError(f'Unsafe zip path: {m.filename}')\n"
+        "            tmp = (stage / rel).resolve()\n"
+        "            if not tmp.is_relative_to(stage): raise ValueError(f'Unsafe zip path: {m.filename}')\n"
+        "            tmp.parent.mkdir(parents=True, exist_ok=True)\n"
+        "            tmp.write_bytes(zf.read(m))\n"
+        "            staged.append((tmp, dst / rel))\n"
+        "    for tmp, out in staged:\n"
         "        out.parent.mkdir(parents=True, exist_ok=True)\n"
-        "        out.write_bytes(zf.read(m))\n"
-        "print('UNPACKED', len(zf.infolist()))\n"
-    )
+        "        os.replace(tmp, out)\n"
+        "    print('UNPACKED', len(staged))\n"
+        "finally:\n"
+        "    shutil.rmtree(stage, ignore_errors=True)\n")
 
-    sid, _ = _rg_mcp_call(mcp_url, token, 'initialize', {
-        'protocolVersion': '2025-03-26', 'capabilities': {},
-        'clientInfo': {'name': 'craft-deploy', 'version': '0.1'},
-    }, rid=1)
+    sid, _ = _rg_mcp_call(mcp_url, token, 'initialize', dict(protocolVersion='2025-03-26', capabilities={}, clientInfo={'name': 'craft-deploy', 'version': '0.1'}), rid=1)
     try:
         sid, _ = _rg_mcp_call(mcp_url, token, 'tools/call', {'name': 'create', 'arguments': {'kernel': 'py'}}, sid=sid, rid=2)
         _, res = _rg_mcp_call(mcp_url, token, 'tools/call', {'name': 'exec', 'arguments': {'code': unpack_code}}, sid=sid, rid=3)
@@ -277,4 +304,4 @@ def deploy_dist(
     finally:
         try: urlopen(Request(mcp_url, method='DELETE', headers={'Authorization': f'Bearer {token}', 'Mcp-Session-Id': sid}), timeout=5)
         except Exception: pass
-    return {'gateway': gw['url'], 'files': count, 'bytes': len(zbytes)}
+    return dict(gateway=gw['url'], files=count, bytes=len(zbytes))

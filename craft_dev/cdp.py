@@ -9,19 +9,22 @@ __all__ = ['ROOT_ASSET_NAMES', 'DESKTOP_METRICS', 'MOBILE_METRICS', 'HEALTH_PROB
            'asmoke_dialog', 'smoke_dialog']
 
 # %% ../nbs/01_cdp.ipynb #f2d6010f
-import asyncio, base64, mimetypes, tempfile
-from contextlib import asynccontextmanager
+import asyncio, base64, json, mimetypes, tempfile
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass, field
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
+from fastcore.meta import delegates
 from fastcore.utils import *
+import fast5ever
+from fast5ever import Element, Text
 
-from craft_dev.auth import (
+from .auth import (
     DEFAULT_AUTH_FILE, REPO_ROOT, alogin, cookies_for_cdp, default_target_url,
-    ensure_auth, is_authenticated_page, resolve_browser_executable,
-)
+    ensure_auth, is_authenticated_page, resolve_browser_executable,)
+from .build import CRAFT_ROOT_ASSETS
 
 # %% ../nbs/01_cdp.ipynb #4d70adb5
-ROOT_ASSET_NAMES = {'CRAFT.js', 'CRAFT.css'}
+ROOT_ASSET_NAMES = set(CRAFT_ROOT_ASSETS)
 _CONTENT_TYPES = {'.js': 'application/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml'}
 _CORE_GLOBALS = ('craftC2', 'craftOmit', 'craftParts', 'craftActionMenus', 'craftCellChains', 'solveitHotkeys')
 DESKTOP_METRICS = dict(width=1440, height=900, deviceScaleFactor=1, mobile=False)
@@ -45,16 +48,17 @@ class InspectReport:
     console_errors: list[str] = field(default_factory=list)
     console_warnings: list[str] = field(default_factory=list)
     page_errors: list[str] = field(default_factory=list)
-    failed_requests: list[dict] = field(default_factory=list)
     craft_health: dict = field(default_factory=dict)
     eval_result: object = None
     screenshot: str | None = None
 
+# %% ../nbs/01_cdp.ipynb #dd687ec9
 HEALTH_PROBE_JS = r"""(() => {
   const globals = [
-    'craftC2', 'craftMd', 'craftInlineNote', 'craftInlineText', 'craftOmit', 'craftParts',
-    'craftActionMenus', 'craftCellChains', 'craftIdleComposer', 'craftInsertPreview',
-    'craftImageDrop', 'craftMobile', 'craftMobileBar', 'solveitHotkeys', '__hotkeyRegister',
+    'craftC2', 'craftMd', 'craftOmit', 'craftParts', 'craftActionMenus', 'craftCellChains',
+    'craftTables', 'craftIdleComposer', 'craftInsertPreview', 'craftDesktopUX', 'craftImageDrop',
+    'craftMobile', 'craftMobileBar', 'craftContext', 'craftFonts', 'craftStruct', 'craftNavRef',
+    'craftHistory', 'craftTTS', 'craftBugCapture', 'solveitHotkeys', 'solveitFileTree', '__hotkeyRegister',
   ];
   const globalStatus = {};
   for (const name of globals) {
@@ -91,57 +95,65 @@ HEALTH_PROBE_JS = r"""(() => {
 # %% ../nbs/01_cdp.ipynb #8b2b695f
 def resolve_local_asset(url_path, assets_dir):
     "Resolve a Solveit asset `url_path` to a local file in `assets_dir`, if present."
-    parts = [p for p in url_path.split('?', 1)[0].split('/') if p]
-    if not parts: return None
+    raw = unquote(url_path.split('?', 1)[0])
+    parts = [p for p in raw.split('/') if p]
+    if not parts or any(p in ('.', '..') or '\\' in p for p in parts): return None
+    base = Path(assets_dir).resolve()
     if '.craft-assets' in parts:
-        rel = Path(*parts[parts.index('.craft-assets') + 1:])
-        return first(c for c in (assets_dir/'.craft-assets'/rel, assets_dir/rel) if c.is_file())
-    if parts[-1] in ROOT_ASSET_NAMES and (c := assets_dir/parts[-1]).is_file(): return c
+        tail = parts[parts.index('.craft-assets') + 1:]
+        if not tail: return None
+        rel = Path(*tail)
+        return first((c for c in (base / '.craft-assets' / rel, base / rel) if c.is_file() and c.resolve().is_relative_to(base)))
+    if parts[-1] in ROOT_ASSET_NAMES and (c := base/parts[-1]).is_file() and c.resolve().is_relative_to(base): return c
     return None
 
 def guess_content_type(path):
+    "Return the HTTP `Content-Type` header for local asset `path`."
     return _CONTENT_TYPES.get(path.suffix.lower()) or mimetypes.guess_type(str(path))[0] or 'application/octet-stream' 
 
 # %% ../nbs/01_cdp.ipynb #65c64ade
-_STYLE_RE = re.compile(r'(<style\b[^>]*>)([\s\S]*?)(</style>)', re.I)
-_SCRIPT_RE = re.compile(r'(<script\b[^>]*>)([\s\S]*?)(</script>)', re.I)
+def _iter_elements(node):
+    for child in list(node.element_children):
+        yield child
+        yield from _iter_elements(child)
 
-def _patch_block(html, rx, pred, path, label, anchor, open_tag, close_tag, mode, records):
+def _patch_block(doc, tag, asset_name, pred, path, label, parent_tag, attrs, mode, records):
     replaced = False
-    def repl(m):
-        nonlocal replaced
-        if not pred(m.group(2)): return m.group(0)
+    for el in _iter_elements(doc):
+        if not el.is_tag(tag): continue
+        if el.attrs.get('data-craft-asset') != asset_name and not pred(el.to_text()): continue
         replaced = True
         if mode == 'vanilla':
             records.append(InterceptRecord(url=label, action='blocked-vanilla'))
-            return ''
-        if path.is_file():
+            el.detach()
+        elif path.is_file():
             records.append(InterceptRecord(url=label, action='served-local', local_path=str(path)))
-            return f"{m.group(1)}\n{path.read_text(encoding='utf-8')}\n{m.group(3)}"
-        return m.group(0)
-    patched = rx.sub(repl, html)
-    if mode == 'local' and not replaced and path.is_file() and anchor in patched:
-        records.append(InterceptRecord(url=f"{label} (injected)", action='served-local', local_path=str(path)))
-        patched = patched.replace(anchor, f"{open_tag}\n{path.read_text(encoding='utf-8')}\n{close_tag}\n{anchor}", 1)
-    return patched
+            el.attrs['data-craft-asset'] = asset_name
+            for child in list(el.children): child.detach()
+            el.append_child(Text(f"\n{path.read_text(encoding='utf-8')}\n"))
+    if mode == 'local' and not replaced and path.is_file():
+        parent = first(el for el in _iter_elements(doc) if el.is_tag(parent_tag))
+        if parent is not None:
+            records.append(InterceptRecord(url=f"{label} (injected)", action='served-local', local_path=str(path)))
+            el = Element(tag, {**(attrs or {}), 'data-craft-asset': asset_name})
+            el.append_child(Text(f"\n{path.read_text(encoding='utf-8')}\n"))
+            parent.append_child(el)
 
 def patch_dialog_html(html, *, mode, assets_dir):
     "Replace or strip Solveit's inlined `CRAFT.css` `<style>` and `CRAFT.js` `<script>` blocks."
     records = []
     if mode == 'live': return html, records
-    html = _patch_block(html, _STYLE_RE, lambda b: '--craft-prose' in b or 'Tokyo Night Pure' in b,
-                        assets_dir/'CRAFT.css', 'inline:<style>CRAFT.css', '</head>', '<style>', '</style>', mode, records)
-    html = _patch_block(html, _SCRIPT_RE, lambda b: 'craftC2' in b and 'hotkey_manager.js' in b,
-                        assets_dir/'CRAFT.js', 'inline:<script>CRAFT.js', '</body>', '<script type="module">', '</script>', mode, records)
-    return html, records
+    doc = fast5ever.parse(html)
+    _patch_block(doc, 'style', 'CRAFT.css', lambda b: '--craft-prose' in b or 'Tokyo Night Pure' in b or 'nbs/craft/' in b,
+        assets_dir/'CRAFT.css', 'inline:<style>CRAFT.css', 'head', None, mode, records)
+    _patch_block(doc, 'script', 'CRAFT.js', lambda b: ('craftC2' in b and 'hotkey_manager.js' in b) or '__craftCMCore' in b or 'nbs/craft/' in b,
+        assets_dir/'CRAFT.js', 'inline:<script>CRAFT.js', 'body', {'type': 'module'}, mode, records)
+    return doc.to_html(), records
 
 # %% ../nbs/01_cdp.ipynb #3c0830b6
-_FETCH_PATTERNS = [
-    {'urlPattern': '*/dialog*', 'resourceType': 'Document', 'requestStage': 'Response'},
-    {'urlPattern': '*.craft-assets/*', 'requestStage': 'Request'},
-    {'urlPattern': '*/CRAFT.js*', 'requestStage': 'Request'},
-    {'urlPattern': '*/CRAFT.css*', 'requestStage': 'Request'},
-]
+_FETCH_PATTERNS = [dict(urlPattern='*/dialog*', resourceType='Document', requestStage='Response'),
+    {'urlPattern': '*.craft-assets/*', 'requestStage': 'Request'}, {'urlPattern': '*/CRAFT.js*', 'requestStage': 'Request'},
+    {'urlPattern': '*/CRAFT.css*', 'requestStage': 'Request'}]
 
 async def _handle_paused(page, p, *, mode, assets_dir, records):
     rid, url = p['requestId'], p['request']['url']
@@ -167,13 +179,13 @@ async def _handle_paused(page, p, *, mode, assets_dir, records):
             ctype = 'text/css' if path.endswith('.css') else 'application/javascript'
             records.append(InterceptRecord(url=url, action='blocked-vanilla'))
             await page.Fetch.fulfillRequest(requestId=rid, responseCode=200,
-                                            responseHeaders=[{'name': 'Content-Type', 'value': ctype}], body='')
+                responseHeaders=[{'name': 'Content-Type', 'value': ctype}], body='')
             return
         if (local_file := resolve_local_asset(path, assets_dir)) is not None:
             records.append(InterceptRecord(url=url, action='served-local', local_path=str(local_file)))
             b64 = base64.b64encode(local_file.read_bytes()).decode('ascii')
             await page.Fetch.fulfillRequest(requestId=rid, responseCode=200,
-                                            responseHeaders=[{'name': 'Content-Type', 'value': guess_content_type(local_file)}], body=b64)
+                responseHeaders=[{'name': 'Content-Type', 'value': guess_content_type(local_file)}], body=b64)
             return
         records.append(InterceptRecord(url=url, action='passthrough'))
         await page.Fetch.continueRequest(requestId=rid)
@@ -214,54 +226,47 @@ async def click_at(page, x, y):
 
 # %% ../nbs/01_cdp.ipynb #c4083168
 def default_assets_dir():
+    "Return the default local CRAFT assets directory (`CRAFT_ASSETS_DIR`, `dist/`, or repo root)."
     if env := os.environ.get('CRAFT_ASSETS_DIR'): return Path(env).resolve()
     return (REPO_ROOT/'dist' if (REPO_ROOT/'dist'/'CRAFT.js').is_file() else REPO_ROOT).resolve()
 
-def default_craft_mode(): return os.environ.get('CRAFT_TEST_MODE', 'local')
+def default_craft_mode():
+    "Return default CRAFT asset mode from `CRAFT_TEST_MODE` or `'local'`."
+    return os.environ.get('CRAFT_TEST_MODE', 'local')
 
 def _fmt_exception(params):
     d = params.get('exceptionDetails') or {}
     return nested_idx(d, 'exception', 'description') or d.get('text') or str(d)
 
+# %% ../nbs/01_cdp.ipynb #78607e2e
+@asynccontextmanager
 async def _open_session(target_url, auth_path, *, mode, assets_dir, wait_ms, headed, exec_path, mobile):
     from fastcdp import CDP
-
-    td = tempfile.TemporaryDirectory(prefix='craft-cdp-')
-    cdp = await CDP.launch(user_data_dir=td.name, headless=not headed, reuse=False, chrome=exec_path)
-    try:
+    async with AsyncExitStack() as stack:
+        td = stack.enter_context(tempfile.TemporaryDirectory(prefix='craft-cdp-'))
+        cdp = await CDP.launch(user_data_dir=td, headless=not headed, reuse=False, chrome=exec_path)
+        stack.push_async_callback(cdp.quit)
         if cookies := cookies_for_cdp(auth_path): await cdp.Storage.setCookies(cookies=cookies)
         page = await cdp.new_page()
         await page.Emulation.setDeviceMetricsOverride(**(MOBILE_METRICS if mobile else DESKTOP_METRICS))
         if mobile: await page.Emulation.setTouchEmulationEnabled(enabled=True)
         await page.start_console()
         page_errors = []
-        exc_cm = cdp.on('Runtime.exceptionThrown')
-        exc_q = await exc_cm.__aenter__()
+        exc_q = await stack.enter_async_context(cdp.on('Runtime.exceptionThrown'))
         async def _watch_exc():
             while True:
                 m = await exc_q.get()
                 if m.get('sessionId') == page.sid: page_errors.append(_fmt_exception(m['params']))
         exc_task = asyncio.create_task(_watch_exc())
-        route_cm = install_craft_routes(page, mode=mode, assets_dir=assets_dir)
-        records = await route_cm.__aenter__()
+        async def _cancel_exc():
+            exc_task.cancel()
+            try: await exc_task
+            except asyncio.CancelledError: pass
+        stack.push_async_callback(_cancel_exc)
+        records = await stack.enter_async_context(install_craft_routes(page, mode=mode, assets_dir=assets_dir))
         await page.goto(target_url, wait='load', timeout=30)
         if wait_ms: await asyncio.sleep(wait_ms / 1000)
-        return td, cdp, page, records, page_errors, route_cm, exc_cm, exc_task
-    except BaseException:
-        await cdp.quit()
-        td.cleanup()
-        raise
-
-async def _close_session(td, cdp, route_cm, exc_cm, exc_task):
-    exc_task.cancel()
-    try: await exc_task
-    except asyncio.CancelledError: pass
-    try: await exc_cm.__aexit__(None, None, None)
-    except Exception: pass
-    try: await route_cm.__aexit__(None, None, None)
-    except Exception: pass
-    try: await cdp.quit()
-    finally: td.cleanup()
+        yield page, records, page_errors
 
 @asynccontextmanager
 async def open_solveit(
@@ -286,24 +291,21 @@ async def open_solveit(
     assets_dir = Path(assets_dir).resolve() if assets_dir else default_assets_dir()
     kw = dict(mode=mode, assets_dir=assets_dir, wait_ms=wait_ms, headed=headed, exec_path=exec_path, mobile=mobile)
 
-    sess = await _open_session(target_url, auth_path, **kw)
-    if not await is_authenticated_page(sess[2]) and auto_auth:
-        await _close_session(sess[0], sess[1], sess[5], sess[6], sess[7])
-        await alogin(url=target_url, auth_file=auth_path)
-        sess = await _open_session(target_url, auth_path, **kw)
-    td, cdp, page, records, page_errors, route_cm, exc_cm, exc_task = sess
-    try:
+    async with AsyncExitStack() as stack:
+        page, records, page_errors = await stack.enter_async_context(_open_session(target_url, auth_path, **kw))
+        if not await is_authenticated_page(page) and auto_auth:
+            await stack.aclose()
+            await alogin(url=target_url, auth_file=auth_path)
+            page, records, page_errors = await stack.enter_async_context(_open_session(target_url, auth_path, **kw))
         if not await is_authenticated_page(page):
             cur = await page.eval('location.href')
             raise PermissionError(
                 f"Session invalid or expired at {cur}. Run `.venv/bin/craft-cdp auth` to refresh.")
         yield page, records, page_errors
-    finally:
-        await _close_session(td, cdp, route_cm, exc_cm, exc_task)
 
 # %% ../nbs/01_cdp.ipynb #90876602
 async def ainspect_dialog(
-    *, url=None, auth_file=DEFAULT_AUTH_FILE, mode='local', assets_dir=REPO_ROOT, wait_ms=2000,
+    *, url=None, auth_file=DEFAULT_AUTH_FILE, mode='local', assets_dir=None, wait_ms=2000,
     eval_js=None, screenshot=None, headed=False, browser_name='chrome', executable_path=None, mobile=False,
 ):
     "Load a Solveit page via `fastcdp` and return a structured `InspectReport`."
@@ -311,12 +313,10 @@ async def ainspect_dialog(
     if not target_url: raise SystemExit("Pass --url or run `craft-cdp auth --url ...` first.")
     auth_path = ensure_auth(auth_file)
     exec_path = resolve_browser_executable(browser_name, executable_path)
-    assets_dir = Path(assets_dir).resolve()
+    assets_dir = Path(assets_dir).resolve() if assets_dir else default_assets_dir()
 
-    sess = await _open_session(target_url, auth_path, mode=mode, assets_dir=assets_dir,
-                               wait_ms=wait_ms, headed=headed, exec_path=exec_path, mobile=mobile)
-    td, cdp, page, records, page_errors, route_cm, exc_cm, exc_task = sess
-    try:
+    async with _open_session(target_url, auth_path, mode=mode, assets_dir=assets_dir,
+        wait_ms=wait_ms, headed=headed, exec_path=exec_path, mobile=mobile) as (page, records, page_errors):
         final_url = await page.eval('location.href') or target_url
         authenticated = await is_authenticated_page(page)
         title = await page.eval('document.title') or ''
@@ -329,22 +329,19 @@ async def ainspect_dialog(
             p = Path(screenshot)
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_bytes(await page.screenshot())
-    finally:
-        await _close_session(td, cdp, route_cm, exc_cm, exc_task)
 
-    return InspectReport(
-        url=target_url, final_url=final_url, mode=mode, assets_dir=str(assets_dir),
-        authenticated=authenticated, title=title, intercepted=records,
-        console_errors=console_errors, console_warnings=console_warnings,
-        page_errors=page_errors, craft_health=health, eval_result=eval_result,
-        screenshot=str(screenshot) if screenshot else None)
+    return InspectReport(url=target_url, final_url=final_url, mode=mode, assets_dir=str(assets_dir), authenticated=authenticated,
+        title=title, intercepted=records, console_errors=console_errors, console_warnings=console_warnings, page_errors=page_errors,
+        craft_health=health, eval_result=eval_result, screenshot=str(screenshot) if screenshot else None)
 
+@delegates(ainspect_dialog)
 def inspect_dialog(**kwargs):
     "Synchronous wrapper around `ainspect_dialog`."
     return asyncio.run(ainspect_dialog(**kwargs))
 
+# %% ../nbs/01_cdp.ipynb #24aa049c
 async def asmoke_dialog(
-    *, url=None, auth_file=DEFAULT_AUTH_FILE, mode='local', assets_dir=REPO_ROOT, wait_ms=2000,
+    *, url=None, auth_file=DEFAULT_AUTH_FILE, mode='local', assets_dir=None, wait_ms=2000,
     screenshot_dir=None, headed=False, browser_name='chrome', executable_path=None, mobile=False,
 ):
     "Run non-destructive UI smoke checks against a Solveit dialog via `fastcdp`."
@@ -370,10 +367,14 @@ async def asmoke_dialog(
                     ('launcher-toggle', dict(key='P', mod=True, shift=True), dict(key='Escape'), '#solveit-launcher.open'),
                 ]:
                     await page.press(**open_kw)
-                    try: await page.wait_for_selector(sel, timeout=3); opened = True
+                    try:
+                        await page.wait_for_selector(sel, timeout=3)
+                        opened = True
                     except Exception: opened = False
                     await page.press(**close_kw)
-                    try: await page.wait_for_selector(sel, present=False, timeout=3); closed = True
+                    try:
+                        await page.wait_for_selector(sel, present=False, timeout=3)
+                        closed = True
                     except Exception: closed = False
                     record(name, opened and closed, f"open={opened}, closed={closed}")
             record('no-uncaught-page-errors', not page_errors, '; '.join(page_errors[:3]))
@@ -381,10 +382,10 @@ async def asmoke_dialog(
                 out = Path(screenshot_dir)
                 out.mkdir(parents=True, exist_ok=True)
                 (out/f'smoke-{mode}.png').write_bytes(await page.screenshot())
-    except PermissionError as exc:
-        record('authenticated', False, str(exc))
+    except PermissionError as exc: record('authenticated', False, str(exc))
     return checks
 
+@delegates(asmoke_dialog)
 def smoke_dialog(**kwargs):
     "Synchronous wrapper around `asmoke_dialog`."
     return asyncio.run(asmoke_dialog(**kwargs))

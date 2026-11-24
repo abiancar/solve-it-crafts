@@ -8,9 +8,9 @@
 - `nbs/00_auth.ipynb` -> `craft_dev/auth.py` — seamless one-step Chrome/Vivaldi login (`login`/`alogin`, `ensure_auth`, `.auth/` config, `cookies_for_cdp`)
 - `nbs/01_cdp.ipynb` -> `craft_dev/cdp.py` — `open_solveit()` async context manager, CDP `Fetch` CRAFT route interception, `inspect_dialog()`, `smoke_dialog()`
 - `nbs/02_cli.ipynb` -> `craft_dev/cli.py` — `craft-cdp` (and `craft-pw`) CLI entry point (also shimmed by `dev/craft_pw.py`)
-- `nbs/03_build.ipynb` -> `craft_dev/build.py` — `#| export_js` / `export_css` / `export_ft` notebook extractor and `build_dist()`
+- `nbs/03_build.ipynb` -> `craft_dev/build.py` — `#| export_js` / `export_js_iife` / `export_css` / `export_ft` notebook extractor and `build_dist()`
 - `nbs/04_tunnel.ipynb` -> `craft_dev/tunnel.py` — private Tailscale + rustygate tunnel setup and atomic `deploy_dist()`
-- `nbs/craft/*.ipynb` — modular CRAFT feature notebooks (`00_hotkey_builtins`, `00_hotkey_manager`, `01_cm_core`, `02_core_ui`, `03_file_tree`, `04_craft_c2`, `05_craft_md`, `06_mobile`)
+- `nbs/craft/*.ipynb` — modular CRAFT feature notebooks (`00_architecture`, `01_theme_and_tokens`, `02_hotkey_builtins`, `03_hotkey_manager`, `04_cm_core`, `05_dialog_chrome`, `06_file_tree`, `07_cell_presentation`, `08_tables`, `09_cell_insertion`, `10_code_editor_c2`, `11_markdown_editor`, `12_mobile`, `13_context_control`, `14_font_settings`, `15_structural_ops`, `16_navigation_reference`, `17_cell_history`, `18_tts_reader`, `19_bug_capture`)
 - `pyproject.toml` (`[tool.nbdev]`) — `nbdev` v3 configuration and editable install (`craft-dev`)
 
 After editing any notebook in `nbs/`, export updated modules with:

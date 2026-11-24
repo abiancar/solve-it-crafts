@@ -5,9 +5,11 @@
 set -e
 ZSH_PREFIX="$HOME/.craft-assets/zsh"
 ZSH_BIN="$ZSH_PREFIX/bin/zsh"
-DEB_BASE='http://deb.debian.org/debian/pool/main/z/zsh'
+DEB_BASE='https://deb.debian.org/debian/pool/main/z/zsh'
 DEB_BIN="$DEB_BASE/zsh_5.9-4+b15_amd64.deb"
+DEB_BIN_SHA256='8362cc8bbb530d393950522dc8a9df5a860a61227d62ff669a7524056e6289a8'
 DEB_COMMON="$DEB_BASE/zsh-common_5.9-4_all.deb"
+DEB_COMMON_SHA256='4f263aa88910f750965b1a83dcbca1355b2cf509acffe96cc2d856333909a7b5'
 
 if [ "$(uname -m)" != "x86_64" ]; then
   echo "This script installs the amd64 debs; edit the URLs for $(uname -m)." >&2; exit 1
@@ -16,10 +18,15 @@ fi
 if [ ! -x "$ZSH_BIN" ]; then
   echo "Fetching zsh into $ZSH_PREFIX ..."
   mkdir -p "$ZSH_PREFIX"
-  curl -fsSL -o /tmp/zsh.deb "$DEB_BIN"
-  curl -fsSL -o /tmp/zsh-common.deb "$DEB_COMMON"
-  dpkg-deb -x /tmp/zsh.deb "$ZSH_PREFIX"
-  dpkg-deb -x /tmp/zsh-common.deb "$ZSH_PREFIX"
+  TMP_DIR="$(mktemp -d)"
+  trap 'rm -rf "$TMP_DIR"' EXIT
+  curl -fsSL -o "$TMP_DIR/zsh.deb" "$DEB_BIN"
+  curl -fsSL -o "$TMP_DIR/zsh-common.deb" "$DEB_COMMON"
+  printf '%s  %s\n%s  %s\n' "$DEB_BIN_SHA256" "$TMP_DIR/zsh.deb" "$DEB_COMMON_SHA256" "$TMP_DIR/zsh-common.deb" | sha256sum -c -
+  dpkg-deb -x "$TMP_DIR/zsh.deb" "$ZSH_PREFIX"
+  dpkg-deb -x "$TMP_DIR/zsh-common.deb" "$ZSH_PREFIX"
+  rm -rf "$TMP_DIR"
+  trap - EXIT
 fi
 "$ZSH_BIN" --version
 

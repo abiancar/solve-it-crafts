@@ -714,7 +714,7 @@ window.craftInlineNote?.disable?.();
           v.dispatch({changes: {from: imageInsert, insert: text}, userEvent: 'input.paste'});
         } catch (err) {
           console.error('CRAFT inline image paste:', err);
-          window.UIkit?.notification?.({message: 'Could not attach the pasted image.', status: 'warning'});
+          CORE.notify('Could not attach the pasted image.', 'warning');
         } finally { imageInsert = null; }
       };
       void upload();

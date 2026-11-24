@@ -75,9 +75,9 @@ wheels = [
 
 [[package]]
 name = "craft-dev"
-version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "fast5ever" },
     { name = "fastcdp" },
     { name = "fastcore" },
 ]
@@ -89,12 +89,13 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "fast5ever", specifier = ">=0.1.7" },
     { name = "fastcdp", specifier = ">=0.0.28" },
     { name = "fastcore", specifier = ">=1.7.0" },
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "nbdev", specifier = ">=2.3.0" }]
+dev = [{ name = "nbdev", specifier = ">=3.0" }]
 
 [[package]]
 name = "execnb"
@@ -116,6 +117,23 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/52/92/8a611141e42930c0f194f7504063ab87dfe970cf1a5af28e7703df448734/executing-2.3.0.tar.gz", hash = "sha256:15919cb5d667e5cb4e099511971d00d659573fff2dd5c4e6cd8b71636c7858d2", size = 1338003, upload-time = "2026-10-10T14:06:04.64Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/4d/dd/8bc67e7d5ffc1d88aa5af511189dfb76dc4e1e5b808fab186146ef2663e5/executing-2.3.0-py3-none-any.whl", hash = "sha256:736e859c9f8701f11fcf516856f26f562e04776387824b43a35a1dfe21c84122", size = 29393, upload-time = "2026-10-10T14:06:02.777Z" },
+]
+
+[[package]]
+name = "fast5ever"
+version = "0.1.7"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "fastcore" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/0a/40/2b2579bb7281f5e78e2e44a2673e3fe213ff4b4917f09bf8c75fc690e857/fast5ever-0.1.7.tar.gz", hash = "sha256:9565dc69dcb0a9773251aa5fbf2df0a09ffd0c0b610b44ac06c3b3089874f187", size = 33189, upload-time = "2026-10-05T07:45:26.205Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a0/6c/31c2a761274ab607574abdb84a7b5fd671301b46daede5865b21bdb71a79/fast5ever-0.1.7-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:fb1330aa2a32b4fe5d6cc1e8a16cb580c988be6cfca8686d93de29b4461d1755", size = 499643, upload-time = "2026-10-05T07:45:17.855Z" },
+    { url = "https://files.pythonhosted.org/packages/42/80/c552324c3f7b8594633e8cde7107b2f93bf79d5e659d37b651681a22875f/fast5ever-0.1.7-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:b19b4833a46090a5b072ee4997ca3c2e86174d96c4d9845c4412ee69a2953331", size = 544594, upload-time = "2026-10-05T07:45:19.061Z" },
+    { url = "https://files.pythonhosted.org/packages/10/4e/118126151ab45df79d8300220e710a1fded69d8576390403d0239d4e9bb5/fast5ever-0.1.7-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:4df7685f6c704ed7c2baff170d2eb31cc6ab4ec7190adc55163c8ea999eb9cf5", size = 497281, upload-time = "2026-10-05T07:45:20.334Z" },
+    { url = "https://files.pythonhosted.org/packages/aa/17/3ad0e9e7a411024d1300ae02aeca71c5bdf21f7c7ddd18adac5e44c851ea/fast5ever-0.1.7-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d031c3a4bbb17f667250139e465fe2709e3e1d1071323e660f00929fd121b183", size = 544065, upload-time = "2026-10-05T07:45:21.579Z" },
+    { url = "https://files.pythonhosted.org/packages/6e/12/6abe18cb3129fa65c38dd1298db3a140b43b32e71ebb9b8b08da4b5ce460/fast5ever-0.1.7-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:9f17c54f1fc5ee8baa94989bc9d07ccb4969f2f35d516da92dd1532f720b058e", size = 497307, upload-time = "2026-10-05T07:45:22.841Z" },
+    { url = "https://files.pythonhosted.org/packages/ff/6e/108f1d22e5ba6398a9b065f33e4812756c91313e8ca062625a7ec01458cc/fast5ever-0.1.7-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f4517b08089ae7bbf790acb23ed6a479400cecc2739574a5fbcf14ff5103f31d", size = 544407, upload-time = "2026-10-05T07:45:24.346Z" },
 ]
 
 [[package]]
