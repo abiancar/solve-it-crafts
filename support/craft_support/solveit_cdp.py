@@ -17,7 +17,7 @@ from .models import ReviewManifest
 try: from craft_dev.build import CRAFT_ROOT_ASSETS, CRAFT_SUB_ASSETS
 except ImportError:
     CRAFT_ROOT_ASSETS = ("CRAFT.css", "CRAFT.js")
-    CRAFT_SUB_ASSETS = ("craft_md.js", "hotkey_manager.js", "hotkey_builtins.js", "quercus-treeview.css", "quercus-treeview.js")
+    CRAFT_SUB_ASSETS = ("craft_md.js", "hotkey_manager.js", "hotkey_builtins.js", "craft_fonts.js", "craft_history.js", "craft_tts.js", "craft_bug_capture.js")
 
 # %% auto #0
 __all__ = ['ReviewAppInfo', 'ReviewAppProvisioner', 'build_agent_bootstrap_script', 'build_starter_notebook',

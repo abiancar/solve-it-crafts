@@ -1,0 +1,6 @@
+plash.env
+data/
+.sesskey
+.plash
+__pycache__/
+*.pyc

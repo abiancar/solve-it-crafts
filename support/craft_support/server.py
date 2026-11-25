@@ -110,7 +110,7 @@ def create_app(
         Middleware(
             CORSMiddleware, allow_origins=allowed_origins or [], allow_origin_regex=origin_regex,
             allow_credentials=False, allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
-            allow_headers=["*"], allow_private_network=True)]
+            allow_headers=["*"], expose_headers=["HX-Trigger"], allow_private_network=True)]
     app = FastHTML(title="solveitcrafts Bug Ingestion", middleware=middleware)
     app.state.ticket_store = store
     rt = app.route
@@ -146,11 +146,35 @@ def create_app(
                     method="post", action=ingest_form)))
 
     @rt("/api/tickets", methods="post")
-    async def ingest_ticket(request: Request) -> JSONResponse:
-        parsed, err = _parse_ticket_payload(await request.body(), request.headers.get('user-agent', ''), max_body_bytes=max_body_bytes,
+    async def ingest_ticket(request: Request):
+        is_htmx = request.headers.get("hx-request", "").lower() == "true"
+        ctype = (request.headers.get("content-type") or "").lower()
+        if "application/json" in ctype or not is_htmx:
+            raw_body = await request.body()
+        else:
+            form = await request.form()
+            try: errs = json.loads(str(form.get("console_errors") or "[]"))
+            except Exception: errs = []
+            payload = dict(
+                title=str(form.get("title") or ""), description=str(form.get("description") or ""),
+                reporter_notes=str(form.get("reporter_notes") or ""), url=str(form.get("url") or ""),
+                viewport=dict(width=form.get("viewport_width") or 0, height=form.get("viewport_height") or 0),
+                user_agent=str(form.get("user_agent") or ""), dialog_id=form.get("dialog_id") or None,
+                console_errors=errs, dom_html=str(form.get("dom_html") or ""),
+                screenshot_data_url=str(form.get("screenshot_data_url") or "") or None)
+            raw_body = json.dumps(payload).encode("utf-8")
+        parsed, err = _parse_ticket_payload(raw_body, request.headers.get('user-agent', ''), max_body_bytes=max_body_bytes,
             max_dom_bytes=max_dom_bytes, max_screenshot_bytes=max_screenshot_bytes)
-        if err: return err
+        if err:
+            if not is_htmx: return err
+            msg = json.loads(err.body).get("error", "Invalid submission")
+            return HTMLResponse(to_xml(Span(f"Failed to submit: {msg}", cls="craft-bug-status err")), status_code=200)
         ticket, san = await store.create_ticket(**parsed)
+        if is_htmx:
+            suffix = f" ({ticket.drive.folder_url})" if ticket.drive.folder_url else ""
+            return HTMLResponse(
+                to_xml(Span(f"Saved ticket {ticket.id}{suffix}", cls="craft-bug-status ok")),
+                status_code=201, headers={"HX-Trigger": "craft-bug-saved"})
         return JSONResponse(dict(
             id=ticket.id, status=ticket.status, folder_id=ticket.drive.folder_id, folder_url=ticket.drive.folder_url,
             dom_url=ticket.drive.dom_url, screenshot_url=ticket.drive.screenshot_url,
