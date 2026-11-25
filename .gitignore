@@ -10,5 +10,7 @@ __pycache__/
 _docs/
 _proc/
 *.egg-info/
+.DS_Store
+chrome-ext/_metadata/
 
 
