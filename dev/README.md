@@ -1,56 +1,62 @@
 # `craft_dev`: nbdev `fastcdp` Auth & Debugging Toolkit
 
-`craft_dev` is an `nbdev` project inside this repository that exports reusable Solveit authentication, CDP `Fetch` local asset interception, and `fastcdp` testing helpers for any notebook, script, or test in the repo — without modifying your existing `CRAFT.js` / `CRAFT.css` files.
+`craft_dev` is an `nbdev` package in this repository that exports Solveit authentication, CDP `Fetch` local asset interception, `dist/` and `chrome-ext/` builders, and `fastcdp` testing helpers for notebooks and scripts without modifying your installed `CRAFT.js` or `CRAFT.css`.
 
 ## Layout
 
-- `nbs/index.ipynb` — overview and quickstart
-- `nbs/00_auth.ipynb` -> `craft_dev/auth.py` — seamless one-step Chrome/Vivaldi login (`login`/`alogin`, `ensure_auth`, `.auth/` config, `cookies_for_cdp`)
-- `nbs/01_cdp.ipynb` -> `craft_dev/cdp.py` — `open_solveit()` async context manager, CDP `Fetch` CRAFT route interception, `inspect_dialog()`, `smoke_dialog()`
-- `nbs/02_cli.ipynb` -> `craft_dev/cli.py` — `craft-cdp` (and `craft-pw`) CLI entry point (also shimmed by `dev/craft_pw.py`)
-- `nbs/03_build.ipynb` -> `craft_dev/build.py` — `#| export_js` / `export_js_iife` / `export_css` / `export_ft` notebook extractor and `build_dist()`
-- `nbs/04_tunnel.ipynb` -> `craft_dev/tunnel.py` — private Tailscale + rustygate tunnel setup and atomic `deploy_dist()`
-- `nbs/craft/*.ipynb` — modular CRAFT feature notebooks (`00_architecture`, `01_theme_and_tokens`, `02_hotkey_builtins`, `03_hotkey_manager`, `04_cm_core`, `05_dialog_chrome`, `06_file_tree`, `07_cell_presentation`, `08_tables`, `09_cell_insertion`, `10_code_editor_c2`, `11_markdown_editor`, `12_mobile`, `13_context_control`, `14_font_settings`, `15_structural_ops`, `16_navigation_reference`, `17_cell_history`, `18_tts_reader`, `19_bug_capture`)
-- `pyproject.toml` (`[tool.nbdev]`) — `nbdev` v3 configuration and editable install (`craft-dev`)
+- `nbs/index.ipynb`: overview and quickstart
+- `nbs/00_auth.ipynb` -> `craft_dev/auth.py`: one-step Chrome/Vivaldi login (`login`/`alogin`, `ensure_auth`, `.auth/` config, `cookies_for_cdp`)
+- `nbs/01_cdp.ipynb` -> `craft_dev/cdp.py`: `open_solveit()` async context manager, CDP `Fetch` CRAFT route interception, `inspect_dialog()`, `smoke_dialog()`
+- `nbs/02_cli.ipynb` -> `craft_dev/cli.py`: `craft-cdp` (and `craft-pw`) CLI entry point (also shimmed by `dev/craft_pw.py`)
+- `nbs/03_build.ipynb` -> `craft_dev/build.py`: `#| export_js` / `export_js_iife` / `export_css` / `export_ft` notebook extractor, `build_dist()`, and `sync_dist_to_root()`
+- `nbs/04_tunnel.ipynb` -> `craft_dev/tunnel.py`: private Tailscale + `rustygate` tunnel setup and atomic `deploy_dist()`
+- `nbs/05_chrome_ext.ipynb` -> `craft_dev/chrome_ext.py`: unpacked Manifest V3 Chrome/Vivaldi extension generator (`chrome-ext/`)
+- `nbs/craft/*.ipynb`: modular CRAFT feature notebooks (`00_architecture` through `19_bug_capture`)
+- `pyproject.toml` (`[tool.nbdev]`): `nbdev` v3 configuration and editable install (`craft-dev`)
 
-After editing any notebook in `nbs/`, export updated modules with:
+After editing any notebook in `nbs/`, export updated Python modules with:
 
 ```bash
-.venv/bin/nbdev-export
+uv run nbdev-export
 ```
 
 ## 1. One-command login (Chrome/Vivaldi + Google OAuth)
 
 ```bash
-.venv/bin/craft-cdp auth --url "https://your-instance.solve.it.com/dialog_?name=CRAFT"
+uv run craft-cdp auth --url "https://your-instance.solve.it.com/dialog_?name=CRAFT"
 ```
 
-This launches your real **Chrome** (or Vivaldi) browser using a dedicated persistent profile at `.auth/chrome-solveit-profile`, captures your session cookies via CDP into `.auth/solveit-state.json` (`0600`, gitignored), remembers the default URL in `.auth/config.json`, and closes the temporary window.
+This launches Chrome (or Vivaldi with `--browser vivaldi`) using a dedicated persistent profile at `.auth/chrome-solveit-profile`, captures your session cookies via CDP into `.auth/solveit-state.json` (`0600`, gitignored), saves the default URL in `.auth/config.json`, and closes the temporary window.
 
-To refresh an expired session later, just run `.venv/bin/craft-cdp auth` with no flags.
+To refresh an expired session later, run `uv run craft-cdp auth` with no flags. You can also import cookies with `uv run craft-cdp auth-cookie` or `uv run craft-cdp auth-import --cookies <file>`.
 
-## 2. Use from any notebook or async Python script in this repo
+## 2. Use from a notebook or async Python script
 
 ```python
 from craft_dev.cdp import open_solveit, inspect_dialog
 
-# Automatically uses .auth/solveit-state.json and intercepts local CRAFT.js/CSS/.craft-assets/*
+# Uses .auth/solveit-state.json and intercepts local CRAFT.js, CRAFT.css, and .craft-assets/*
 async with open_solveit(mode="local", auto_auth=True) as (page, intercepted, page_errors):
     print(await page.eval("document.title"), len(intercepted), page_errors)
 ```
 
-## 3. CLI debugging & `nbdev-test`
+## 3. CLI commands & `nbdev-test`
 
 ```bash
-.venv/bin/craft-cdp auth-status
-.venv/bin/craft-cdp inspect --screenshot .craft-debug/dialog.png --json
-.venv/bin/craft-cdp inspect --mode vanilla   # compare against base Solveit
-.venv/bin/craft-cdp inspect --assets-dir dist # test a built dist/ folder
-.venv/bin/craft-cdp smoke
+uv run craft-cdp build                                              # compile nbs/craft/*.ipynb -> dist/
+uv run craft-cdp build --sync                                       # build dist/, sync root assets, rebuild chrome-ext/
+uv run craft-cdp build-ext                                          # rebuild chrome-ext/ only
+uv run craft-cdp auth-status                                        # verify saved session headlessly
+uv run craft-cdp inspect --screenshot .craft-debug/dialog.png --json
+uv run craft-cdp inspect --mode vanilla                             # compare against base Solveit
+uv run craft-cdp inspect --assets-dir dist                          # test a built dist/ folder
+uv run craft-cdp smoke                                              # live CDP UI smoke checks
+uv run craft-cdp tunnel                                             # bring up Tailscale + rustygate tunnel (--down to stop)
+uv run craft-cdp deploy                                             # build dist/ and deploy atomically over the tunnel
 
-# Offline notebook tests (fast, no browser)
-.venv/bin/nbdev-test
+# Offline notebook tests (no browser)
+uv run nbdev-test
 
 # Offline + live fastcdp UI tests (uses saved .auth/config.json URL or SOLVEIT_TEST_URL)
-.venv/bin/nbdev-test --flags live
+uv run nbdev-test --flags live
 ```

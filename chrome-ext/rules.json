@@ -1,0 +1,44 @@
+[
+  {
+    "id": 1,
+    "priority": 1,
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "extensionPath": "/monaco_stub.mjs"
+      }
+    },
+    "condition": {
+      "urlFilter": "||esm.sh/modern-monaco",
+      "initiatorDomains": [
+        "solve.it.com"
+      ],
+      "resourceTypes": [
+        "script",
+        "xmlhttprequest",
+        "other"
+      ]
+    }
+  },
+  {
+    "id": 2,
+    "priority": 1,
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "extensionPath": "/empty_grammar.json"
+      }
+    },
+    "condition": {
+      "urlFilter": "||esm.sh/tm-grammars",
+      "initiatorDomains": [
+        "solve.it.com"
+      ],
+      "resourceTypes": [
+        "xmlhttprequest",
+        "script",
+        "other"
+      ]
+    }
+  }
+]

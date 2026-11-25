@@ -5,7 +5,7 @@
 # %% auto #0
 __all__ = ['DEFAULT_DIST_DIR', 'DEFAULT_CRAFT_NBS_DIR', 'CRAFT_ROOT_ASSETS', 'CRAFT_SUB_ASSETS', 'CRAFT_ASSET_FILES', 'svg_icon',
            'craft_overlay', 'craft_card', 'craft_menu', 'craft_btn', 'craft_input', 'ft_templates_js', 'ft_config_js',
-           'extract_nb_assets', 'build_dist']
+           'extract_nb_assets', 'build_dist', 'sync_dist_to_root']
 
 # %% ../nbs/03_build.ipynb #29e848b3
 import json, shutil, subprocess
@@ -21,7 +21,7 @@ from .auth import REPO_ROOT
 DEFAULT_DIST_DIR = REPO_ROOT/'dist'
 DEFAULT_CRAFT_NBS_DIR = REPO_ROOT/'nbs'/'craft'
 CRAFT_ROOT_ASSETS = ('CRAFT.css', 'CRAFT.js')
-CRAFT_SUB_ASSETS = ('craft_md.js', 'hotkey_manager.js', 'hotkey_builtins.js', 'quercus-treeview.css', 'quercus-treeview.js')
+CRAFT_SUB_ASSETS = ('craft_md.js', 'hotkey_manager.js', 'hotkey_builtins.js', 'craft_fonts.js', 'craft_history.js', 'craft_tts.js', 'craft_bug_capture.js')
 CRAFT_ASSET_FILES = (*CRAFT_ROOT_ASSETS, *CRAFT_SUB_ASSETS)
 _EXPORT_RE = re.compile(r'^#\|\s*export[_-](js[_-]iife|js|css|ft)\s+(\S+)(?:\s+(\S+))?\s*$')
 _PREFIX_RE = re.compile(r'^(\d+)_')
@@ -36,15 +36,16 @@ def svg_icon(paths, size=15, sw=1.6, **kw):
 def _cls(*parts): return ' '.join(p.strip() for p in parts if p and p.strip())
 
 def craft_overlay(*kids, cls='', **kw):
-    "Modal backdrop overlay `FT` component (`craft-overlay`)."
-    return fx.Div(*kids, klass=_cls('craft-overlay', cls), **kw)
+    "Native `<dialog>` modal overlay `FT` component (`craft-overlay`)."
+    return fx.Dialog(*kids, klass=_cls('craft-overlay', cls), **kw)
 
 def craft_card(*kids, cls='', **kw):
     "Elevated dialog/popover card `FT` component (`uk-card craft-card`)."
     return fx.Div(*kids, klass=_cls('uk-card craft-card', cls), **kw)
 
 def craft_menu(*kids, cls='', **kw):
-    "Floating popover/context menu `FT` component (`craft-menu`)."
+    "Floating popover/context menu `FT` component (`craft-menu`, native `popover='auto'` by default)."
+    kw.setdefault('popover', 'auto')
     return fx.Div(*kids, klass=_cls('craft-menu', cls), **kw)
 
 def craft_btn(*kids, variant='default', size='sm', cls='', **kw):
@@ -123,10 +124,18 @@ def extract_nb_assets(nb_path):
         res[target] = [(it[0], _wrap_iife(grp_by_slot[id(it)], it[1])) if isinstance(it, list) else it for it in items]
     return res
 
-# %% ../nbs/03_build.ipynb #213c5582
+# %% ../nbs/03_build.ipynb #7b9cc958
 def _check_js_syntax(js_path):
     res = subprocess.run(['node', '--check', str(js_path)], capture_output=True, text=True)
     if res.returncode: raise RuntimeError(f"node --check failed for {js_path}:\n{res.stderr}")
+
+def _check_js_types(js_path):
+    tsc = shutil.which('tsc')
+    if not tsc: return False
+    cmd = [tsc, '--noEmit', '--allowJs', '--checkJs', '--target', 'es2022', '--lib', 'es2022,dom', str(js_path)]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode: raise RuntimeError(f"tsc --checkJs failed for {js_path}:\n{res.stdout}{res.stderr}")
+    return True
 
 def _check_unique_prefixes(nb_paths, nbs_dir):
     by_pfx = defaultdict(list)
@@ -137,11 +146,13 @@ def _check_unique_prefixes(nb_paths, nbs_dir):
         msg = '; '.join(f"{k}_: {', '.join(v)}" for k, v in sorted(dups.items()))
         raise ValueError(f"Duplicate numeric notebook prefixes in {nbs_dir}: {msg}")
 
+# %% ../nbs/03_build.ipynb #213c5582
 def build_dist(
     out_dir=DEFAULT_DIST_DIR, # Output directory for assembled CRAFT assets
     nbs_dir=DEFAULT_CRAFT_NBS_DIR, # Directory of feature notebooks containing `#| export_*` cells
     src_dir=REPO_ROOT, # Repo root used to copy not-yet-migrated assets and `vscode-icons/`
     check_js=True, # Run `node --check` on every `.js` file in `out_dir`
+    check_types=True, # Run `tsc --noEmit --allowJs --checkJs` on `CRAFT.js` when `tsc` is available
     check_prefixes=True, # Fail if two notebooks in `nbs_dir` share the same numeric prefix
 ):
     "Assemble a complete CRAFT asset bundle in `out_dir` from feature notebooks plus unmigrated root files."
@@ -187,4 +198,22 @@ def build_dist(
     if check_js:
         for target in report:
             if target.endswith('.js'): _check_js_syntax(out_dir/target)
+        if check_types and 'CRAFT.js' in report: _check_js_types(out_dir/'CRAFT.js')
     return report
+
+# %% ../nbs/03_build.ipynb #954e5ad0
+def sync_dist_to_root(
+    dist_dir=DEFAULT_DIST_DIR, # Built dist directory to copy assets from
+    root_dir=REPO_ROOT, # Repo root directory receiving synced assets
+):
+    "Copy built CRAFT assets from `dist_dir` to `root_dir` and report orphaned root `.js`/`.css` files."
+    dist_dir, root_dir = Path(dist_dir), Path(root_dir)
+    copied = []
+    for name in CRAFT_ASSET_FILES:
+        src = dist_dir/name
+        if src.is_file():
+            shutil.copy2(src, root_dir/name)
+            copied.append(name)
+    known = set(CRAFT_ASSET_FILES)
+    orphaned = sorted(p.name for p in root_dir.ls(file_exts=['.js', '.css']) if p.name not in known)
+    return dict(copied=copied, orphaned=orphaned)

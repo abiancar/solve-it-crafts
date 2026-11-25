@@ -4,7 +4,7 @@
 
 # %% auto #0
 __all__ = ['cmd_auth', 'cmd_auth_cookie', 'cmd_auth_import', 'cmd_auth_status', 'cmd_inspect', 'cmd_smoke', 'cmd_build',
-           'cmd_tunnel', 'cmd_deploy', 'build_parser', 'main']
+           'cmd_build_ext', 'cmd_tunnel', 'cmd_deploy', 'build_parser', 'main']
 
 # %% ../nbs/02_cli.ipynb #5494c3cf
 import argparse, json, shutil, subprocess
@@ -15,9 +15,10 @@ from fastcore.utils import *
 from .auth import (
     DEFAULT_AUTH_FILE, DEFAULT_CHROME_PROFILE, DEFAULT_SOLVEIT_URL,
     default_target_url, import_cookies_json, login, save_cookie_header,)
-from .build import DEFAULT_CRAFT_NBS_DIR, DEFAULT_DIST_DIR, build_dist
+from .build import DEFAULT_CRAFT_NBS_DIR, DEFAULT_DIST_DIR, build_dist, sync_dist_to_root
 from .cdp import inspect_dialog, smoke_dialog
 from .tunnel import DEFAULT_RG_TOKEN_FILE, DEFAULT_TS_TAG, deploy_dist, ensure_local_tailscale, ensure_tunnel
+from .chrome_ext import DEFAULT_CHROME_EXT_DIR, build_chrome_ext
 
 # %% ../nbs/02_cli.ipynb #84e32d7a
 def cmd_auth(args):
@@ -110,6 +111,18 @@ def cmd_build(args):
     rep = build_dist(out_dir=Path(args.out), nbs_dir=Path(args.nbs_dir), check_js=not args.no_check)
     for name, info in sorted(rep.items()): print(f"  [{info['source']:6s}] {name} ({info['lines']} lines)")
     print(f"Built {len(rep)} assets into {args.out}")
+    if args.sync:
+        sync_res = sync_dist_to_root(dist_dir=Path(args.out))
+        print(f"Synced {len(sync_res['copied'])} assets to repo root")
+        if sync_res['orphaned']: print(f"Warning: orphaned root assets (not in CRAFT_ASSET_FILES): {', '.join(sync_res['orphaned'])}")
+        ext_res = build_chrome_ext(check_js=not args.no_check)
+        print(f"Built Chrome extension ({len(ext_res)} files) into {DEFAULT_CHROME_EXT_DIR}")
+    return 0
+
+def cmd_build_ext(args):
+    rep = build_chrome_ext(out_dir=Path(args.out), check_js=not args.no_check)
+    for name, sz in sorted(rep.items()): print(f"  [ext   ] {name} ({sz} bytes)")
+    print(f"Built Chrome extension ({len(rep)} files) into {args.out}")
     return 0
 
 def cmd_tunnel(args):
@@ -184,7 +197,13 @@ def build_parser():
     p_bld.add_argument('--out', default=str(DEFAULT_DIST_DIR))
     p_bld.add_argument('--nbs-dir', default=str(DEFAULT_CRAFT_NBS_DIR))
     p_bld.add_argument('--no-check', action='store_true')
+    p_bld.add_argument('--sync', action='store_true', help='Copy built assets to repo root and flag orphaned root assets.')
     p_bld.set_defaults(func=cmd_build)
+
+    p_ext = sub.add_parser('build-ext', help="Build the unpacked MV3 Chrome/Vivaldi extension in chrome-ext/.")
+    p_ext.add_argument('--out', default=str(DEFAULT_CHROME_EXT_DIR))
+    p_ext.add_argument('--no-check', action='store_true')
+    p_ext.set_defaults(func=cmd_build_ext)
 
     p_tun = sub.add_parser('tunnel', help="Ensure private Tailscale + rustygate tunnel is up (or --down to disconnect).")
     p_tun.add_argument('--name', default='craft-test')

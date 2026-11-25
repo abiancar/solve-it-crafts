@@ -56,7 +56,7 @@ class InspectReport:
 HEALTH_PROBE_JS = r"""(() => {
   const globals = [
     'craftC2', 'craftMd', 'craftOmit', 'craftParts', 'craftActionMenus', 'craftCellChains',
-    'craftTables', 'craftIdleComposer', 'craftInsertPreview', 'craftDesktopUX', 'craftImageDrop',
+    'craftTables', 'craftNoMonaco', 'craftInsertPreview', 'craftDesktopUX', 'craftImageDrop',
     'craftMobile', 'craftMobileBar', 'craftContext', 'craftFonts', 'craftStruct', 'craftNavRef',
     'craftHistory', 'craftTTS', 'craftBugCapture', 'solveitHotkeys', 'solveitFileTree', '__hotkeyRegister',
   ];
@@ -339,11 +339,118 @@ def inspect_dialog(**kwargs):
     "Synchronous wrapper around `ainspect_dialog`."
     return asyncio.run(ainspect_dialog(**kwargs))
 
+# %% ../nbs/01_cdp.ipynb #8a0d758a
+_OPTIONAL_SOLVEIT_SELS = frozenset({'promptCard', 'rawCard', 'cardOut', 'codeCard', 'noteCard', 'tblRow', 'ansiRed', 'skipActive', 'running'})
+
+_FULL_EDITOR_HIDDEN_JS = "(() => !document.querySelector('#full_editor') && (window.monaco?.editor?.getEditors?.().length || 0) === 0 && (window.monaco?.editor?.getModels?.().length || 0) === 0)()"
+
+_SOLVEIT_CONTRACT_JS = r"""(optionalKeys => {
+  const selMap = window.__craftCMCore?.SOLVEIT?.sel;
+  if (!selMap) return {ok: false, reason: 'CORE.SOLVEIT.sel missing'};
+  const cells = [...document.querySelectorAll('#dialog-container > .editable')];
+  const opt = new Set(optionalKeys);
+  const matched = [], missingRequired = [], invalid = [];
+  for (const [k, sel] of Object.entries(selMap)) {
+    try {
+      const hit = sel.trim().startsWith(':scope')
+        ? cells.some(c => Boolean(c.querySelector(sel)))
+        : Boolean(document.querySelector(sel));
+      if (hit) matched.push(k);
+      else if (!opt.has(k)) missingRequired.push(k);
+    } catch (e) { invalid.push(`${k}: ${e.message}`); }
+  }
+  const total = Object.keys(selMap).length;
+  return {ok: !invalid.length && !missingRequired.length, total, matched: matched.length, missingRequired, invalid};
+})"""
+
+async def _smoke_click_editor(page, mtype, global_name):
+    cid = await page.eval(f"""(() => {{
+      const cells = [...document.querySelectorAll('#dialog-container > .editable[id]')];
+      for (const el of cells) {{
+        if (el.hidden || el.classList.contains('craft-omitted')) continue;
+        const card = el.querySelector(':scope > .card-in');
+        if (!card || card.dataset.mtype !== {json.dumps(mtype)} || card.classList.contains('collapsed')) continue;
+        const content = card.querySelector('.msg-content');
+        if (!content) continue;
+        const r = content.getBoundingClientRect();
+        if (r.width > 4 && r.height > 4) {{ content.scrollIntoView({{block: 'center'}}); return el.id; }}
+      }}
+      return null;
+    }})()""")
+    if not cid: return True, f'skipped (no visible {mtype} cell)', True
+    mounted = active = unmounted = False
+    hidden_ok = True
+    try:
+        await page.sel_click(f'#{cid} > .card-in .msg-content')
+        await page.wait_for_selector(f'#{cid} .cm-editor .cm-content', timeout=10)
+        mounted = True
+        active = bool(await page.eval(f"Boolean(window.{global_name}?.active?.())"))
+        hidden_ok = bool(await page.eval(_FULL_EDITOR_HIDDEN_JS))
+    except Exception as exc: return False, f"id={cid}, err={exc}", bool(await page.eval(_FULL_EDITOR_HIDDEN_JS))
+    finally:
+        try:
+            await page.press('Escape')
+            if await page.eval(f"Boolean(window.{global_name}?.active?.())"): await page.eval(f"window.{global_name}?.exit?.()")
+            await page.wait_for_selector(f'#{cid} .cm-editor', present=False, timeout=5)
+            unmounted = True
+        except Exception: unmounted = False
+    return bool(mounted and active and unmounted), f"id={cid}, active={active}, unmounted={unmounted}", hidden_ok
+
+async def _smoke_native_dialog(page):
+    opened = is_dialog = closed = False
+    await page.press('P', mod=True, shift=True)
+    try:
+        await page.wait_for_selector('dialog#solveit-launcher[open]', timeout=3)
+        opened = True
+        is_dialog = bool(await page.eval("(() => { const d = document.getElementById('solveit-launcher'); return d?.tagName === 'DIALOG' && d.open === true; })()"))
+    except Exception: opened = False
+    await page.press('Escape')
+    try:
+        await page.wait_for_selector('dialog#solveit-launcher[open]', present=False, timeout=3)
+        closed = True
+    except Exception: closed = False
+    return bool(opened and is_dialog and closed), f"open={opened}, dialog={is_dialog}, closed={closed}"
+
+async def _smoke_file_tree(page):
+    opened = expanded = filtered = focus_kept = clear_focus = closed = False
+    filter_sel = '#solveit-file-tree-panel .solveit-tree-filter'
+    await page.press('b', mod=True)
+    try:
+        await page.wait_for_selector('#solveit-file-tree-panel.open', timeout=3)
+        await page.wait_for_selector('#solveit-file-tree .solveit-tree-row', timeout=5)
+        opened = True
+        folder_state = await page.eval(r"""(() => {
+          const ds = [...document.querySelectorAll('#solveit-file-tree details.solveit-tree-folder')];
+          if (!ds.length) return 'none';
+          if (ds.some(d => d.open)) return 'open';
+          return 'closed';
+        })()""")
+        if folder_state == 'closed':
+            await page.sel_click('#solveit-file-tree details.solveit-tree-folder:not([open]) > summary.solveit-tree-row')
+            await page.wait_for_selector('#solveit-file-tree details.solveit-tree-folder[open]', timeout=5)
+            expanded = True
+        else: expanded = True
+        await page.sel_click(filter_sel)
+        await page.fill_text(filter_sel, '__craft_smoke_no_match__')
+        await page.wait_for("document.querySelectorAll('#solveit-file-tree li.solveit-tree-item').length === 0", timeout=3)
+        filtered = True
+        focus_kept = bool(await page.eval(f"document.activeElement?.matches({json.dumps(filter_sel)})"))
+        await page.fill_text(filter_sel, '')
+        await page.wait_for("document.querySelectorAll('#solveit-file-tree li.solveit-tree-item').length >= 1", timeout=3)
+        clear_focus = bool(await page.eval(f"document.activeElement?.matches({json.dumps(filter_sel)})"))
+    except Exception as exc: detail = f"open={opened}, expand={expanded}, filter={filtered}, focus={focus_kept}, clear={clear_focus}, err={exc}"
+    else: detail = f"open={opened}, expand={expanded}, filter={filtered}, focus={focus_kept}, clear={clear_focus}"
+    finally:
+        await page.press('b', mod=True)
+        try:
+            await page.wait_for_selector('#solveit-file-tree-panel.open', present=False, timeout=3)
+            closed = True
+        except Exception: closed = False
+    return bool(opened and expanded and filtered and focus_kept and clear_focus and closed), f"{detail}, closed={closed}"
+
 # %% ../nbs/01_cdp.ipynb #24aa049c
-async def asmoke_dialog(
-    *, url=None, auth_file=DEFAULT_AUTH_FILE, mode='local', assets_dir=None, wait_ms=2000,
-    screenshot_dir=None, headed=False, browser_name='chrome', executable_path=None, mobile=False,
-):
+async def asmoke_dialog(*, url=None, auth_file=DEFAULT_AUTH_FILE, mode='local', assets_dir=None, wait_ms=2000,
+    screenshot_dir=None, headed=False, browser_name='chrome', executable_path=None, mobile=False):
     "Run non-destructive UI smoke checks against a Solveit dialog via `fastcdp`."
     checks = []
     def record(name, ok, detail=''): checks.append((name, ok, detail))
@@ -362,21 +469,32 @@ async def asmoke_dialog(
             if mode != 'vanilla':
                 missing = [g for g in _CORE_GLOBALS if health['globals'].get(g) is None]
                 record('core-craft-globals', not missing, f"missing={missing}" if missing else 'all present')
-                for name, open_kw, close_kw, sel in [
-                    ('file-tree-toggle', dict(key='b', mod=True), dict(key='b', mod=True), '#solveit-file-tree-panel.open'),
-                    ('launcher-toggle', dict(key='P', mod=True, shift=True), dict(key='Escape'), '#solveit-launcher.open'),
-                ]:
-                    await page.press(**open_kw)
-                    try:
-                        await page.wait_for_selector(sel, timeout=3)
-                        opened = True
-                    except Exception: opened = False
-                    await page.press(**close_kw)
-                    try:
-                        await page.wait_for_selector(sel, present=False, timeout=3)
-                        closed = True
-                    except Exception: closed = False
-                    record(name, opened and closed, f"open={opened}, closed={closed}")
+                full_ed_ok = bool(await page.eval(_FULL_EDITOR_HIDDEN_JS))
+
+                ok, det, hid = await _smoke_click_editor(page, 'code', 'craftC2')
+                full_ed_ok = full_ed_ok and hid
+                record('code-cell-click-edit', ok, det)
+
+                ok, det, hid = await _smoke_click_editor(page, 'note', 'craftMd')
+                full_ed_ok = full_ed_ok and hid
+                record('note-cell-click-edit', ok, det)
+
+                ok, det = await _smoke_native_dialog(page)
+                record('native-dialog-modal', ok, det)
+
+                ok, det = await _smoke_file_tree(page)
+                record('file-tree-expand-filter', ok, det)
+
+                c_res = await page.eval(f"{_SOLVEIT_CONTRACT_JS}({json.dumps(sorted(_OPTIONAL_SOLVEIT_SELS))})")
+                if 'reason' in c_res: record('solveit-dom-contracts', False, c_res['reason'])
+                else:
+                    det = f"{c_res['matched']}/{c_res['total']} matched"
+                    if c_res['missingRequired']: det += f", missing={c_res['missingRequired']}"
+                    if c_res['invalid']: det += f", invalid={c_res['invalid']}"
+                    record('solveit-dom-contracts', bool(c_res['ok']), det)
+
+                full_ed_ok = full_ed_ok and bool(await page.eval(_FULL_EDITOR_HIDDEN_JS))
+                record('full-editor-hidden', full_ed_ok, '#full_editor removed & Monaco disposed' if full_ed_ok else '#full_editor or Monaco still present')
             record('no-uncaught-page-errors', not page_errors, '; '.join(page_errors[:3]))
             if screenshot_dir:
                 out = Path(screenshot_dir)

@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "Solveit CRAFT \u2014 Block Monaco",
+  "version": "0.1.0",
+  "description": "Redirects Solveit modern-monaco and tm-grammars requests on *.solve.it.com to local no-op stubs so CRAFT uses CodeMirror 6 without loading Monaco.",
+  "permissions": [
+    "declarativeNetRequest"
+  ],
+  "host_permissions": [
+    "https://*.solve.it.com/*",
+    "https://esm.sh/*"
+  ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "block_monaco",
+        "enabled": true,
+        "path": "rules.json"
+      }
+    ]
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "monaco_stub.mjs",
+        "empty_grammar.json"
+      ],
+      "matches": [
+        "https://*.solve.it.com/*"
+      ]
+    }
+  ]
+}
