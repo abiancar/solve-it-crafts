@@ -1,5 +1,5 @@
 /* %% nbs/craft/03_hotkey_manager.ipynb #ea005e0d */
-window.__craftTpl = Object.assign(window.__craftTpl || {}, {"hk_overlay": "<div class=\"craft-overlay hk-overlay\"><div class=\"uk-card craft-card hk-modal\" role=\"dialog\" aria-modal=\"true\" aria-label=\"Keyboard shortcuts\" tabindex=\"-1\"><header class=\"uk-modal-header hk-head\"><strong>Keyboard shortcuts</strong><span class=\"hk-sub\">Click Change to rebind · Esc cancels · ⊘ also disables a Solveit row's original key</span><button class=\"hk-close\" type=\"button\" aria-label=\"Close\">×</button></header><div class=\"uk-modal-body hk-body\"></div><footer class=\"uk-modal-footer hk-foot\"><span>Overrides are saved in this browser.</span><button class=\"uk-btn uk-btn-default uk-btn-sm hk-reset-all\" type=\"button\">Reset all</button></footer></div></div>"});
+window.__craftTpl = Object.assign(window.__craftTpl || {}, {"hk_overlay": "<dialog class=\"craft-overlay hk-overlay\" aria-label=\"Keyboard shortcuts\"><div class=\"uk-card craft-card hk-modal\"><header class=\"uk-modal-header hk-head\"><strong>Keyboard shortcuts</strong><span class=\"hk-sub\">Click Change to rebind · Esc cancels · ⊘ also disables a Solveit row's original key</span><button class=\"hk-close\" type=\"button\" aria-label=\"Close\">×</button></header><div class=\"uk-modal-body hk-body\"></div><footer class=\"uk-modal-footer hk-foot\"><span>Overrides are saved in this browser.</span><button class=\"uk-btn uk-btn-default uk-btn-sm hk-reset-all\" type=\"button\">Reset all</button></footer></div></dialog>"});
 
 /* %% nbs/craft/03_hotkey_manager.ipynb #8b08b80e */
 (() => { /* iife:hotkeyManager */
@@ -167,6 +167,8 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"hk_overlay": "<div 
     menuRefs = mountTpl('hk_overlay', {refs: {reset: '.hk-reset-all', body: '.hk-body', modal: '.hk-modal'}});
     overlay = menuRefs.root;
     on(overlay, 'click', e => { if (e.target === overlay || e.target.closest('.hk-close')) closeMenu(); });
+    on(overlay, 'close', () => { menuOpen = false; capturing = null; });
+    on(overlay, 'cancel', e => { e.preventDefault(); closeMenu(); });
     menuRefs.reset.onclick = () => { overrides = {}; save(); refreshChips(); renderRows(); };
     return overlay;
   }
@@ -208,13 +210,13 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"hk_overlay": "<div 
   function openMenu() {
     if (menuOpen) return true;
     menuOpen = true;
-    (overlay ?? buildMenu()).classList.add('open');
-    document.body.append(overlay);
+    const dlg = overlay ?? buildMenu();
+    if (!dlg.isConnected) document.body.append(dlg);
     renderRows();
-    menuRefs.modal.focus();
+    if (!dlg.open) dlg.showModal();
     return true;
   }
-  function closeMenu() { menuOpen = false; capturing = null; overlay?.classList.remove('open'); }
+  function closeMenu() { menuOpen = false; capturing = null; if (overlay?.open) overlay.close(); }
 
   on(window, 'keydown', e => {
     if (e.repeat) return;

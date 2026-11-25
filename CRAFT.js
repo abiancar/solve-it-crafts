@@ -228,22 +228,68 @@ const langCache = window.__craftCM6Langs ??= new Map();
     };
   }
 
+  const SOLVEIT = Object.freeze({
+    sel: Object.freeze({
+      dialog: '#dialog-container',
+      cell: '#dialog-container > .editable',
+      cellWithId: '#dialog-container > .editable[id]',
+      primaryCell: '#dialog-container > .editable[data-sm="primary"]',
+      selectedCell: '[data-sm="primary"],[data-sm="secondary"]',
+      cardIn: ':scope > .card-in',
+      cardOut: ':scope > .card-out',
+      cardInType: '.card-in[data-mtype]',
+      codeCard: '.card-in[data-mtype="code"]',
+      noteCard: '.card-in[data-mtype="note"]',
+      promptCard: '.card-in[data-mtype="prompt"]',
+      rawCard: '.card-in[data-mtype="raw"]',
+      cardHeader: '.uk-card-header',
+      msgBody: '.msg-body',
+      msgContent: '.msg-content',
+      findBox: '#find-box',
+      kid: '#kid',
+      tblRow: '.tbl-row',
+      ansiRed: '.ansi-red-fg',
+      collapseBtn: '[hx-post="/collapse_"]',
+      skipBtn: 'button[hx-post="/toggle_skip_"]',
+      skipActive: 'button[hx-post="/toggle_skip_"] use[href="#lc-eye-off"]',
+      editBtn: '.card-in [hx-post="/editor_"]',
+      deleteBtn: '.uk-card-header button[title^="Delete"], .uk-card-header button[hx-post*="rm_msg"], .uk-card-header button[hx-post*="del_msg"]',
+      running: '#dialog-container .editable[data-wait="true"], #dialog-container .htmx-request, #dialog-container [data-running="true"]',
+    }),
+    api: Object.freeze({
+      addAbove: '/add_above_',
+      addBelow: '/add_below_',
+      setMtyp: '/set_mtyp_',
+      toggleSkip: '/toggle_skip_',
+      upsertMsg: '/upsert_msg_',
+      rmMsg: '/rm_msg_',
+      collapse: '/collapse_',
+      addRunq: '/add_runq_',
+      setContents: '/set_contents_',
+      splitAt: '/split_at_',
+      continuePrompt: '/continue_prompt_',
+      editor: '/editor_',
+      uploadAttachment: '/upload_attachment_',
+    }),
+    cardInOf: mtype => `.card-in[data-mtype="${mtype}"]`,
+  });
+
   async function jumpToLastCell(exitFn) {
     await exitFn();
-    const all = [...document.querySelectorAll('#dialog-container > .editable')].filter(e => !e.hidden && getComputedStyle(e).display !== 'none');
+    const all = [...document.querySelectorAll(SOLVEIT.sel.cell)].filter(e => !e.hidden && getComputedStyle(e).display !== 'none');
     const last = all[all.length - 1];
     if (!last) return;
-    if (window.craftC2?.manages?.(last.id) && !last.querySelector(':scope > .card-in')?.classList.contains('collapsed')) {
+    if (window.craftC2?.manages?.(last.id) && !last.querySelector(SOLVEIT.sel.cardIn)?.classList.contains('collapsed')) {
       last.scrollIntoView({block: 'nearest'});
       window.craftC2.edit(last.id, {toEnd: true});
     } else if (window.craftMd?.manages?.(last.id)) {
       last.scrollIntoView({block: 'nearest'});
       window.craftMd.edit(last.id, {toEnd: true});
     } else {
-      last.querySelector('div[hx-post^="/editor_"]')?.click();
+      last.querySelector(`div[hx-post^="${SOLVEIT.api.editor}"]`)?.click();
     }
   }
-  const MODAL_OPEN_SEL = '.uk-modal.uk-open, .craft-overlay.open, [data-craft-modal].open';
+  const MODAL_OPEN_SEL = '.uk-modal.uk-open, dialog.craft-overlay[open], dialog[data-craft-modal][open], .craft-overlay.open, [data-craft-modal].open';
   const BLOCKED_SEL = `input,textarea,select,[contenteditable],.monaco-editor,#full_editor,${MODAL_OPEN_SEL},[role="dialog"]`;
   const kid = () => document.getElementById('kid')?.value || '';
   const typingBlocked = (extra = '') => !!document.activeElement?.closest(extra ? `${BLOCKED_SEL},${extra}` : BLOCKED_SEL);
@@ -339,7 +385,7 @@ async function saveInputContents({id, content, waitersMap, key = id, tag = 'craf
     waiters.push(resolveReq);
     waitersMap.set(key, waiters);
     try {
-      const ajaxP = htmxPost('/set_contents_', {id_: '_' + id, ids: id, contents: JSON.stringify({[id]: content})})
+      const ajaxP = htmxPost(SOLVEIT.api.setContents, {id_: '_' + id, ids: id, contents: JSON.stringify({[id]: content})})
         .then(() => statusP).catch(() => false);
       const timeoutP = new Promise(r => setTimeout(() => r(false), 8000));
       return Boolean(await Promise.race([ajaxP, timeoutP]));
@@ -360,7 +406,7 @@ async function saveInputContents({id, content, waitersMap, key = id, tag = 'craf
     const content = view.state.doc.toString();
     const linenos = [...new Set(view.state.selection.ranges.map(r => view.state.doc.lineAt(r.from).number))];
     try {
-      await htmxPost('/split_at_', {content, linenos: JSON.stringify(linenos), id_: id, msg_type: msgType, is_input: '1'});
+      await htmxPost(SOLVEIT.api.splitAt, {content, linenos: JSON.stringify(linenos), id_: id, msg_type: msgType, is_input: '1'});
       onSuccess?.();
     } catch (err) {
       notifyErr('Could not split cell.', tag);
@@ -370,15 +416,13 @@ async function saveInputContents({id, content, waitersMap, key = id, tag = 'craf
 
   async function switchCellMtype({id, mtyp, onMatch, tag = 'craft'}) {
     try {
-      await htmxPost('/set_mtyp_', {id_: '_' + id, ids: '_' + id, mtyp});
+      await htmxPost(SOLVEIT.api.setMtyp, {id_: '_' + id, ids: '_' + id, mtyp});
       if (!onMatch) return;
-      for (let i = 0; i < 60; i++) {
-        if (getCellEl(id)?.querySelector(':scope > .card-in')?.dataset.mtype === mtyp) {
-          onMatch();
-          return;
-        }
-        await new Promise(r => setTimeout(r, 40));
-      }
+      const matched = await waitForHtmxSettle(
+        () => getCellEl(id)?.querySelector(SOLVEIT.sel.cardIn)?.dataset.mtype === mtyp,
+        2500
+      );
+      if (matched) onMatch();
     } catch (err) {
       notifyErr('Could not change cell type.', tag);
       console.error(`${tag}: set_mtyp failed`, err);
@@ -388,8 +432,8 @@ async function saveInputContents({id, content, waitersMap, key = id, tag = 'craf
   async function runCellCmd({id, cmd, after = '', tag = 'craft', failMsg = ''}) {
     const runCmd = cmd === 'continue' ? 'run' : cmd;
     try {
-      await htmxPost('/add_runq_', {id_: '_' + id, ids: '_' + id, cmd: runCmd, after});
-      if (cmd === 'continue') await htmxPost('/continue_prompt_', {id_: '_' + id, ids: '_' + id});
+      await htmxPost(SOLVEIT.api.addRunq, {id_: '_' + id, ids: '_' + id, cmd: runCmd, after});
+      if (cmd === 'continue') await htmxPost(SOLVEIT.api.continuePrompt, {id_: '_' + id, ids: '_' + id});
       return true;
     } catch (err) {
       console.error(`${tag}: run failed`, err);
@@ -405,36 +449,110 @@ async function saveInputContents({id, content, waitersMap, key = id, tag = 'craf
   }
 
   const _domSubs = new Set();
+  const _cellSubs = new Set();
+  const _pendingCells = new Set();
+  const _pendingAttrCells = new Map();
+  let _cellRaf = 0;
   const _DOM_ATTRS = ['class', 'style', 'hidden', 'data-mtype', 'data-editing', 'data-sm', 'data-sm-header', 'data-c2-editing', 'data-md-editing', 'data-diff', 'data-wait', 'value'];
   let _domObs = null, _domObserving = false, _domCharData = false;
   const _inDialog = target => {
     const el = target instanceof Element ? target : target?.parentElement;
-    return Boolean(el && (el.id === 'dialog-container' || el.closest('#dialog-container')));
+    return Boolean(el && (el.id === 'dialog-container' || el.closest(SOLVEIT.sel.dialog)));
+  };
+  const _flushCells = () => {
+    _cellRaf = 0;
+    const added = [..._pendingCells].filter(c => c.isConnected);
+    const attrMap = new Map(_pendingAttrCells);
+    _pendingCells.clear();
+    _pendingAttrCells.clear();
+    if (!added.length && !attrMap.size) return;
+    for (const sub of [..._cellSubs]) {
+      if (!sub.attrs) {
+        if (added.length) sub.fn(added);
+        continue;
+      }
+      const hit = new Set(added);
+      for (const a of sub.attrs) {
+        const s = attrMap.get(a);
+        if (s) for (const c of s) if (c.isConnected) hit.add(c);
+      }
+      if (hit.size) sub.fn([...hit]);
+    }
+  };
+  const _collectCells = records => {
+    if (!_cellSubs.size) return;
+    let dirty = false;
+    for (const r of records) {
+      if (r.type === 'childList') {
+        for (const node of r.addedNodes) {
+          if (!(node instanceof Element)) continue;
+          if (node.matches(SOLVEIT.sel.cell)) { _pendingCells.add(node); dirty = true; }
+          else if (node.id === 'dialog-container' || node.querySelector?.(SOLVEIT.sel.cell)) {
+            for (const c of node.querySelectorAll(SOLVEIT.sel.cell)) { _pendingCells.add(c); dirty = true; }
+          } else {
+            const hostCell = node.closest?.(SOLVEIT.sel.cell);
+            if (hostCell) { _pendingCells.add(hostCell); dirty = true; }
+          }
+        }
+      } else if (r.type === 'attributes' && r.target instanceof Element) {
+        const hostCell = r.target.closest?.(SOLVEIT.sel.cell);
+        if (hostCell) {
+          let s = _pendingAttrCells.get(r.attributeName);
+          if (!s) _pendingAttrCells.set(r.attributeName, s = new Set());
+          s.add(hostCell);
+          dirty = true;
+        }
+      }
+    }
+    if (dirty && !_cellRaf) _cellRaf = requestAnimationFrame(_flushCells);
+  };
+  let _muting = 0;
+  const _isLiveMut = r => r.type !== 'attributes' || !(r.target instanceof Element) || r.target.getAttribute(r.attributeName) !== r.oldValue;
+  const _handleRecords = records => {
+    const live = records.filter(_isLiveMut);
+    if (!live.length) return;
+    _collectCells(live);
+    for (const sub of [..._domSubs]) {
+      const hit = live.some(r =>
+        (!sub.inDialog || _inDialog(r.target)) &&
+        (r.type === 'childList' || (sub.charData && r.type === 'characterData') || (sub.attrs && sub.attrs.has(r.attributeName)))
+      );
+      if (!hit) continue;
+      if (sub.delay === 0) sub.fn(live);
+      else if (sub.delay === 'micro') { if (!sub.pend) { sub.pend = true; queueMicrotask(() => { sub.pend = false; if (_domSubs.has(sub)) _runMuted(sub.fn); }); } }
+      else if (sub.delay === 'raf') { if (!sub.pend) sub.pend = requestAnimationFrame(() => { sub.pend = 0; if (_domSubs.has(sub)) _runMuted(sub.fn); }); }
+      else if (typeof sub.delay === 'number') { if (!sub.pend) sub.pend = setTimeout(() => { sub.pend = 0; if (_domSubs.has(sub)) _runMuted(sub.fn); }, sub.delay); }
+    }
+  };
+  const _runMuted = fn => {
+    if (!_domObs || !_domObserving) return fn();
+    if (!_muting) {
+      const pre = _domObs.takeRecords();
+      if (pre.length) _handleRecords(pre);
+    }
+    _muting++;
+    try { return fn(); }
+    finally {
+      _muting--;
+      if (!_muting && _domObs && _domObserving) _domObs.takeRecords();
+    }
   };
   const _ensureDomObs = () => {
-    if (!_domSubs.size || !document.body) return;
+    if ((!_domSubs.size && !_cellSubs.size) || !document.body) return;
     const needCharData = [..._domSubs].some(s => s.charData);
     if (_domObserving && _domCharData === needCharData) return;
-    if (!_domObs) {
-      _domObs = new MutationObserver(records => {
-        for (const sub of [..._domSubs]) {
-          if (sub.inDialog && !records.some(r => _inDialog(r.target))) continue;
-          const hit = records.some(r => r.type === 'childList' || (sub.charData && r.type === 'characterData') || (sub.attrs && sub.attrs.has(r.attributeName)));
-          if (!hit) continue;
-          if (sub.delay === 0) sub.fn(records);
-          else if (sub.delay === 'micro') { if (!sub.pend) { sub.pend = true; queueMicrotask(() => { sub.pend = false; if (_domSubs.has(sub)) sub.fn(); }); } }
-          else if (sub.delay === 'raf') { if (!sub.pend) sub.pend = requestAnimationFrame(() => { sub.pend = 0; if (_domSubs.has(sub)) sub.fn(); }); }
-          else if (typeof sub.delay === 'number') { if (!sub.pend) sub.pend = setTimeout(() => { sub.pend = 0; if (_domSubs.has(sub)) sub.fn(); }, sub.delay); }
-        }
-      });
-    }
+    if (!_domObs) _domObs = new MutationObserver(_handleRecords);
     if (_domObserving) _domObs.disconnect();
-    _domObs.observe(document.body, {childList: true, subtree: true, attributes: true, characterData: needCharData, attributeFilter: _DOM_ATTRS});
+    _domObs.observe(document.body, {childList: true, subtree: true, attributes: true, attributeOldValue: true, characterData: needCharData, attributeFilter: _DOM_ATTRS});
     _domObserving = true;
     _domCharData = needCharData;
   };
   const _teardownDomObs = () => {
     document.removeEventListener('DOMContentLoaded', _ensureDomObs);
+    if (_cellRaf) { cancelAnimationFrame(_cellRaf); _cellRaf = 0; }
+    _cellSubs.clear();
+    _pendingCells.clear();
+    _pendingAttrCells.clear();
     for (const sub of _domSubs) {
       if (sub.delay === 'raf' && sub.pend) cancelAnimationFrame(sub.pend);
       else if (typeof sub.delay === 'number' && sub.pend) clearTimeout(sub.pend);
@@ -453,20 +571,35 @@ async function saveInputContents({id, content, waitersMap, key = id, tag = 'craf
       if (sub.delay === 'raf' && sub.pend) cancelAnimationFrame(sub.pend);
       else if (typeof sub.delay === 'number' && sub.pend) clearTimeout(sub.pend);
       sub.pend = 0;
-      if (!_domSubs.size && _domObs) { _domObs.disconnect(); _domObserving = false; _domCharData = false; }
+      if (!_domSubs.size && !_cellSubs.size && _domObs) { _domObs.disconnect(); _domObserving = false; _domCharData = false; }
       else if (sub.charData) _ensureDomObs();
+    };
+  }
+  function onCells(fn, {attrs = null, initial = false} = {}) {
+    const sub = {fn, attrs: attrs ? new Set(attrs) : null};
+    _cellSubs.add(sub);
+    if (document.body) _ensureDomObs();
+    else document.addEventListener('DOMContentLoaded', _ensureDomObs, {once: true});
+    if (initial) {
+      const runInit = () => { const cs = allCells(); if (cs.length && _cellSubs.has(sub)) fn(cs); };
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', runInit, {once: true});
+      else runInit();
+    }
+    return () => {
+      _cellSubs.delete(sub);
+      if (!_domSubs.size && !_cellSubs.size && _domObs) { _domObs.disconnect(); _domObserving = false; _domCharData = false; }
     };
   }
 
   const allCells = ({visible = false} = {}) => {
-    const cells = qsa('#dialog-container > .editable[id]');
+    const cells = qsa(SOLVEIT.sel.cellWithId);
     return visible ? cells.filter(c => !c.classList.contains('craft-omitted') && c.offsetParent !== null) : cells;
   };
   const selectedCells = ({includeOmitted = false} = {}) => allCells().filter(e =>
-    e.matches('[data-sm="primary"],[data-sm="secondary"]') && (includeOmitted || !e.classList.contains('craft-omitted'))
+    e.matches(SOLVEIT.sel.selectedCell) && (includeOmitted || !e.classList.contains('craft-omitted'))
   );
-  const primaryCell = () => qs('#dialog-container > .editable[data-sm="primary"]') || selectedCells()[0] || null;
-  const cellMtype = cell => cell?.querySelector(':scope > .card-in')?.dataset.mtype || 'note';
+  const primaryCell = () => qs(SOLVEIT.sel.primaryCell) || selectedCells()[0] || null;
+  const cellMtype = cell => cell?.querySelector(SOLVEIT.sel.cardIn)?.dataset.mtype || 'note';
   const dlgKey = () => {
     const u = new URL(location.href);
     return u.searchParams.get('name') || u.pathname || 'default';
@@ -481,23 +614,109 @@ async function saveInputContents({id, content, waitersMap, key = id, tag = 'craf
   };
   async function deleteCellEl(cell, {tag = 'craft'} = {}) {
     if (!cell || !cell.isConnected) return false;
-    const delBtn = cell.querySelector('.uk-card-header button[title^="Delete"], .uk-card-header button[hx-post*="rm_msg"], .uk-card-header button[hx-post*="del_msg"]');
+    const delBtn = cell.querySelector(SOLVEIT.sel.deleteBtn);
     if (delBtn) {
       delBtn.click();
-      await sleep(80);
+      await waitForHtmxSettle(() => !cell.isConnected, 1500);
       return true;
     }
     try {
-      await htmxPost('/rm_msg_', {id_: cell.id, ids: cell.id});
+      await htmxPost(SOLVEIT.api.rmMsg, {id_: cell.id, ids: cell.id});
       return true;
     } catch (err) {
       console.error(`${tag}: delete failed`, err);
       return false;
     }
   }
-  function mountModal(tplOrEl, {refs = true, closeOnBackdrop = true, closeOnEscape = true, onOpen = null, onClose = null, signal = null} = {}) {
-    const mounted = typeof tplOrEl === 'string' ? mountTpl(tplOrEl, {refs}) : {root: tplOrEl};
+  function waitForHtmxSettle(checkOrEl = null, timeoutMs = 2500) {
+    const isPred = typeof checkOrEl === 'function';
+    if (isPred) { const hit = checkOrEl(); if (hit) return Promise.resolve(hit); }
+    return new Promise(resolve => {
+      let done = false;
+      const finish = val => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        offSettle(); offSwap(); offDom();
+        resolve(val);
+      };
+      const check = e => {
+        if (isPred) { const hit = checkOrEl(); if (hit) finish(hit); }
+        else if (!checkOrEl || e?.target === checkOrEl || checkOrEl.contains?.(e?.target)) finish(true);
+      };
+      const offSettle = on(document, 'htmx:afterSettle', check);
+      const offSwap = on(document, 'htmx:afterSwap', check);
+      const offDom = isPred ? onDomChange(() => check(), {delay: 'micro', inDialog: true}) : () => {};
+      const timer = setTimeout(() => finish(isPred ? (checkOrEl() || null) : false), timeoutMs);
+    });
+  }
+
+  const waitForNewCell = (beforeIds, timeoutMs = 3000) =>
+    waitForHtmxSettle(() => allCells().find(c => !beforeIds.has(c.id)) || null, timeoutMs);
+
+  function getCellInputText(cell, {rawOnly = false} = {}) {
+    if (!cell) return rawOnly ? null : '';
+    const id = normId(cell.id);
+    const ta = cell.querySelector(`textarea[name="content"], input[name="content"], textarea#_${id}_content, textarea[data-content], textarea[name="msg"], textarea`);
+    if (ta && typeof ta.value === 'string') return ta.value;
+    const mtype = cellMtype(cell);
+    if (mtype === 'code' || mtype === 'raw') {
+      const pre = cell.querySelector(':scope > .card-in .msg-content pre code, :scope > .card-in .msg-content pre');
+      if (pre) return pre.textContent || '';
+    }
+    if (rawOnly) return null;
+    const cm = cell.querySelector('.cm-content');
+    if (cm) return cm.textContent || '';
+    return cell.querySelector(`${SOLVEIT.sel.cardIn} ${SOLVEIT.sel.msgContent}`)?.textContent?.trim() || '';
+  }
+
+  function headingLevel(cell) {
+    const h = cell?.querySelector(`${SOLVEIT.sel.noteCard} ${SOLVEIT.sel.msgContent} :is(h1,h2,h3,h4,h5,h6)`);
+    return h ? Number(h.tagName[1]) || 0 : 0;
+  }
+
+  function onCellHtmx(paths, fn, {signal = null} = {}) {
+    const prefixes = Array.isArray(paths) ? paths : [paths];
+    return on(document, 'htmx:configRequest', e => {
+      const path = e.detail?.path || '';
+      if (!prefixes.some(p => path.startsWith(p))) return;
+      const params = e.detail?.parameters || {};
+      const rawId = params.id_ || params.id || '';
+      const id = rawId ? normId(rawId) : '';
+      const ids = params.ids ? String(params.ids).split(',').map(normId).filter(Boolean) : (id ? [id] : []);
+      let contents = null;
+      if (params.contents) { try { contents = JSON.parse(params.contents); } catch {} }
+      fn({path, params, id, ids, contents, event: e});
+    }, signal ? {signal} : undefined);
+  }
+
+  async function fetchJson(url, {method = 'POST', body = null, signal = null, timeoutMs = 15000, headers = {}} = {}) {
+    const ac = new AbortController();
+    const onAbort = () => ac.abort();
+    if (signal) {
+      if (signal.aborted) ac.abort();
+      else signal.addEventListener('abort', onAbort, {once: true});
+    }
+    const timer = timeoutMs ? setTimeout(() => ac.abort(), timeoutMs) : 0;
+    try {
+      const opts = {method, signal: ac.signal, headers: {...headers}};
+      if (body !== null && body !== undefined) {
+        if (typeof body === 'string' || body instanceof FormData || body instanceof URLSearchParams || body instanceof Blob) opts.body = body;
+        else { opts.headers['Content-Type'] ||= 'application/json'; opts.body = JSON.stringify(body); }
+      }
+      const res = await fetch(url, opts);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } finally {
+      clearTimeout(timer);
+      if (signal) signal.removeEventListener('abort', onAbort);
+    }
+  }
+
+  function mountModal(tplOrEl, {refs = true, htmx = false, closeOnBackdrop = true, closeOnEscape = true, onOpen = null, onClose = null, signal = null} = {}) {
+    const mounted = typeof tplOrEl === 'string' ? mountTpl(tplOrEl, {refs, htmx}) : {root: tplOrEl};
     const root = mounted.root || mounted;
+    const isDlg = root.tagName === 'DIALOG' && typeof root.showModal === 'function';
     root.setAttribute('data-craft-modal', '');
     if (!root.isConnected && document.body) document.body.append(root);
     const localAc = new AbortController();
@@ -507,32 +726,184 @@ async function saveInputContents({id, content, waitersMap, key = id, tag = 'craf
       else signal.addEventListener('abort', onExtAbort, {once: true});
     }
     const sig = {signal: localAc.signal};
-    const isOpen = () => root.classList.contains('open');
+    const isOpen = () => isDlg ? root.open : root.classList.contains('open');
     const close = () => {
       if (!isOpen()) return;
-      root.classList.remove('open');
-      onClose?.();
+      if (isDlg) root.close();
+      else { root.classList.remove('open'); onClose?.(); }
     };
     const open = () => {
       if (!root.isConnected && document.body) document.body.append(root);
-      root.classList.add('open');
+      if (isDlg) { if (!root.open) root.showModal(); }
+      else root.classList.add('open');
       onOpen?.();
     };
     const destroy = () => {
       if (signal) signal.removeEventListener('abort', onExtAbort);
       localAc.abort();
+      if (isDlg && root.open) root.close();
       root.remove();
     };
+    if (isDlg) {
+      on(root, 'close', () => onClose?.(), sig);
+      on(root, 'cancel', e => {
+        if (!closeOnEscape) e.preventDefault();
+        else e.stopPropagation();
+      }, sig);
+    } else if (closeOnEscape) {
+      on(document, 'keydown', e => {
+        if (e.key === 'Escape' && isOpen()) { e.preventDefault(); e.stopPropagation(); close(); }
+      }, {capture: true, signal: localAc.signal});
+    }
     if (closeOnBackdrop) on(root, 'click', e => { if (e.target === root) close(); }, sig);
-    if (closeOnEscape) on(document, 'keydown', e => {
-      if (e.key === 'Escape' && isOpen()) { e.preventDefault(); e.stopPropagation(); close(); }
-    }, {capture: true, signal: localAc.signal});
     const closeBtn = mounted.close instanceof Element ? mounted.close : null;
     if (closeBtn) on(closeBtn, 'click', close, sig);
     return {...(typeof mounted === 'object' ? mounted : {}), root, closeBtn, open, close, isOpen, destroy};
   }
 
+  function mountMenu(tplOrEl, {refs = false, htmx = false, onOpen = null, onClose = null, signal = null} = {}) {
+    const mounted = typeof tplOrEl === 'string' ? mountTpl(tplOrEl, {refs, htmx}) : {root: tplOrEl};
+    const root = mounted.root || mounted;
+    if (!root.hasAttribute('popover')) root.setAttribute('popover', 'auto');
+    if (!root.isConnected && document.body) document.body.append(root);
+    const localAc = new AbortController();
+    const onExtAbort = () => destroy();
+    if (signal) {
+      if (signal.aborted) localAc.abort();
+      else signal.addEventListener('abort', onExtAbort, {once: true});
+    }
+    const sig = {signal: localAc.signal};
+    const isOpen = () => root.matches(':popover-open');
+    const items = () => qsa('button:not(:disabled), [role="menuitem"]:not([aria-disabled="true"])', root);
+    const openAt = (x, y) => {
+      if (!root.isConnected && document.body) document.body.append(root);
+      if (!isOpen()) root.showPopover();
+      if (x != null && y != null) {
+        const r = root.getBoundingClientRect();
+        const pad = 8;
+        root.style.left = Math.max(pad, Math.min(x, window.innerWidth - r.width - pad)) + 'px';
+        root.style.top = Math.max(pad, Math.min(y, window.innerHeight - r.height - pad)) + 'px';
+      }
+    };
+    const close = () => { if (isOpen()) root.hidePopover(); };
+    const destroy = () => {
+      if (signal) signal.removeEventListener('abort', onExtAbort);
+      localAc.abort();
+      close();
+      root.remove();
+    };
+    on(root, 'toggle', e => {
+      if (e.newState === 'open') onOpen?.();
+      else onClose?.();
+    }, sig);
+    on(root, 'keydown', e => {
+      const list = items();
+      if (!list.length) return;
+      const idx = list.indexOf(document.activeElement);
+      if (e.key === 'ArrowDown') { e.preventDefault(); list[(idx + 1) % list.length].focus(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); list[(idx - 1 + list.length) % list.length].focus(); }
+      else if (e.key === 'Home') { e.preventDefault(); list[0].focus(); }
+      else if (e.key === 'End') { e.preventDefault(); list[list.length - 1].focus(); }
+      else if (e.key === 'Escape') { e.stopPropagation(); close(); }
+    }, sig);
+    return {...(typeof mounted === 'object' ? mounted : {}), root, openAt, close, isOpen, items, destroy};
+  }
+
+  function mountBar(tplOrEl, {refs = true, htmx = false, parent = null} = {}) {
+    let mounted = null;
+    const ensure = () => {
+      if (mounted) return mounted;
+      mounted = typeof tplOrEl === 'string' ? mountTpl(tplOrEl, {refs, htmx}) : {root: tplOrEl};
+      return mounted;
+    };
+    const show = () => {
+      const m = ensure();
+      const host = parent || document.body;
+      if (host && !m.root.isConnected) host.append(m.root);
+      m.root.hidden = false;
+      return m;
+    };
+    const hide = () => { if (mounted?.root) mounted.root.hidden = true; };
+    const destroy = () => { mounted?.root?.remove(); mounted = null; };
+    const isShown = () => Boolean(mounted?.root?.isConnected && !mounted.root.hidden);
+    return {ensure, show, hide, destroy, isShown, get current() { return mounted; }};
+  }
+
+  const FEATURE_KEY = 'craft-features-v1';
+  const _featureRegistry = new Map();
+  const _readFeatureFlags = () => {
+    const raw = store.json(FEATURE_KEY, {});
+    return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  };
+  const features = {
+    KEY: FEATURE_KEY,
+    all: () => _readFeatureFlags(),
+    isEnabled: id => _readFeatureFlags()[id] !== false,
+    setEnabled(id, enabled) {
+      const flags = _readFeatureFlags();
+      if (enabled) delete flags[id];
+      else flags[id] = false;
+      store.setJson(FEATURE_KEY, flags);
+      return enabled;
+    },
+    toggle: id => features.setEnabled(id, !features.isEnabled(id)),
+    register(id, label = id, desc = '') {
+      _featureRegistry.set(id, {id, label, desc});
+      return features.isEnabled(id);
+    },
+    init(id, label = id, desc = '') { return features.register(id, label, desc); },
+    list: () => [..._featureRegistry.values()].map(f => ({...f, enabled: features.isEnabled(f.id)})),
+  };
+
 /* #57a40547 */
+const _optMap = new Map();
+  let _optSuppressAutoEdit = 0;
+  const optimistic = {
+    isOptimistic: id => Boolean(id && String(id).replace(/^_/, '').startsWith('craftopt_')),
+    isPending: id => { const r = _optMap.get(normId(id)); return Boolean(r && !r.realId && !r.failed); },
+    get: id => _optMap.get(normId(id)) || null,
+    register(optId, promise) {
+      const k = normId(optId);
+      const rec = {promise, realId: null, failed: false};
+      _optMap.set(k, rec);
+      promise.then(realId => { if (realId) rec.realId = normId(realId); else rec.failed = true; }, () => { rec.failed = true; });
+      return rec;
+    },
+    resolve(optId, realId) { const rec = _optMap.get(normId(optId)); if (rec) rec.realId = normId(realId); },
+    fail(optId) { const rec = _optMap.get(normId(optId)); if (rec) rec.failed = true; },
+    clear(optId) { _optMap.delete(normId(optId)); },
+    async waitForReal(id) {
+      const rec = _optMap.get(normId(id));
+      if (!rec) return optimistic.isOptimistic(id) ? null : normId(id);
+      if (rec.realId) return rec.realId;
+      if (rec.failed) return null;
+      return await rec.promise;
+    },
+    suppressAutoEdit() {
+      _optSuppressAutoEdit++;
+      let done = false;
+      return () => { if (!done) { done = true; _optSuppressAutoEdit = Math.max(0, _optSuppressAutoEdit - 1); } };
+    },
+    isSuppressingAutoEdit: () => _optSuppressAutoEdit > 0,
+  };
+
+  function moveNodePreservingFocus(parent, node, afterEl, view) {
+    const hadFocus = Boolean(view?.hasFocus || (document.activeElement && node.contains(document.activeElement)));
+    const sel = hadFocus && view ? view.state.selection : null;
+    const refNode = afterEl ? afterEl.nextSibling : null;
+    if (typeof parent.moveBefore === 'function') {
+      try { parent.moveBefore(node, refNode); }
+      catch { if (afterEl) afterEl.after(node); else parent.append(node); }
+    } else {
+      if (afterEl) afterEl.after(node); else parent.append(node);
+    }
+    if (hadFocus && view && !view.hasFocus) {
+      if (sel) view.dispatch({selection: sel});
+      view.focus();
+    }
+  }
+
+
 function createInlineEditor(cfg) {
     const tag = cfg.tag || 'craft';
     const keyToId = cfg.keyToId || (k => k);
@@ -551,44 +922,54 @@ function createInlineEditor(cfg) {
       cfg.applySaveState(key, st);
     };
 
+    async function resolveOptimisticKey(key) {
+      const id = keyToId(key);
+      if (!optimistic.isOptimistic(id)) return {key, id};
+      const realId = await optimistic.waitForReal(id);
+      return realId ? {key: idToInputKey(realId), id: realId} : null;
+    }
+
     async function saveCell(key, content) {
-      const id = keyToId(key), el = getCellEl(id);
+      const resolved = await resolveOptimisticKey(key);
+      if (!resolved) return false;
+      const {key: curKey, id} = resolved;
+      const el = getCellEl(id);
       if (!el) return true;
-      const prev = cfg.getText(el, key);
+      const prev = cfg.getText(el, curKey);
       if (content === prev) {
-        dirtyIds.delete(key);
-        failedSaves.delete(key);
-        syncSaveState(key);
-        return pendingSaves.get(key) ? await pendingSaves.get(key) : true;
+        dirtyIds.delete(curKey);
+        failedSaves.delete(curKey);
+        syncSaveState(curKey);
+        return pendingSaves.get(curKey) ? await pendingSaves.get(curKey) : true;
       }
-      dirtyIds.add(key);
-      failedSaves.delete(key);
-      syncSaveState(key);
+      dirtyIds.add(curKey);
+      failedSaves.delete(curKey);
+      syncSaveState(curKey);
       const p = (async () => {
         let ok = false;
         try {
           ok = cfg.persistSave
-            ? await cfg.persistSave(key, content, saveWaiters)
-            : await saveInputContents({id, content, waitersMap: saveWaiters, key, tag});
+            ? await cfg.persistSave(curKey, content, saveWaiters)
+            : await saveInputContents({id, content, waitersMap: saveWaiters, key: curKey, tag});
         } finally {
-          if (pendingSaves.get(key) === p) pendingSaves.delete(key);
+          if (pendingSaves.get(curKey) === p) pendingSaves.delete(curKey);
         }
         if (ok) {
-          failedSaves.delete(key);
+          failedSaves.delete(curKey);
           const curEl = getCellEl(id);
-          const inp = cfg.getInput(curEl, key);
+          const inp = cfg.getInput(curEl, curKey);
           if (inp && normValue(inp.value) === prev) inp.value = content;
-          const curView = views.get(key)?.view;
-          if (!curView || curView.state.doc.toString() === content) dirtyIds.delete(key);
+          const curView = views.get(curKey)?.view;
+          if (!curView || curView.state.doc.toString() === content) dirtyIds.delete(curKey);
         } else {
-          failedSaves.add(key);
-          notifyErr(cfg.saveFailMsg ? cfg.saveFailMsg(key) : 'Could not save cell edit — changes kept in editor.', tag);
+          failedSaves.add(curKey);
+          notifyErr(cfg.saveFailMsg ? cfg.saveFailMsg(curKey) : 'Could not save cell edit — changes kept in editor.', tag);
         }
-        syncSaveState(key);
+        syncSaveState(curKey);
         return ok;
       })();
-      pendingSaves.set(key, p);
-      syncSaveState(key);
+      pendingSaves.set(curKey, p);
+      syncSaveState(curKey);
       return await p;
     }
 
@@ -610,16 +991,17 @@ function createInlineEditor(cfg) {
       const rec = views.get(key);
       cfg.beforeBlur?.(key, rec);
       if (!rec) return;
-      const el = getCellEl(keyToId(key)), card = cfg.getCard(el, key);
-      cfg.setEditing(key, false, el, card);
-      if (activeKey === key) activeKey = null;
+      const ref = rec.ref;
+      const el = getCellEl(keyToId(ref.key)), card = cfg.getCard(el, ref.key);
+      cfg.setEditing(ref.key, false, el, card);
+      if (activeKey === ref.key) activeKey = null;
       const content = rec.view.state.doc.toString();
-      saveState(states, key, rec);
-      const saved = await saveCell(key, content);
-      const cur = views.get(key);
-      if (!cur || cur.view.hasFocus || activeKey === key) return;
-      if (!saved || dirtyIds.has(key) || cfg.keepMounted?.(key, cur)) return;
-      unmountCell(key);
+      saveState(states, ref.key, rec);
+      const saved = await saveCell(ref.key, content);
+      const curKey = ref.key, cur = views.get(curKey);
+      if (!cur || cur.view.hasFocus || activeKey === curKey) return;
+      if (!saved || dirtyIds.has(curKey) || cfg.keepMounted?.(curKey, cur)) return;
+      unmountCell(curKey);
     }
 
     async function exitCell(key) {
@@ -636,42 +1018,50 @@ function createInlineEditor(cfg) {
     }
 
     async function saveAndRun(key, cmd) {
-      const id = keyToId(key), rec = views.get(key), el = getCellEl(id);
-      cfg.beforeRun?.(key, rec);
-      if (!rec || !el) return;
+      const rec = views.get(key);
+      if (!rec) return;
+      const ref = rec.ref;
+      cfg.beforeRun?.(ref.key, rec);
       const content = rec.view.state.doc.toString();
+      saveState(states, ref.key, rec);
+      const saved = await saveCell(ref.key, content);
+      if (!saved) return;
+      const curKey = ref.key, id = keyToId(curKey), el = getCellEl(id);
+      if (!el) return;
       const next = cmd === 'shift-run' ? window.adjacentMsg?.(window.$(el), false) : null;
       const after = cmd === 'alt-run' ? (window.sectionTail?.(el) || '') : '';
-      saveState(states, key, rec);
-      const saved = await saveCell(key, content);
-      if (!saved) return;
-      cfg.setEditing(key, false, el, cfg.getCard(el, key));
-      if (activeKey === key) activeKey = null;
+      cfg.setEditing(curKey, false, el, cfg.getCard(el, curKey));
+      if (activeKey === curKey) activeKey = null;
       rec.view.contentDOM.blur();
       if (cmd === 'shift-run' && next?.length) window.selectMsg?.(next);
       else window.selectMsg?.(window.$(el), {scroll: false});
-      const cur = views.get(key);
-      if (cur && !cur.view.hasFocus && activeKey !== key && !dirtyIds.has(key) && !cfg.keepMounted?.(key, cur)) unmountCell(key);
+      const cur = views.get(curKey);
+      if (cur && !cur.view.hasFocus && activeKey !== curKey && !dirtyIds.has(curKey) && !cfg.keepMounted?.(curKey, cur)) unmountCell(curKey);
       if (await runCellCmd({id, cmd, after, tag, failMsg: cfg.runFailMsg || ''})) schedule();
     }
 
     async function splitCell(key, v, msgType) {
-      cfg.beforeSplit?.(key, v);
+      const resolved = await resolveOptimisticKey(key);
+      if (!resolved) return;
+      const {key: curKey, id} = resolved;
+      cfg.beforeSplit?.(curKey, v);
       await splitCellAt({
-        id: keyToId(key), view: v, msgType, tag,
-        onSuccess: () => { dirtyIds.delete(key); failedSaves.delete(key); syncSaveState(key); unmountCell(key); },
+        id, view: v, msgType, tag,
+        onSuccess: () => { dirtyIds.delete(curKey); failedSaves.delete(curKey); syncSaveState(curKey); unmountCell(curKey); },
       });
     }
 
     async function switchCellType(key, v, mtyp, {clearState = false, onMatch} = {}) {
-      const id = keyToId(key);
+      const resolved = await resolveOptimisticKey(key);
+      if (!resolved) return;
+      const {key: curKey, id} = resolved;
       const sel = v.state.selection.main;
       const selSpec = {anchor: sel.anchor, head: sel.head};
-      cfg.beforeSwitch?.(key, v);
-      const saved = await saveCell(key, v.state.doc.toString());
+      cfg.beforeSwitch?.(curKey, v);
+      const saved = await saveCell(curKey, v.state.doc.toString());
       if (!saved) return;
-      unmountCell(key);
-      if (clearState) states.delete(key);
+      unmountCell(curKey);
+      if (clearState) states.delete(curKey);
       const el = getCellEl(id);
       if (el) window.selectMsg?.(window.$(el), {scroll: false});
       await switchCellMtype({id, mtyp, tag, onMatch: onMatch ? () => onMatch(id, selSpec) : null});
@@ -686,18 +1076,18 @@ function createInlineEditor(cfg) {
       const nextEl = next?.[0];
       if (!nextEl || nextEl === el) return false;
       beforeStep?.(key, v);
-      const rec = views.get(key);
+      const rec = views.get(key), ref = rec?.ref;
       if (rec) saveState(states, key, {...rec, view: v});
       cfg.setEditing(key, false, el, cfg.getCard(el, key));
       if (activeKey === key) activeKey = null;
       v.contentDOM.blur();
       saveCell(key, v.state.doc.toString()).then(ok => {
-        const cur = views.get(key);
-        if (ok && cur && !cur.view.hasFocus && activeKey !== key && !dirtyIds.has(key) && !cfg.keepMounted?.(key, cur)) unmountCell(key);
+        const curKey = ref?.key || key, cur = views.get(curKey);
+        if (ok && cur && !cur.view.hasFocus && activeKey !== curKey && !dirtyIds.has(curKey) && !cfg.keepMounted?.(curKey, cur)) unmountCell(curKey);
       });
       const nextId = normId(nextEl.id);
       const edgeSel = up ? {toEnd: true} : {anchor: 0, head: 0};
-      const codeCard = nextEl.querySelector('.card-in[data-mtype="code"]');
+      const codeCard = nextEl.querySelector(SOLVEIT.sel.codeCard);
       if (window.craftC2?.manages?.(nextId) && codeCard && !codeCard.classList.contains('collapsed')) {
         nextEl.scrollIntoView({block: 'nearest'});
         window.craftC2.edit(nextId, edgeSel);
@@ -711,7 +1101,7 @@ function createInlineEditor(cfg) {
     }
 
     function openView(key, {el, card, text, cm, selSpec = null, resolveHint = null, canReuseRec, prepareState, hostClass, extraRec, themeExts, onExisting, onMounted}) {
-      const body = card?.querySelector('.msg-body'), contentEl = body?.querySelector('.msg-content');
+      const body = card?.querySelector(SOLVEIT.sel.msgBody), contentEl = body?.querySelector(SOLVEIT.sel.msgContent);
       if (!body || !contentEl) return false;
       window.selectMsg?.(window.$(el), {scroll: false});
       let rec = views.get(key);
@@ -729,15 +1119,16 @@ function createInlineEditor(cfg) {
         return true;
       }
       if (rec) unmountCell(key);
-      const {edState, activeComps, reusePrev} = prepareState();
+      const ref = {key, id: keyToId(key)};
+      const {edState, activeComps, reusePrev} = prepareState(ref);
       const host = document.createElement('div');
       host.className = hostClass;
       contentEl.after(host);
       card.classList.add(cfg.mountedCls);
       cfg.setEditing(key, true, el, card);
       const v = new cm.view.EditorView({state: edState, parent: host});
-      attachHost(key, host);
-      rec = {view: v, host, ...activeComps, ...extraRec};
+      rec = {view: v, host, ref, ...activeComps, ...extraRec};
+      attachHost(rec, host);
       views.set(key, rec);
       activeKey = key;
       cfg.setEditing(key, true, el, card);
@@ -747,32 +1138,65 @@ function createInlineEditor(cfg) {
       syncFindBoxToView(v, cm);
       v.focus();
       requestAnimationFrame(() => {
-        if (!destroyed && activeKey === key && views.get(key)?.view === v && !v.hasFocus && document.activeElement === document.body) v.focus();
+        const curKey = ref.key;
+        if (!destroyed && activeKey === curKey && views.get(curKey)?.view === v && !v.hasFocus && document.activeElement === document.body) v.focus();
       });
       return true;
     }
 
-    function attachHost(key, host) {
+    function attachHost(rec, host) {
       host.addEventListener('keydown', e => { e.stopPropagation(); });
       host.addEventListener('focusin', () => {
+        const key = rec.ref.key;
         activeKey = key;
         const curEl = getCellEl(keyToId(key));
         cfg.setEditing(key, true, curEl, cfg.getCard(curEl, key));
       });
       host.addEventListener('focusout', () => {
         const check = () => {
-          if (destroyed) return;
+          if (destroyed || rec._reparenting) return;
           if (!host.isConnected) { sync(); return; }
           const ae = document.activeElement;
           if (host.contains(ae) || ae?.closest?.('.cm-tooltip')) return;
-          onCellBlur(key);
+          onCellBlur(rec.ref.key);
         };
         queueMicrotask(() => {
-          if (destroyed) return;
+          if (destroyed || rec._reparenting) return;
           if (!host.isConnected) { sync(); return; }
           requestAnimationFrame(check);
         });
       });
+    }
+
+    function rekey(oldKey, newKey, {el, card} = {}) {
+      const rec = views.get(oldKey);
+      if (!rec) return false;
+      const oldId = keyToId(oldKey), newId = keyToId(newKey);
+      const oldEl = getCellEl(oldId), oldCard = cfg.getCard(oldEl, oldKey);
+      views.delete(oldKey);
+      views.set(newKey, rec);
+      rec.ref.key = newKey;
+      rec.ref.id = newId;
+      if (states.has(oldKey)) { states.set(newKey, states.get(oldKey)); states.delete(oldKey); }
+      if (dirtyIds.has(oldKey)) { dirtyIds.delete(oldKey); dirtyIds.add(newKey); }
+      if (failedSaves.has(oldKey)) { failedSaves.delete(oldKey); failedSaves.add(newKey); }
+      if (pendingSaves.has(oldKey)) { pendingSaves.set(newKey, pendingSaves.get(oldKey)); pendingSaves.delete(oldKey); }
+      if (saveWaiters.has(oldKey)) { saveWaiters.set(newKey, saveWaiters.get(oldKey)); saveWaiters.delete(oldKey); }
+      if (activeKey === oldKey) activeKey = newKey;
+      cfg.onRekey?.(oldKey, newKey, rec);
+      const realEl = el || getCellEl(newId), realCard = card || cfg.getCard(realEl, newKey);
+      const body = realCard?.querySelector(SOLVEIT.sel.msgBody), contentEl = body?.querySelector(SOLVEIT.sel.msgContent);
+      if (body && contentEl) {
+        rec._reparenting = true;
+        try { moveNodePreservingFocus(body, rec.host, contentEl, rec.view); }
+        finally { queueMicrotask(() => { rec._reparenting = false; }); }
+        realCard.classList.add(cfg.mountedCls);
+        oldCard?.classList.remove(cfg.mountedCls);
+        cfg.setEditing(oldKey, false, oldEl, oldCard);
+        if (activeKey === newKey || rec.view.hasFocus) cfg.setEditing(newKey, true, realEl, realCard);
+      }
+      syncSaveState(newKey);
+      return true;
     }
 
     const sync = () => {
@@ -788,7 +1212,7 @@ function createInlineEditor(cfg) {
           if (activeKey === key) activeKey = null;
           continue;
         }
-        const body = card.querySelector('.msg-body'), contentEl = body?.querySelector('.msg-content');
+        const body = card.querySelector(SOLVEIT.sel.msgBody), contentEl = body?.querySelector(SOLVEIT.sel.msgContent);
         if (body && contentEl) {
           if (!body.contains(rec.host)) contentEl.after(rec.host);
           card.classList.add(cfg.mountedCls);
@@ -809,7 +1233,7 @@ function createInlineEditor(cfg) {
       const request = ctx?.request, body = request?.body;
       if (!body?.get || request.method !== 'POST') return;
       const pathname = new URL(request.action, location.href).pathname;
-      if (pathname === '/set_contents_') {
+      if (pathname === SOLVEIT.api.setContents) {
         const id = normId(body.get('ids'));
         const key = id ? idToInputKey(id) : '';
         const waiters = key ? saveWaiters.get(key) : null;
@@ -837,7 +1261,7 @@ function createInlineEditor(cfg) {
       if (!cfg.openPrimaryOnEnter) return;
       if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
       if (typingBlocked(cfg.typingBlockedExtra || '')) return;
-      const el = document.querySelector('#dialog-container > .editable[data-sm="primary"]');
+      const el = document.querySelector(SOLVEIT.sel.primaryCell);
       if (!el || !cfg.openPrimaryOnEnter(el, false)) return;
       e.preventDefault();
       e.stopPropagation();
@@ -847,8 +1271,8 @@ function createInlineEditor(cfg) {
 
     const onClick = e => {
       if (cfg.onEditClick) {
-        const edit = e.target.closest?.(cfg.editClickSel || '.card-in [hx-post="/editor_"]');
-        if (edit && !edit.dataset.craftAllowMonaco) {
+        const edit = e.target.closest?.(cfg.editClickSel || SOLVEIT.sel.editBtn);
+        if (edit) {
           if (cfg.onEditClick(edit, e)) return;
         }
       }
@@ -862,6 +1286,34 @@ function createInlineEditor(cfg) {
         if (exts && rec.themeComp) rec.view.dispatch({effects: rec.themeComp.reconfigure(exts)});
       }
     };
+
+    const DEFAULT_POINTER_IGNORE = 'a, button, summary, input, select, textarea, label, [role="button"], .craft-cm-host, .copy-wrap > button';
+    let pendingPointer = null;
+    const onPointerDown = cfg.pointerEdit ? e => {
+      const pe = cfg.pointerEdit;
+      if (e.button !== 0) return;
+      if (pe.ignoreMods && (e.metaKey || e.ctrlKey || e.altKey)) return;
+      if (e.target.closest?.(pe.ignoreSel || DEFAULT_POINTER_IGNORE)) return;
+      const hit = pe.resolveTarget(e);
+      if (!hit) return;
+      pendingPointer = {...hit, x: e.clientX, y: e.clientY};
+    } : null;
+    const onPointerUp = cfg.pointerEdit ? e => {
+      if (!pendingPointer) return;
+      const p = pendingPointer;
+      pendingPointer = null;
+      const sel = window.getSelection();
+      if (p.dragSelectGuard) {
+        const moved = Math.hypot(e.clientX - p.x, e.clientY - p.y);
+        if (moved > 5 && sel && !sel.isCollapsed) return;
+        cfg.pointerEdit.onOpen(p, {caretHint: p.caretHint, coords: {x: e.clientX, y: e.clientY}}, e);
+        return;
+      }
+      const anchor = offsetIn(p.codeEl, sel?.anchorNode, sel?.anchorOffset);
+      const head = offsetIn(p.codeEl, sel?.focusNode, sel?.focusOffset);
+      if (anchor != null) sel?.removeAllRanges();
+      cfg.pointerEdit.onOpen(p, anchor != null ? {anchor, head: head ?? anchor} : {coords: {x: e.clientX, y: e.clientY}}, e);
+    } : null;
 
     const sep = window.htmx?.config.metaCharacter || ':';
     const configEvent = ['htmx', 'config', 'request'].join(sep);
@@ -877,6 +1329,7 @@ function createInlineEditor(cfg) {
     const ac = new AbortController(), sig = {signal: ac.signal}, cap = {capture: true, signal: ac.signal};
     on(document, {[configEvent]: before, [afterEvent]: after, 'uk-theme-switcher:change': onThemeChange}, sig);
     on(document, {click: onClick, keydown: onKeyDown}, cap);
+    if (onPointerDown && onPointerUp) on(document, {mousedown: onPointerDown, mouseup: onPointerUp}, sig);
 
     return {
       states, views, pendingSaves, dirtyIds, failedSaves, saveWaiters,
@@ -884,12 +1337,13 @@ function createInlineEditor(cfg) {
       set activeKey(v) { activeKey = v; },
       get destroyed() { return destroyed; },
       syncSaveState, saveCell, unmountCell, onCellBlur, exitCell, saveAndRun, splitCell,
-      switchCellType, stepBoundary, openView, attachHost, sync, schedule,
+      switchCellType, stepBoundary, openView, attachHost, rekey, sync, schedule,
       disable() {
         destroyed = true;
         unsubDom();
         schedule.cancel();
         removeDirtyGuards();
+        pendingPointer = null;
         ac.abort();
         for (const key of [...views.keys()]) unmountCell(key);
         views.clear(); states.clear(); pendingSaves.clear(); dirtyIds.clear(); failedSaves.clear(); saveWaiters.clear();
@@ -898,20 +1352,118 @@ function createInlineEditor(cfg) {
   }
 
 /* #4cbe7dfe */
-window.__craftCMCore = {
+/**
+   * @typedef {Object} CraftSolveitContract
+   * @property {Readonly<Record<string, string>>} sel
+   * @property {Readonly<Record<string, string>>} api
+   * @property {(mtype: string) => string} cardInOf
+   */
+  /**
+   * @typedef {Object} CraftFeatureInfo
+   * @property {string} id
+   * @property {string} label
+   * @property {string} desc
+   * @property {boolean} enabled
+   */
+  /**
+   * @typedef {Object} CraftFeaturesApi
+   * @property {string} KEY
+   * @property {() => Record<string, boolean>} all
+   * @property {(id: string) => boolean} isEnabled
+   * @property {(id: string, enabled: boolean) => boolean} setEnabled
+   * @property {(id: string) => boolean} toggle
+   * @property {(id: string, label?: string, desc?: string) => boolean} register
+   * @property {(id: string, label?: string, desc?: string) => boolean} init
+   * @property {() => CraftFeatureInfo[]} list
+   */
+  /**
+   * @typedef {Object} CraftPointerEditConfig
+   * @property {string} [ignoreSel]
+   * @property {boolean} [ignoreMods]
+   * @property {(e: MouseEvent) => ({id: string, codeEl?: Element|null, caretHint?: any, dragSelectGuard?: boolean} | null)} resolveTarget
+   * @property {(target: any, selSpec: any, e: MouseEvent) => void} onOpen
+   */
+  /**
+   * @typedef {Object} CraftCMCore
+   * @property {string} LOCAL_CM_BASE
+   * @property {string} CM_DEPS
+   * @property {Record<string, string>} CM_URLS
+   * @property {Record<string, any>} LANG_SPECS
+   * @property {Record<string, string>} LANG_ALIASES
+   * @property {Map<string, any>} langCache
+   * @property {CraftSolveitContract} SOLVEIT
+   * @property {CraftFeaturesApi} features
+   * @property {boolean} isMac
+   * @property {() => boolean} isDark
+   * @property {(id: any) => string} normId
+   * @property {(id: any) => HTMLElement|null} getCellEl
+   * @property {(s: any) => string} normalizeText
+   * @property {(msg: string, tag?: string) => void} notifyErr
+   * @property {(cm: any) => any} buildStyles
+   * @property {() => Promise<any>} loadCoreCM
+   * @property {(cm: any, langKey: string) => Promise<any>} loadLang
+   * @property {(code: string) => string[]} codeLanguages
+   * @property {(view: any, cm: any) => void} syncFindBoxToView
+   * @property {(view: any, selSpec: any, resolveHint?: any) => void} applySelection
+   * @property {(opts: any) => () => void} installDirtyGuards
+   * @property {(exitFn: () => Promise<any>) => Promise<void>} jumpToLastCell
+   * @property {string} MODAL_OPEN_SEL
+   * @property {() => string} kid
+   * @property {(extra?: string) => boolean} typingBlocked
+   * @property {(url: string, values?: Record<string, any>, opts?: Record<string, any>) => Promise<any>} htmxPost
+   * @property {(node: any, attrs: Record<string, any>) => any} patch
+   * @property {(tag: string, attrs?: Record<string, any>, ...kids: any[]) => HTMLElement} el
+   * @property {(sel: string, root?: ParentNode|null) => Element|null} qs
+   * @property {(sel: string, root?: ParentNode|null) => Element[]} qsa
+   * @property {(target: any, evs: any, fn: any, opts?: any) => () => void} on
+   * @property {(fn: () => void) => ((() => void) & {cancel: () => void})} rafOnce
+   * @property {{get: Function, set: Function, del: Function, json: Function, setJson: Function}} store
+   * @property {(name: string, opts?: {htmx?: boolean, refs?: boolean|Record<string, string>}) => any} mountTpl
+   * @property {(root: Node|null, node: Node|null|undefined, offset: number|undefined) => number|null} offsetIn
+   * @property {(opts: any) => Promise<boolean>} saveInputContents
+   * @property {(opts: any) => Promise<void>} splitCellAt
+   * @property {(opts: any) => Promise<void>} switchCellMtype
+   * @property {(opts: any) => Promise<boolean>} runCellCmd
+   * @property {(v: any, up: boolean, tol?: number) => boolean} isAtVerticalEdge
+   * @property {(fn: (records?: MutationRecord[]) => void, opts?: {attrs?: string[]|null, delay?: number|'raf'|'micro', inDialog?: boolean, charData?: boolean}) => () => void} onDomChange
+   * @property {(fn: (cells: HTMLElement[]) => void, opts?: {attrs?: string[]|null, initial?: boolean}) => () => void} onCells
+   * @property {(cfg: any) => any} createInlineEditor
+   * @property {Record<string, any>} optimistic
+   * @property {(opts?: {visible?: boolean}) => HTMLElement[]} allCells
+   * @property {(opts?: {includeOmitted?: boolean}) => HTMLElement[]} selectedCells
+   * @property {() => HTMLElement|null} primaryCell
+   * @property {(cell: Element|null) => string} cellMtype
+   * @property {() => string} dlgKey
+   * @property {(ms: number) => Promise<void>} sleep
+   * @property {(msg: string, opts?: string|Record<string, any>) => void} notify
+   * @property {(cell: Element|null, opts?: {tag?: string}) => Promise<boolean>} deleteCellEl
+   * @property {(tplOrEl: string|Element, opts?: Record<string, any>) => any} mountModal
+   * @property {(tplOrEl: string|Element, opts?: Record<string, any>) => any} mountMenu
+   * @property {(tplOrEl: string|Element, opts?: Record<string, any>) => any} mountBar
+   * @property {(checkOrEl?: any, timeoutMs?: number) => Promise<any>} waitForHtmxSettle
+   * @property {(beforeIds: Set<string>, timeoutMs?: number) => Promise<HTMLElement|null>} waitForNewCell
+   * @property {(cell: Element|null, opts?: {rawOnly?: boolean}) => string|null} getCellInputText
+   * @property {(cell: Element|null) => number} headingLevel
+   * @property {(paths: string|string[], fn: (ev: any) => void, opts?: {signal?: AbortSignal|null}) => () => void} onCellHtmx
+   * @property {(url: string, opts?: Record<string, any>) => Promise<any>} fetchJson
+   * @property {() => void} disable
+   */
+  /** @type {CraftCMCore} */
+  window.__craftCMCore = {
     LOCAL_CM_BASE, CM_DEPS, CM_URLS, LANG_SPECS, LANG_ALIASES, langCache,
+    SOLVEIT, features,
     isMac, isDark, normId, getCellEl, normalizeText, notifyErr,
     buildStyles, loadCoreCM, loadLang, codeLanguages, syncFindBoxToView, applySelection,
     installDirtyGuards, jumpToLastCell,
     MODAL_OPEN_SEL, kid, typingBlocked, htmxPost, patch, el, qs, qsa, on, rafOnce, store, mountTpl, offsetIn,
     saveInputContents, splitCellAt, switchCellMtype, runCellCmd, isAtVerticalEdge,
-    onDomChange, createInlineEditor, allCells, selectedCells, primaryCell, cellMtype, dlgKey, sleep, notify, deleteCellEl, mountModal,
+    onDomChange, onCells, createInlineEditor, optimistic, allCells, selectedCells, primaryCell, cellMtype, dlgKey, sleep, notify, deleteCellEl, mountModal, mountMenu, mountBar, waitForHtmxSettle, waitForNewCell, getCellInputText, headingLevel, onCellHtmx, fetchJson,
     disable() { _teardownDomObs(); _dirtyGuards.clear(); _teardownFollowRename(); },
   };
 })();
 
 /* %% nbs/craft/05_dialog_chrome.ipynb #6efd82c1 */
-window.__craftTpl = Object.assign(window.__craftTpl || {}, {"mobile_phone_icon": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"7\" y=\"2\" width=\"10\" height=\"20\" rx=\"2\"></rect><path d=\"M11 18h2\"></path></svg>", "mobile_desk_icon": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"2\" y=\"3\" width=\"20\" height=\"14\" rx=\"2\"></rect><path d=\"M8 21h8M12 17v4\"></path></svg>", "mobile_toggle_btn": "<button id=\"craft-mobile-toggle\" class=\"craft-nav-icon-btn\" type=\"button\"></button>", "launcher_root": "<div class=\"craft-overlay\" id=\"solveit-launcher\" role=\"dialog\" aria-modal=\"true\" aria-label=\"Command palette\"><div class=\"uk-card craft-card solveit-launcher-card\"><input type=\"text\" placeholder=\"Run a command or open a dialog/file…\" autocomplete=\"off\" spellcheck=\"false\" aria-label=\"Search commands and files\"><ul role=\"listbox\"></ul></div></div>"});
+window.__craftTpl = Object.assign(window.__craftTpl || {}, {"mobile_toggle_btn": "<button id=\"craft-mobile-toggle\" class=\"craft-nav-icon-btn\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"craft-icon-phone\"><rect x=\"7\" y=\"2\" width=\"10\" height=\"20\" rx=\"2\"></rect><path d=\"M11 18h2\"></path></svg><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"craft-icon-desk\"><rect x=\"2\" y=\"3\" width=\"20\" height=\"14\" rx=\"2\"></rect><path d=\"M8 21h8M12 17v4\"></path></svg></button>", "launcher_root": "<dialog class=\"craft-overlay\" id=\"solveit-launcher\" aria-label=\"Command palette\"><div class=\"uk-card craft-card solveit-launcher-card\"><input type=\"text\" placeholder=\"Run a command or open a dialog/file…\" autocomplete=\"off\" spellcheck=\"false\" aria-label=\"Search commands and files\" data-ref=\"input\"><ul role=\"listbox\" data-ref=\"list\"></ul></div></dialog>"});
 
 /* %% nbs/craft/05_dialog_chrome.ipynb #c87b8aba */
 /* ── Mobile mode detection & view toggle ───────────────────────────────
@@ -922,7 +1474,8 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"mobile_phone_icon":
    `window.craftMobile.setMode('auto'|'mobile'|'desktop')`. */
 (() => {
   window.craftMobile?.disable?.();
-  const {mountTpl, qs, on, store, patch, onDomChange} = window.__craftCMCore;
+  if (!window.__craftCMCore.features.init('mobile-mode', 'Mobile mode toggle', 'Auto-detect touch layout & view switcher')) return;
+  const {mountTpl, qs, on, store, patch} = window.__craftCMCore;
   const ac = new AbortController(), sig = {signal: ac.signal};
   const PREF_KEY = 'craft-mobile-mode';
   const mq = matchMedia('(hover: none) and (pointer: coarse)');
@@ -942,9 +1495,6 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"mobile_phone_icon":
   let pref = readPref();
   const computeActive = () => pref === 'mobile' ? true : pref === 'desktop' ? false : mq.matches;
 
-  const TPL = window.__craftTpl || {};
-  const PHONE_SVG = TPL.mobile_phone_icon || '', DESK_SVG = TPL.mobile_desk_icon || '';
-
   const toggleBtn = mountTpl('mobile_toggle_btn');
 
   const syncToggleBtn = () => {
@@ -954,24 +1504,17 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"mobile_phone_icon":
     const title = isMob
       ? `Switch to desktop view (current: ${pref === 'auto' ? 'auto mobile' : 'mobile'})`
       : `Switch to mobile view (current: ${pref === 'auto' ? 'auto desktop' : 'desktop'})`;
-    patch(toggleBtn, {dataset: {state: key}, innerHTML: isMob ? DESK_SVG : PHONE_SVG, title, 'aria-label': title, 'aria-pressed': String(isMob)});
-  };
-
-  const positionToggleBtn = () => {
-    if (root.classList.contains('craft-mobile')) return;
-    if (toggleBtn.style.left !== 'auto' || toggleBtn.style.right !== '10px' || toggleBtn.style.top !== '6px') Object.assign(toggleBtn.style, { left: 'auto', right: '10px', top: '6px' });
+    patch(toggleBtn, {dataset: {state: key}, title, 'aria-label': title, 'aria-pressed': String(isMob)});
   };
 
   const mountToggleBtn = () => {
     if (!toggleBtn.isConnected && document.body) document.body.append(toggleBtn);
     syncToggleBtn();
-    positionToggleBtn();
   };
 
   const apply = () => {
     const on = computeActive();
-    const changed = root.classList.contains('craft-mobile') !== on;
-    if (changed) {
+    if (root.classList.contains('craft-mobile') !== on) {
       root.classList.toggle('craft-mobile', on);
       listeners.forEach(fn => { try { fn(on); } catch (err) { console.error('craftMobile listener', err); } });
     }
@@ -987,14 +1530,8 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"mobile_phone_icon":
   const toggle = () => setMode(root.classList.contains('craft-mobile') ? 'desktop' : 'mobile');
   on(toggleBtn, 'click', e => { e.preventDefault(); e.stopPropagation(); toggle(); }, sig);
   on(mq, 'change', apply, sig);
-  let offDom = null;
-  on(window, 'resize', positionToggleBtn, {passive: true, signal: ac.signal});
-  const start = () => {
-    mountToggleBtn();
-    offDom = onDomChange(mountToggleBtn, {delay: 'raf'});
-  };
   apply();
-  if (document.body) start(); else on(document, 'DOMContentLoaded', start, {once: true, signal: ac.signal});
+  if (document.body) mountToggleBtn(); else on(document, 'DOMContentLoaded', mountToggleBtn, {once: true, signal: ac.signal});
 
   window.__hotkeyRegister?.({
     id: 'craft-toggle-mobile',
@@ -1010,10 +1547,9 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"mobile_phone_icon":
     setMode,
     toggle,
     onChange: fn => { listeners.add(fn); return () => listeners.delete(fn); },
-    reposition: positionToggleBtn,
+    reposition: () => {},
     disable() {
       ac.abort();
-      offDom?.();
       toggleBtn.remove();
       root.classList.remove('craft-mobile');
       if (addedMeta) meta.remove(); else if (prevMeta != null) meta.content = prevMeta;
@@ -1024,107 +1560,13 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"mobile_phone_icon":
 })();
 
 /* %% nbs/craft/05_dialog_chrome.ipynb #816121ae */
-/* ── Auto-hiding top nav ──────────────────────────────────────────────
-   The reveal trigger is decoupled from the bar. The band starts BELOW the
-   browser's own top-edge hotspot so a hidden browser toolbar doesn't fight
-   it, and the bar stays pinned while the pointer is over the nav or inside
-   an open UIkit drop, fading only after a grace period. */
-(() => {
-  window.craftAutoNav?.disable?.();
-  const ac = new AbortController();
-  const {qs, on, MODAL_OPEN_SEL} = window.__craftCMCore;
-  const TRIGGER_TOP = 28;      // px: clear of the browser's top-edge hotspot
-  const TRIGGER_BOTTOM = 76;   // px: bottom of the reveal band
-  const HIDE_DELAY = 700;      // ms grace period before fading out
-
-  const SEL = '.uk-container > nav.monster-navbar';
-  const PIN = '.uk-drop, .uk-dropdown, [uk-drop], [uk-dropdown]';
-
-  const nav = () => qs(SEL);
-  let timer = null, last = null;
-
-  function wantOpen() {
-    if (qs(MODAL_OPEN_SEL)) return false;
-    if (!last) return false;
-    if (last.y >= TRIGGER_TOP && last.y <= TRIGGER_BOTTOM) return true;
-    const t = last.target;
-    if (t instanceof Element) {
-      if (nav()?.contains(t)) return true;
-      if (t.closest(PIN)) return true;
-    }
-    return !!qs('.uk-drop.uk-open, .uk-dropdown.uk-open');
-  }
-
-  function sync() {
-    const n = nav();
-    if (!n) return;
-    if (wantOpen()) {
-      clearTimeout(timer);
-      timer = null;
-      n.classList.add('nav-shown');
-    } else if (!timer) {
-      timer = setTimeout(() => {
-        timer = null;
-        if (!wantOpen()) nav()?.classList.remove('nav-shown');
-      }, HIDE_DELAY);
-    }
-  }
-
-  on(document, 'mousemove', e => {
-    // Phones: taps emit compat mousemoves, which would flash the bar at random. The mobile toolbar's ☰ drives it instead.
-    if (window.craftMobile?.active()) return;
-    last = { y: e.clientY, target: e.target };
-    sync();
-  }, { passive: true, signal: ac.signal });
-
-  on(document, 'focusin', e => {
-    last = { y: -1, target: e.target };
-    sync();
-  }, { signal: ac.signal });
-  window.craftAutoNav = { disable() { ac.abort(); clearTimeout(timer); timer = null; } };
-})();
+/* Auto-hiding top nav is now pure CSS in Dialog Chrome CSS below; clean up any hot-reloaded listener from older builds. */
+window.craftAutoNav?.disable?.();
+delete window.craftAutoNav;
 
 /* %% nbs/craft/05_dialog_chrome.ipynb #a77b15e8 */
-/* ── Compact Monaco line height ──────────────────────────────────── */
-/* Code size and family come from CRAFT.css. Monaco line-height matches the
-   code size; remeasure after webfonts load to keep cursor columns aligned. */
-(() => {
-  window.craftCompactMonaco?.disable?.();
-  let tries = 0, retryTimer = null, createDisp = null, disabled = false;
-  const go = () => {
-    const mon = window.monaco?.editor;
-    if (disabled) return;
-    if (!mon) { if (++tries < 40) retryTimer = setTimeout(go, 250); return; }
-    // Recompute character widths after the webfonts replace the fallback.
-    if (document.fonts) Promise.all([
-      document.fonts.load('10px "Craft Iosevka"'),
-      document.fonts.load('italic 10px "Craft Iosevka"'),
-      document.fonts.load('bold 10px "Craft Iosevka"'),
-      document.fonts.load('italic bold 10px "Craft Iosevka"')
-    ]).then(() => { mon.remeasureFonts(); mon.getEditors().forEach(ed => ed.layout()); })
-      .catch(err => console.warn('Iosevka could not load; using monospace fallback.', err));
-    const optsFor = fallbackFs => {
-      const cs = getComputedStyle(document.documentElement);
-      const fs = parseFloat(cs.getPropertyValue('--craft-code')) || fallbackFs;
-      const lh = Math.round(fs * (parseFloat(cs.getPropertyValue('--craft-code-lh')) || 1.2));
-      return { fontSize: fs, lineHeight: lh, fontFamily: cs.getPropertyValue('--craft-code-family').trim() || 'monospace' };
-    };
-    const compact = ed => { try { ed.updateOptions(optsFor(ed.getOption(mon.EditorOption.fontSize))); } catch (e) {} };
-    createDisp = mon.onDidCreateEditor?.(compact) || null;
-    mon.getEditors().forEach(compact);
-    try { mon.getDiffEditors().forEach(d => d.updateOptions(optsFor(10))); } catch (e) {}
-  };
-  window.craftCompactMonaco = {
-    disable() {
-      disabled = true;
-      clearTimeout(retryTimer);
-      retryTimer = null;
-      createDisp?.dispose?.();
-      createDisp = null;
-    },
-  };
-  go();
-})();
+/* Monaco is removed by craftNoMonaco below; clean up any hot-reloaded instance from older builds. */
+window.craftCompactMonaco?.disable?.();
 
 /* %% nbs/craft/05_dialog_chrome.ipynb #3cd92916 */
 /* ── Launcher (⌘⇧P) ──────────────────────────────────────────────────
@@ -1133,8 +1575,9 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"mobile_phone_icon":
    Enter runs or opens the selection; Esc or a click outside closes. */
 (() => {
   window.craftLauncher?.disable?.();
-  const {el, mountTpl, qsa, on, notifyErr} = window.__craftCMCore;
-  let root, input, list, results = [], sel = 0, pool = [], prevFocus;
+  const {el, mountModal, qsa, on, notify, notifyErr, features} = window.__craftCMCore;
+  const ac = new AbortController(), sig = {signal: ac.signal};
+  let modal = null, results = [], sel = 0, pool = [];
 
   function score(q, text) {
     if (!q) return 1;
@@ -1153,25 +1596,22 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"mobile_phone_icon":
   const where = n => { try { const u = new URL(n.href, location.href); return u.searchParams.get('name') || u.searchParams.get('fp') || decodeURIComponent(u.pathname); } catch { return ''; } };
 
   function build() {
-    ({root, input, list} = mountTpl('launcher_root', {refs: {input: 'input', list: 'ul'}}));
-    on(root, 'mousedown', e => { if (e.target === root) close(); });
-    on(input, {
+    modal = mountModal('launcher_root', {refs: true, signal: ac.signal});
+    on(modal.input, {
       input: () => { sel = 0; render(); },
       keydown: e => {
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); sel = (sel + (e.key === 'ArrowDown' ? 1 : -1) + results.length) % Math.max(results.length, 1); paint(); }
         else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); run(results[sel]); }
-        else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
       },
-    });
-    on(list, 'click', e => { const li = e.target.closest('li[data-i]'); if (li) run(results[+li.dataset.i]); });
-    document.body.append(root);
+    }, sig);
+    on(modal.list, 'click', e => { const li = e.target.closest('li[data-i]'); if (li) run(results[+li.dataset.i]); }, sig);
   }
 
   function render() {
-    const q = input.value.trim().toLowerCase();
+    const q = modal.input.value.trim().toLowerCase();
     results = pool.map(it => ({it, s: score(q, it.label + ' ' + it.detail)})).filter(r => r.s > 0).sort((a, b) => b.s - a.s).slice(0, 60).map(r => r.it);
     sel = Math.min(sel, Math.max(results.length - 1, 0));
-    list.replaceChildren(...(results.length ? results.map((it, i) =>
+    modal.list.replaceChildren(...(results.length ? results.map((it, i) =>
       el('li', {cls: 'kind-' + it.kind, role: 'option', dataset: {i}},
         el('span', {cls: 'label'}, it.label), el('span', {cls: 'detail'}, it.detail), el('span', {cls: 'hint'}, it.hint))
     ) : [el('li', {cls: 'empty'}, 'No matches')]));
@@ -1179,146 +1619,167 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"mobile_phone_icon":
   }
 
   function paint() {
-    qsa('li[data-i]', list).forEach(li => { const on = +li.dataset.i === sel; li.setAttribute('aria-selected', String(on)); if (on) li.scrollIntoView({block: 'nearest'}); });
+    qsa('li[data-i]', modal.list).forEach(li => { const on = +li.dataset.i === sel; li.setAttribute('aria-selected', String(on)); if (on) li.scrollIntoView({block: 'nearest'}); });
   }
 
   async function open() {
-    if (!root) build();
-    prevFocus = document.activeElement;
+    if (!modal) build();
     const hk = window.solveitHotkeys;
     const cmds = (hk?.list?.() || []).filter(a => a.id !== 'launcher').map(a => ({kind: 'command', label: a.label, detail: a.group || '', hint: a.combo ? hk.formatCombo(a.combo) : '', go: () => hk.run(a.id)}));
-    pool = cmds; root.classList.add('open'); input.value = ''; sel = 0; render(); input.focus();
+    const toggles = (features?.list?.() || []).map(f => ({
+      kind: 'feature',
+      label: `Feature: ${f.label}`,
+      detail: f.desc || f.id,
+      hint: f.enabled ? 'On' : 'Off',
+      go: () => {
+        const next = features.toggle(f.id);
+        notify(`${f.label}: ${next ? 'enabled' : 'disabled'} — reload page to apply.`, {status: next ? 'success' : 'warning'});
+      },
+    }));
+    const base = cmds.concat(toggles);
+    pool = base; modal.input.value = ''; sel = 0; render(); modal.open(); modal.input.focus();
     try {
       const entries = await window.solveitFileTree?.entries?.() || [];
-      pool = cmds.concat(entries.map(n => ({kind: n.kind, label: n.name, detail: where(n), hint: n.kind, go: () => window.solveitFileTree.open(n)})));
-      if (root.classList.contains('open')) render();
+      pool = base.concat(entries.map(n => ({kind: n.kind, label: n.name, detail: where(n), hint: n.kind, go: () => window.solveitFileTree.open(n)})));
+      if (modal.isOpen()) render();
     } catch {}
   }
 
-  function close() { if (!root?.classList.contains('open')) return; root.classList.remove('open'); prevFocus?.focus?.(); }
+  const close = () => modal?.close();
   function run(item) { if (!item) return; close(); setTimeout(() => Promise.resolve().then(item.go).catch(err => { console.error('Launcher action failed', err); notifyErr('Action failed: ' + (err.message || err), 'craftLauncher'); }), 0); }
 
-  window.__hotkeyRegister?.({id: 'launcher', label: 'Open launcher', group: 'Launcher', combo: 'Mod+Shift+P', handler: () => { if (root?.classList.contains('open')) close(); else open(); return true; }});
-  window.craftLauncher = { open, close, disable() { close(); root?.remove(); root = input = list = null; } };
+  window.__hotkeyRegister?.({id: 'launcher', label: 'Open launcher', group: 'Launcher', combo: 'Mod+Shift+P', handler: () => { if (modal?.isOpen()) close(); else open(); return true; }});
+  window.craftLauncher = { open, close, disable() { ac.abort(); modal?.destroy(); modal = null; } };
 })();
 
 /* %% nbs/craft/05_dialog_chrome.ipynb #098b8be2 */
+/* ── Remove Monaco & #full_editor unconditionally ─────────────────── */
 (() => {
-  window.craftIdleComposer?.disable();
-  if (window.CRAFT_IDLE_COMPOSER === false) return;
-  const {qs, on, onDomChange, MODAL_OPEN_SEL} = window.__craftCMCore;
-  let editor, subscriptions = [], requested = false, pending = false;
-  const panel = () => document.getElementById('full_editor');
-  const temporary = () => editor?.getModel()?.uri.path.endsWith('/temp');
-  const hasDraft = () => !!window.edValue?.();
-  const reveal = () => {
-    requested = true;
-    panel()?.classList.remove('craft-composer-idle');
-    editor?.layout();
-  };
-  const unbind = () => {
-    subscriptions.forEach(s => s.dispose());
-    subscriptions = [];
-  };
-  const sync = () => {
-    pending = false;
-    if (window.editor !== editor) {
-      unbind();
-      editor = window.editor;
-      if (editor) {
-        subscriptions.push(editor.onDidChangeModel(schedule));
-        subscriptions.push(editor.onDidChangeModelContent(schedule));
-      }
-    }
-    const root = panel();
-    if (!root) return;
-    const editingCell = Boolean(editor?.getModel() && !temporary()) || Boolean(qs('.editable[data-editing="true"]'));
-    const emptyDialog = !qs('#dialog-container > .editable');
-    const active = requested || (!insertionHolds.size && (emptyDialog || editingCell || hasDraft()));
-    const idle = !active;
-    if (root.classList.contains('craft-composer-idle') === idle) return;
-    root.classList.toggle('craft-composer-idle', idle);
-    if (active && editor) editor.layout();
-  };
-  const schedule = () => { if (!pending) { pending = true; queueMicrotask(sync); } };
-  const tabClick = e => {
-    const tab = e.target.closest('#full_editor .tabh');
-    if (!tab) return;
-    if (tab.id === 'tabh-code' && window.craftC2?.shouldInterceptCodeTab?.()) return;
-    reveal();
-  };
-  let shortcutOpened = false, dismissTimer;
-  const insertionHolds = new Set(), rootEl = document.documentElement;
-  const clearInsertionHolds = () => { insertionHolds.clear(); rootEl.removeAttribute('data-craft-inserting'); };
-  const holdForInsertion = () => {
-    const token = Symbol();
-    insertionHolds.add(token); rootEl.setAttribute('data-craft-inserting', '');
-    return () => {
-      if (!insertionHolds.delete(token) || insertionHolds.size) return;
-      if (!hasDraft() && temporary()) hide();
-      rootEl.removeAttribute('data-craft-inserting');
+  window.craftIdleComposer?.disable?.();
+  window.craftNoMonaco?.disable?.();
+  const {on} = window.__craftCMCore;
+  const ac = new AbortController(), sig = {signal: ac.signal};
+  let retryTimer = null, tries = 0, disposedReal = false;
+
+  const MONACO_STUB = Object.freeze({
+    __craftStub: true,
+    editor: Object.freeze({
+      getEditors: () => [],
+      getModels: () => [],
+      getDiffEditors: () => [],
+      setTheme() {},
+      remeasureFonts() {},
+      onDidCreateEditor: () => ({dispose() {}}),
+    }),
+  });
+
+  const stubContainer = document.createElement('div');
+  const EDITOR_STUB = Object.freeze({
+    __craftStub: true,
+    getContainerDomNode: () => stubContainer,
+    getDomNode: () => stubContainer,
+    layout() {},
+    focus() {},
+    hasTextFocus: () => false,
+    hasWidgetFocus: () => false,
+    getModel: () => null,
+    setModel() {},
+    getValue: () => '',
+    setValue() {},
+    dispose() {},
+    updateOptions() {},
+    getRawOptions: () => ({}),
+    getOption: () => undefined,
+    getPosition: () => null,
+    getSelection: () => null,
+    onDidChangeModel: () => ({dispose() {}}),
+    onDidChangeModelContent: () => ({dispose() {}}),
+    trigger() {},
+  });
+
+  const wrapFollowRename = () => {
+    const fn = window.followRename;
+    if (typeof fn !== 'function' || fn.__craftSafe) return;
+    const wrapped = function(...args) {
+      if (!document.getElementById('id_')) return;
+      return fn.apply(this, args);
     };
+    wrapped.__craftSafe = true;
+    window.followRename = wrapped;
   };
-  const hide = () => {
-    clearTimeout(dismissTimer);
-    shortcutOpened = false;
-    requested = false;
-    sync();
-  };
-  const show = () => {
-    if (window.editor !== editor) sync();
-    const root = panel();
-    if (!root || !editor?.getModel()) return false;
-    clearTimeout(dismissTimer);
-    clearInsertionHolds();
-    shortcutOpened ||= root.classList.contains('craft-composer-idle');
-    reveal();
-    editor.focus();
+
+  const disposeMonaco = (forceRemove = false) => {
+    const hasRealMonaco = Boolean(window.monaco && !window.monaco.__craftStub);
+    const hasRealEditor = Boolean(window.editor && !window.editor.__craftStub);
+    const hasEditors = Boolean(hasRealEditor || window.diffEditor || (hasRealMonaco && window.monaco.editor?.getEditors?.().length));
+    document.documentElement.classList.remove('craft-show-monaco');
+    if (!hasEditors && !forceRemove) return false;
+    if (hasRealMonaco || hasEditors) {
+      try { window.cleanupEd?.(); } catch {}
+      try { if (hasRealEditor) window.editor?.dispose?.(); } catch {}
+      try { window.diffEditor?.dispose?.(); } catch {}
+      try { window.monaco?.editor?.getEditors?.().forEach(ed => { try { ed.dispose(); } catch {} }); } catch {}
+      try { window.monaco?.editor?.getDiffEditors?.().forEach(ed => { try { ed.dispose(); } catch {} }); } catch {}
+      try { window.monaco?.editor?.getModels?.().forEach(m => { try { m.dispose(); } catch {} }); } catch {}
+      window.diffEditor = null;
+    }
+    window.editor = EDITOR_STUB;
+    window.monaco = MONACO_STUB;
+    window.createMonacoEditor = () => null;
+    window.msgToModel = () => null;
+    window.pushModelEdits = () => {};
+    window.edValue = () => '';
+    wrapFollowRename();
+    document.getElementById('full_editor')?.remove();
+    disposedReal = true;
     return true;
   };
-  const dismissShortcut = e => {
-    if (!shortcutOpened || e.key !== 'Escape' || e.isComposing || !panel()?.contains(e.target)) return;
-    clearTimeout(dismissTimer);
-    dismissTimer = setTimeout(() => {
-      shortcutOpened = false;
-      if (!temporary() || hasDraft() || qs('.editable[data-editing="true"]')) return;
-      requested = false;
-      sync();
-    }, 0);
-  };
-  const ac = new AbortController(), sig = {signal: ac.signal}, cap = {capture: true, signal: ac.signal};
-  const offDom = onDomChange(schedule, {attrs: ['data-editing'], delay: 0});
-  const settleEvent = ['htmx', 'after', 'settle'].join(window.htmx?.config?.metaCharacter || ':');
-  on(window, 'keydown', dismissShortcut, cap);
-  on(document, 'click', tabClick, cap);
-  on(document, settleEvent, schedule, sig);
-  window.craftIdleComposer = {
-    reveal,
-    hide,
-    show,
-    holdForInsertion,
-    disable() {
-      offDom();
-      ac.abort();
-      clearTimeout(dismissTimer);
-      clearInsertionHolds();
-      if (window.craftIdleComposer?.show === show) delete window.craftIdleComposer;
-      unbind();
-      panel()?.classList.remove('craft-composer-idle');
-      editor?.layout();
+
+  const blockFullEditorSwap = e => {
+    const tgt = e.detail?.target || e.target;
+    if (tgt?.id === 'full_editor' || tgt?.closest?.('#full_editor')) {
+      if (e.detail) e.detail.shouldSwap = false;
+      e.preventDefault();
+      if (disposedReal) document.getElementById('full_editor')?.remove();
     }
   };
-  sync();
-  window.__hotkeyRegister?.({id: 'composer-show', label: 'Show cell editor', group: 'Editor', combo: 'Shift+I', handler: e => {
-    if (e?.isComposing || e?.target?.closest?.(`#solveit-file-tree-panel, #solveit-temp-editor, [role="dialog"], ${MODAL_OPEN_SEL}`)) return false;
-    return window.craftIdleComposer?.show() === true;
-  }});
+
+  const sep = window.htmx?.config?.metaCharacter || ':';
+  on(document, ['htmx', 'oobBeforeSwap'].join(sep), blockFullEditorSwap, sig);
+  on(document, ['htmx', 'beforeSwap'].join(sep), blockFullEditorSwap, sig);
+  on(window, 'load', () => disposeMonaco(false), {once: true, signal: ac.signal});
+
+  // Wait for in-flight initMonaco()/_cme() to create window.editor before disposing & removing #full_editor,
+  // with a bounded fallback so non-Monaco pages still clean up without leaving a permanent timer.
+  const ensureDisposed = () => {
+    if (ac.signal.aborted) return;
+    if (disposeMonaco(false)) return;
+    if (++tries < 40) {
+      retryTimer = setTimeout(ensureDisposed, 100);
+    } else {
+      disposeMonaco(true);
+    }
+  };
+  ensureDisposed();
+
+  const teardown = () => disposeMonaco(true);
+  window.craftNoMonaco = {
+    teardown,
+    disable() {
+      ac.abort();
+      clearTimeout(retryTimer);
+      retryTimer = null;
+      if (window.craftNoMonaco?.teardown === teardown) delete window.craftNoMonaco;
+    },
+  };
 })();
 
 /* %% nbs/craft/05_dialog_chrome.ipynb #e5cec0de */
 /* ── Accessibility: mirror uk-tooltip & fallback aria-labels on icon controls ── */
 (() => {
   window.craftA11y?.disable?.();
+  if (!window.__craftCMCore.features.init('a11y', 'Accessibility labels', 'Mirror uk-tooltip into aria-label on icon controls')) return;
+  const {SOLVEIT, onDomChange} = window.__craftCMCore;
   const extractTip = raw => {
     if (!raw) return '';
     const s = String(raw).trim();
@@ -1334,7 +1795,7 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"mobile_phone_icon":
       if (tip) el.setAttribute('aria-label', tip);
     }
     // 2. #find-box controls (checkboxes wrapped in <label uk-tooltip>, search/replace inputs)
-    const fb = root.getElementById ? root.getElementById('find-box') : root.querySelector?.('#find-box');
+    const fb = root.querySelector?.(SOLVEIT.sel.findBox) || document.querySelector(SOLVEIT.sel.findBox);
     if (fb) {
       for (const el of fb.querySelectorAll('input, button, select')) {
         if (el.hasAttribute('aria-label') || el.hasAttribute('aria-labelledby')) continue;
@@ -1375,7 +1836,7 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"mobile_phone_icon":
   let offDom = null;
   const start = () => {
     labelControls(document);
-    offDom = window.__craftCMCore.onDomChange(() => labelControls(document), {delay: 120});
+    offDom = onDomChange(() => labelControls(document), {delay: 120});
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();
@@ -1383,18 +1844,18 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"mobile_phone_icon":
 })();
 
 /* %% nbs/craft/06_file_tree.ipynb #654a40d5 */
-window.__craftTpl = Object.assign(window.__craftTpl || {}, {"ft_upload_icon": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"></path><polyline points=\"17 8 12 3 7 8\"></polyline><line x1=\"12\" y1=\"3\" x2=\"12\" y2=\"15\"></line></svg>", "ft_collapse_icon": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"7 20 12 15 17 20\"></polyline><polyline points=\"7 4 12 9 17 4\"></polyline><line x1=\"4\" y1=\"12\" x2=\"20\" y2=\"12\"></line></svg>", "ft_temp_editor": "<div class=\"craft-overlay\" id=\"solveit-temp-editor\"><div class=\"solveit-temp-editor-bar\"><strong></strong><button type=\"button\" aria-label=\"Close editor\">×</button></div><iframe title=\"Temporary file editor\"></iframe></div>", "ft_create_form": "<form class=\"solveit-tree-create\"><input class=\"uk-input\" autocomplete=\"off\" spellcheck=\"false\" enterkeyhint=\"done\" aria-describedby=\"solveit-tree-create-error\" type=\"text\"><div id=\"solveit-tree-create-error\" role=\"alert\"></div></form>", "ft_upload_pop": "<div class=\"uk-card craft-card solveit-tree-upload-pop\" role=\"dialog\"><div class=\"solveit-tree-upload-head\"><span class=\"solveit-tree-upload-dest\"></span><button type=\"button\" class=\"solveit-tree-upload-x\" aria-label=\"Close\">×</button></div><div class=\"solveit-tree-upload-drop\">Drop files or folders here</div><div class=\"solveit-tree-upload-actions\"><button class=\"uk-btn uk-btn-default uk-btn-sm solveit-tree-upload-pick-files\" type=\"button\">Files…</button><button class=\"uk-btn uk-btn-default uk-btn-sm solveit-tree-upload-pick-dir\" type=\"button\">Folder…</button></div><input type=\"file\" class=\"solveit-tree-upload-input-files\" multiple hidden><input type=\"file\" class=\"solveit-tree-upload-input-dir\" webkitdirectory multiple hidden></div>", "ft_panel": "<aside id=\"solveit-file-tree-panel\" role=\"complementary\" aria-label=\"Files\"><div class=\"solveit-tree-brand\"><span class=\"solveit-tree-appname\">solveit</span></div><header><strong>Files</strong><kbd class=\"solveit-tree-shortcut\" data-hotkey=\"file-tree-toggle\">⌘B</kbd><button class=\"solveit-tree-new\" type=\"button\" aria-label=\"New dialog, file, or folder\" title=\"New dialog, file, or folder (name/ for folder)\">+</button><button class=\"solveit-tree-upload\" type=\"button\" aria-label=\"Upload files or folders\" title=\"Upload files or folders\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"></path><polyline points=\"17 8 12 3 7 8\"></polyline><line x1=\"12\" y1=\"3\" x2=\"12\" y2=\"15\"></line></svg></button><button class=\"solveit-tree-collapse\" type=\"button\" aria-label=\"Collapse all folders\" title=\"Collapse all folders\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"7 20 12 15 17 20\"></polyline><polyline points=\"7 4 12 9 17 4\"></polyline><line x1=\"4\" y1=\"12\" x2=\"20\" y2=\"12\"></line></svg></button><button class=\"solveit-tree-dots\" type=\"button\" aria-pressed=\"true\">.*</button><button class=\"solveit-tree-refresh\" type=\"button\" aria-label=\"Refresh files\" title=\"Refresh files\">↻</button><button class=\"solveit-tree-home\" type=\"button\" aria-label=\"Dialogs home\" title=\"Dialogs home\">⌂</button></header><input class=\"uk-input solveit-tree-filter\" type=\"search\" placeholder=\"Filter loaded files…\" autocomplete=\"off\"><div class=\"solveit-tree-status\" role=\"status\"></div><div class=\"solveit-tree-rootbar\" title=\"Right-click to create/paste/upload in root; drop here to move or upload to root\"><span class=\"solveit-tree-rootbar-path\">~/</span><span class=\"solveit-tree-rootbar-hint\">root · drop / right-click</span><button class=\"solveit-tree-row-upload\" type=\"button\" aria-label=\"Upload into root\" title=\"Upload into root\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"></path><polyline points=\"17 8 12 3 7 8\"></polyline><line x1=\"12\" y1=\"3\" x2=\"12\" y2=\"15\"></line></svg></button><button class=\"solveit-tree-row-more\" type=\"button\" aria-label=\"Actions for root\" title=\"New dialog, file, folder…\">⋯</button></div><div id=\"solveit-file-tree\" role=\"tree\"></div><div class=\"solveit-tree-resizer\" aria-hidden=\"true\" title=\"Drag to resize · Double-click to reset\"></div></aside>", "ft_menu": "<div class=\"craft-menu solveit-tree-menu\" role=\"menu\"></div>", "ft_workspace": "<div class=\"solveit-tree-workspace\"></div>"});
+window.__craftTpl = Object.assign(window.__craftTpl || {}, {"ft_upload_icon": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"></path><polyline points=\"17 8 12 3 7 8\"></polyline><line x1=\"12\" y1=\"3\" x2=\"12\" y2=\"15\"></line></svg>", "ft_collapse_icon": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"7 20 12 15 17 20\"></polyline><polyline points=\"7 4 12 9 17 4\"></polyline><line x1=\"4\" y1=\"12\" x2=\"20\" y2=\"12\"></line></svg>", "ft_temp_editor": "<dialog class=\"craft-overlay\" id=\"solveit-temp-editor\"><div class=\"solveit-temp-editor-bar\"><strong></strong><button type=\"button\" aria-label=\"Close editor\">×</button></div><iframe title=\"Temporary file editor\"></iframe></dialog>", "ft_create_form": "<form class=\"solveit-tree-create\"><input class=\"uk-input\" autocomplete=\"off\" spellcheck=\"false\" enterkeyhint=\"done\" aria-describedby=\"solveit-tree-create-error\" type=\"text\"><div id=\"solveit-tree-create-error\" role=\"alert\"></div></form>", "ft_upload_pop": "<div class=\"uk-card craft-card solveit-tree-upload-pop\" role=\"dialog\" popover=\"auto\"><div class=\"solveit-tree-upload-head\"><span class=\"solveit-tree-upload-dest\"></span><button type=\"button\" class=\"solveit-tree-upload-x\" aria-label=\"Close\">×</button></div><div class=\"solveit-tree-upload-drop\">Drop files or folders here</div><div class=\"solveit-tree-upload-actions\"><button class=\"uk-btn uk-btn-default uk-btn-sm solveit-tree-upload-pick-files\" type=\"button\">Files…</button><button class=\"uk-btn uk-btn-default uk-btn-sm solveit-tree-upload-pick-dir\" type=\"button\">Folder…</button></div><input type=\"file\" class=\"solveit-tree-upload-input-files\" multiple hidden><input type=\"file\" class=\"solveit-tree-upload-input-dir\" webkitdirectory multiple hidden></div>", "ft_panel": "<aside id=\"solveit-file-tree-panel\" role=\"complementary\" aria-label=\"Files\"><div class=\"solveit-tree-brand\"><span class=\"solveit-tree-appname\">solveit</span></div><header><strong>Files</strong><kbd class=\"solveit-tree-shortcut\" data-hotkey=\"file-tree-toggle\">⌘B</kbd><button class=\"solveit-tree-new\" type=\"button\" aria-label=\"New dialog, file, or folder\" title=\"New dialog, file, or folder (name/ for folder)\">+</button><button class=\"solveit-tree-upload\" type=\"button\" aria-label=\"Upload files or folders\" title=\"Upload files or folders\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"></path><polyline points=\"17 8 12 3 7 8\"></polyline><line x1=\"12\" y1=\"3\" x2=\"12\" y2=\"15\"></line></svg></button><button class=\"solveit-tree-collapse\" type=\"button\" aria-label=\"Collapse all folders\" title=\"Collapse all folders\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"7 20 12 15 17 20\"></polyline><polyline points=\"7 4 12 9 17 4\"></polyline><line x1=\"4\" y1=\"12\" x2=\"20\" y2=\"12\"></line></svg></button><button class=\"solveit-tree-dots\" type=\"button\" aria-pressed=\"true\">.*</button><button class=\"solveit-tree-refresh\" type=\"button\" aria-label=\"Refresh files\" title=\"Refresh files\">↻</button><a href=\"/?at=.\" class=\"solveit-tree-home\" aria-label=\"Dialogs home\" title=\"Dialogs home\">⌂</a></header><input class=\"uk-input solveit-tree-filter\" type=\"search\" placeholder=\"Filter loaded files…\" autocomplete=\"off\"><div class=\"solveit-tree-status\" role=\"status\"></div><div class=\"solveit-tree-rootbar\" title=\"Right-click to create/paste/upload in root; drop here to move or upload to root\"><span class=\"solveit-tree-rootbar-path\">~/</span><span class=\"solveit-tree-rootbar-hint\">root · drop / right-click</span><button class=\"solveit-tree-row-upload\" type=\"button\" aria-label=\"Upload into root\" title=\"Upload into root\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"></path><polyline points=\"17 8 12 3 7 8\"></polyline><line x1=\"12\" y1=\"3\" x2=\"12\" y2=\"15\"></line></svg></button><button class=\"solveit-tree-row-more\" type=\"button\" aria-label=\"Actions for root\" title=\"New dialog, file, folder…\">⋯</button></div><div id=\"solveit-file-tree\" role=\"tree\"></div><div class=\"solveit-tree-resizer\" aria-hidden=\"true\" title=\"Drag to resize · Double-click to reset\"></div></aside>", "ft_menu": "<div class=\"craft-menu solveit-tree-menu\" role=\"menu\" popover=\"auto\"></div>", "ft_workspace": "<div class=\"solveit-tree-workspace\"></div>"});
 
 /* %% nbs/craft/06_file_tree.ipynb #bdd93cf1 */
 (() => { /* iife:fileTree */
 /* #bdd93cf1 */
 window.solveitFileTree?.disable?.();
-  const {mountTpl, qs, on, store, patch} = window.__craftCMCore;
-  const QUERCUS_JS = '/static/.craft-assets/quercus-treeview.js', QUERCUS_CSS = '/static/.craft-assets/quercus-treeview.css';
+  if (!window.__craftCMCore.features.init('file-tree', 'File tree sidebar', 'Resizable sidebar file browser (Mod+B)')) return;
+  const {mountTpl, mountModal, mountMenu, qs, on, store, patch, SOLVEIT} = window.__craftCMCore;
   const DOTS_KEY = 'solveit-file-tree:hide-dots';
   const CACHE_KEY = 'solveit-file-tree:v4', CLIP_KEY = 'solveit-file-tree:clipboard', CACHE_MAX_AGE = 180000;
-  let panel, tree, loaded = false, filterText = '', restoring = false, previousFocus;
-  let refreshTimer, busy = false, menu = null, uploadPop = null, lastTreeDir = null;
+  let panel, rendered = false, filterText = '', previousFocus;
+  let refreshTimer, busy = false, menu = null, uploadPop = null, tempEditor = null, lastTreeDir = null;
   const UPLOAD_SVG = window.__craftTpl?.ft_upload_icon || '', COLLAPSE_SVG = window.__craftTpl?.ft_collapse_icon || '';
   let workspaceRow = null, dlgNameNode = null, dlgNameOrigParent = null, dlgNameOrigNext = null;
   let draggedNode = null, dropHighlightEl = null, hoverExpandTimer = null, hoverExpandPath = null;
@@ -1406,6 +1867,7 @@ window.solveitFileTree?.disable?.();
   window.__hotkeyRegister?.({id: 'file-tree-toggle', label: 'Toggle file tree', group: 'File tree', combo: 'Mod+B', handler: () => { toggle(); return true; }});
 
   const rowsByPath = new Map(), fetchedAtByPath = new Map(), expandedPaths = new Set(), loadingPaths = new Set();
+  const nodeByPath = new Map(), liByPath = new Map();
   const cached = store.json(CACHE_KEY, null, sessionStorage);
   if (cached) {
     cached.rows?.forEach(([path, rows]) => rowsByPath.set(path, rows));
@@ -1533,27 +1995,12 @@ window.solveitFileTree?.disable?.();
   }
 
   /* ── Backend requests ──────────────────────────────────────────────── */
-  function loadAssets() {
-    if (loaded || typeof window.Treeview === 'function') { loaded = true; return Promise.resolve(); }
-    if (!document.querySelector('link[data-solveit-tree="1"]')) {
-      const css = document.createElement('link');
-      css.rel = 'stylesheet'; css.href = QUERCUS_CSS; css.dataset.solveitTree = '1'; document.head.append(css);
-    }
-    return new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = QUERCUS_JS; script.dataset.solveitTree = '1';
-      script.onload = () => { loaded = true; resolve(); };
-      script.onerror = () => reject(new Error('Could not load Quercus assets'));
-      document.head.append(script);
-    });
-  }
-
   async function getRows(dirPath) {
     const cleanDir = normPath(dirPath);
     const response = await fetch(`/?at=${encodeURIComponent(cleanDir)}`, {method: 'POST', credentials: 'same-origin', headers: {'HX-Request': 'true'}});
     if (!response.ok) throw new Error(`File listing failed: ${response.status}`);
     const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
-    return [...doc.querySelectorAll('.tbl-row')].map(row => {
+    return [...doc.querySelectorAll(SOLVEIT.sel.tblRow)].map(row => {
       const link = row.querySelector('a.file-link');
       if (!link) return null;
       const href = link.getAttribute('href'), hxPost = link.getAttribute('hx-post'), isDir = !!hxPost;
@@ -1644,62 +2091,99 @@ window.solveitFileTree?.disable?.();
       }));
   }
 
-  function findNode(path) {
-    if (!panel) return null;
-    const esc = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(path) : path.replace(/["\\]/g, '\\$&');
-    const direct = panel.querySelector(`#solveit-file-tree li[data-path="${esc}"]`);
-    if (direct) return direct;
-    return [...panel.querySelectorAll('#solveit-file-tree li[data-node-data]')]
-      .find(li => JSON.parse(li.dataset.nodeData).path === path) || null;
-  }
+  const findNode = path => liByPath.get(path) || null;
+  const rowOf = li => li?.querySelector(':scope > details > summary.solveit-tree-row, :scope > .solveit-tree-row') || null;
+  const folderDetailsOf = li => li?.querySelector(':scope > details.solveit-tree-folder') || null;
+  const nodeOf = target => {
+    const li = target?.closest?.('li.solveit-tree-item[data-path]');
+    return li ? nodeByPath.get(li.dataset.path) || null : null;
+  };
 
   function focusPath(path) {
-    const li = findNode(path);
-    const content = li?.querySelector(':scope > .treeview-node-content');
-    if (content) {
-      content.scrollIntoView({block: 'nearest'});
-      content.focus();
-      return true;
-    }
-    return false;
+    const row = rowOf(findNode(path));
+    if (!row) return false;
+    row.scrollIntoView({block: 'nearest'});
+    row.focus();
+    return true;
   }
 
-  function renderNode(node, content) {
-    const {dir, dlgPath} = getCurrentContext();
-    content.classList.add('solveit-tree-' + node.kind);
-    content.tabIndex = 0;
-    content.setAttribute('role', 'treeitem');
-    // Touch: no drag (long-press would start a drag instead of the context menu); rows get a ⋯ menu button below.
-    const touch = window.craftMobile?.active();
-    if (node.kind !== 'loading' && !touch) content.draggable = true;
-    if (node.kind === 'directory') content.setAttribute('aria-expanded', String(expandedPaths.has(node.path)));
-    if ((dlgPath && node.path === dlgPath) || (!dlgPath && dir !== '.' && node.path === dir)) {
-      content.classList.add('solveit-tree-current');
+  function filterNodes(nodes, q) {
+    const out = [];
+    for (const node of nodes) {
+      const selfMatch = (node.name || '').toLowerCase().includes(q) || (node.path || '').toLowerCase().includes(q);
+      if (node.kind === 'directory') {
+        const kids = filterNodes(node.children || [], q);
+        if (selfMatch || kids.length) out.push({...node, children: kids.length ? kids : (selfMatch ? node.children : []), _forceOpen: kids.length > 0});
+      } else if (selfMatch) out.push(node);
     }
+    return out;
+  }
+
+  function buildRow(node, {dir, dlgPath, touch}) {
+    const {el} = window.__craftCMCore;
+    const isDir = node.kind === 'directory';
+    const row = el(isDir ? 'summary' : 'div', {cls: `solveit-tree-row solveit-tree-${node.kind}`, role: 'treeitem', tabIndex: 0});
+    if (node.kind !== 'loading' && !touch) row.draggable = true;
+    if ((dlgPath && node.path === dlgPath) || (!dlgPath && dir !== '.' && node.path === dir)) row.classList.add('solveit-tree-current');
+    row.append(el('span', {cls: isDir ? 'solveit-tree-caret' : 'solveit-tree-caret-spacer', 'aria-hidden': 'true'}, isDir ? '▸' : ''));
     if (node.kind !== 'loading') {
-      const fname = node.filename || node.name || '';
-      const ext = fname.includes('.') ? fname.split('.').pop().toLowerCase() : '';
-      const icons = {js: 'file_type_js.svg', css: 'file_type_css.svg', json: 'file_type_json.svg'};
-      const icon = node.kind === 'directory'
-        ? (expandedPaths.has(node.path) ? 'default_folder_opened.svg' : 'default_folder.svg')
-        : node.kind === 'dialog' ? 'file_type_ipynb.svg' : (icons[ext] || 'default_file.svg');
-      content.append(window.__craftCMCore.el('img', {cls: 'solveit-tree-icon', src: `/static/.craft-assets/vscode-icons/${icon}`, alt: ''}));
+      if (isDir) {
+        row.append(el('span', {cls: 'solveit-tree-icon solveit-tree-folder-icon', 'aria-hidden': 'true'}));
+      } else {
+        const fname = node.filename || node.name || '';
+        const ext = fname.includes('.') ? fname.split('.').pop().toLowerCase() : '';
+        const icons = {js: 'file_type_js.svg', css: 'file_type_css.svg', json: 'file_type_json.svg'};
+        const icon = node.kind === 'dialog' ? 'file_type_ipynb.svg' : (icons[ext] || 'default_file.svg');
+        row.append(el('img', {cls: 'solveit-tree-icon', src: `/static/.craft-assets/vscode-icons/${icon}`, alt: ''}));
+      }
     }
-    content.append(window.__craftCMCore.el('span', {cls: 'treeview-node-text'}, node.name));
-    if (node.kind === 'directory') {
-      const up = window.__craftCMCore.el('button', {
+    row.append(el('span', {cls: 'solveit-tree-label'}, node.name));
+    if (isDir) {
+      const up = el('button', {
         type: 'button', cls: 'solveit-tree-row-upload', tabIndex: -1,
         title: `Upload into ${node.name}`, 'aria-label': `Upload into ${node.name}`,
       });
       up.innerHTML = UPLOAD_SVG;
-      content.append(up);
+      row.append(up);
     }
     if (touch && node.kind !== 'loading') {
       const t = `Actions for ${node.name}`;
-      content.append(window.__craftCMCore.el('button', {
-        type: 'button', cls: 'solveit-tree-row-more', tabIndex: -1, title: t, 'aria-label': t,
-      }, '⋯'));
+      row.append(el('button', {type: 'button', cls: 'solveit-tree-row-more', tabIndex: -1, title: t, 'aria-label': t}, '⋯'));
     }
+    return row;
+  }
+
+  function buildList(nodes, ctx) {
+    const {el} = window.__craftCMCore;
+    const ul = el('ul', {cls: 'solveit-tree-list', role: 'group'});
+    for (const node of nodes) {
+      const li = el('li', {cls: 'solveit-tree-item', role: 'none'});
+      if (node.path) {
+        li.dataset.path = node.path;
+        nodeByPath.set(node.path, node);
+        liByPath.set(node.path, li);
+      }
+      const row = buildRow(node, ctx);
+      if (node.kind === 'directory') {
+        const details = el('details', {cls: 'solveit-tree-folder'});
+        if (expandedPaths.has(node.path) || node._forceOpen) details.open = true;
+        details.append(row, buildList(node.children || [], ctx));
+        details.addEventListener('toggle', () => {
+          if (!details.isConnected) return;
+          if (details.open) loadFolder(node.path);
+          if (!filterText.trim()) {
+            if (details.open) expandedPaths.add(node.path);
+            else expandedPaths.delete(node.path);
+            saveCache();
+          }
+        });
+        li.append(details);
+      } else {
+        li.append(row);
+      }
+      ul.append(li);
+    }
+    return ul;
   }
 
   function renderTree() {
@@ -1708,33 +2192,26 @@ window.solveitFileTree?.disable?.();
     const prevScroll = treeEl ? treeEl.scrollTop : 0;
     const focused = createDraft?.input;
     const draftFocus = focused && document.activeElement === focused ? [focused.selectionStart, focused.selectionEnd] : null;
-    const {dir} = getCurrentContext();
-    const curAncestors = new Set(ancestorsOf(dir));
-    const data = nodesFor('.', curAncestors);
-    if (!tree) tree = new Treeview({containerId: 'solveit-file-tree', data, initiallyExpanded: false, nodeSelectionEnabled: false, onRenderNode: renderNode});
-    else tree.setData(data);
-    const nodeIndex = new Map();
-    for (const li of panel.querySelectorAll('#solveit-file-tree li[data-node-data]')) {
-      try {
-        const p = JSON.parse(li.dataset.nodeData).path;
-        if (p) { li.dataset.path = p; nodeIndex.set(p, li); }
-      } catch {}
-    }
-    restoring = true;
-    [...expandedPaths].sort((a, b) => a.length - b.length).forEach(path => {
-      const li = nodeIndex.get(path), expander = li?.querySelector(':scope > .treeview-node-content > .treeview-expander');
-      if (expander && !li.classList.contains('expanded')) expander.click();
-    });
-    restoring = false;
-    if (filterText) tree.search(filterText);
+    const activePath = panel.contains(document.activeElement)
+      ? document.activeElement?.closest?.('li.solveit-tree-item[data-path]')?.dataset.path
+      : null;
+    const ctx = {...getCurrentContext(), touch: !!window.craftMobile?.active()};
+    const curAncestors = new Set(ancestorsOf(ctx.dir));
+    const q = filterText.trim().toLowerCase();
+    const data = q ? filterNodes(nodesFor('.', curAncestors), q) : nodesFor('.', curAncestors);
+    nodeByPath.clear(); liByPath.clear();
+    treeEl.replaceChildren(buildList(data, ctx));
+    rendered = true;
     mountCreate();
     if (draftFocus && createDraft?.input.isConnected) {
       const input = createDraft.input;
       input.focus({preventScroll: true});
       input.setSelectionRange(...draftFocus);
+    } else if (activePath) {
+      rowOf(findNode(activePath))?.focus({preventScroll: true});
     }
     const rootLabel = panel.querySelector('.solveit-tree-rootbar-path');
-    if (rootLabel) rootLabel.textContent = dir === '.' ? '~/' : `~/${dir}`;
+    if (rootLabel) rootLabel.textContent = ctx.dir === '.' ? '~/' : `~/${ctx.dir}`;
     if (treeEl && prevScroll) treeEl.scrollTop = prevScroll;
   }
 
@@ -1786,7 +2263,7 @@ window.solveitFileTree?.disable?.();
         }
       });
       saveCache();
-      if (changed || !tree) renderTree();
+      if (changed || !rendered) renderTree();
       setStatus('');
     } catch (err) { setStatus(`Could not refresh files: ${err.message || err}`); }
     finally { button.disabled = false; }
@@ -1817,12 +2294,13 @@ window.solveitFileTree?.disable?.();
     if (window.craftMobile?.active() && panel?.classList.contains('open')) closePanel();
     if (node.kind === 'dialog') { location.href = node.href; return; }
     const url = new URL(node.href, location.href); url.pathname = '/file_editor_';
-    let overlay = qs('#solveit-temp-editor');
-    if (!overlay) {
-      const {root: ov, close, frame} = mountTpl('ft_temp_editor', {refs: {close: 'button', frame: 'iframe'}});
-      overlay = ov;
-      close.onclick = () => { overlay.classList.remove('open'); frame.src = 'about:blank'; };
-      document.body.append(overlay);
+    if (!tempEditor) {
+      tempEditor = mountModal('ft_temp_editor', {
+        refs: {close: 'button', frame: 'iframe'},
+        closeOnBackdrop: false,
+        onClose: () => { tempEditor.frame.src = 'about:blank'; },
+      });
+      const {frame} = tempEditor;
       on(frame, 'load', () => {
         on(frame.contentWindow, 'keydown', e => {
           if (window.solveitHotkeys?.dispatch(e)) { e.preventDefault(); e.stopImmediatePropagation(); }
@@ -1837,20 +2315,21 @@ window.solveitFileTree?.disable?.();
         }
       });
     }
-    qs('strong', overlay).textContent = url.searchParams.get('fp') || 'File editor';
-    overlay.classList.add('open'); qs('iframe', overlay).src = url.href;
+    qs('strong', tempEditor.root).textContent = url.searchParams.get('fp') || 'File editor';
+    tempEditor.open(); tempEditor.frame.src = url.href;
   }
 
   function handleTreeClick(e) {
-    if (restoring || e.target.closest('.solveit-tree-create')) return;
-    const li = e.target.closest('li[data-node-data]');
+    if (e.target.closest('.solveit-tree-create')) return;
+    const li = e.target.closest('li.solveit-tree-item[data-path]');
     if (!li) return;
-    const node = JSON.parse(li.dataset.nodeData), expander = e.target.closest('.treeview-expander');
+    const node = nodeByPath.get(li.dataset.path);
+    if (!node) return;
     const moreBtn = e.target.closest('.solveit-tree-row-more');
     if (moreBtn) {
       e.preventDefault(); e.stopPropagation();
-      const content = moreBtn.closest('.treeview-node-content');
-      showMenu({target: content, currentTarget: moreBtn, clientX: 0, clientY: 0, preventDefault() {}, stopPropagation() {}});
+      const row = rowOf(li) || moreBtn;
+      showMenu({target: row, currentTarget: moreBtn, clientX: 0, clientY: 0, preventDefault() {}, stopPropagation() {}});
       return;
     }
     const upBtn = e.target.closest('.solveit-tree-row-upload');
@@ -1859,18 +2338,7 @@ window.solveitFileTree?.disable?.();
       openUploadPop(node.path, upBtn);
       return;
     }
-    if (node.kind === 'directory' && !expander) {
-      e.preventDefault(); e.stopPropagation(); li.querySelector(':scope > .treeview-node-content > .treeview-expander')?.click(); return;
-    }
-    if (node.kind === 'directory' && expander) queueMicrotask(() => {
-      if (!li.isConnected) return;
-      const open = li.classList.contains('expanded'), icon = li.querySelector(':scope > .treeview-node-content > img.solveit-tree-icon');
-      li.querySelector(':scope > .treeview-node-content')?.setAttribute('aria-expanded', String(open));
-      if (open) { expandedPaths.add(node.path); if (icon) icon.src = '/static/.craft-assets/vscode-icons/default_folder_opened.svg'; loadFolder(node.path); }
-      else { expandedPaths.delete(node.path); if (icon) icon.src = '/static/.craft-assets/vscode-icons/default_folder.svg'; }
-      saveCache();
-    });
-    else if (node.href) openNode(node);
+    if (node.kind !== 'directory' && node.href) openNode(node);
   }
 
 /* #73352039 */
@@ -1929,7 +2397,7 @@ window.solveitFileTree?.disable?.();
     if (!createDraft) return;
     const {dir, form} = createDraft;
     if (dir === '.') panel.querySelector('#solveit-file-tree').prepend(form);
-    else findNode(dir)?.querySelector(':scope > .treeview-node-content')?.after(form);
+    else findNode(dir)?.querySelector(':scope > details > summary')?.after(form);
   }
 
   function beginCreate(dir, kind) {
@@ -1974,7 +2442,8 @@ window.solveitFileTree?.disable?.();
       setStatus(hideDots && filename.startsWith('.') ? `Created '${filename}' (hidden by .* filter)` : `Created '${filename}'`);
     });
     const folder = dir === '.' ? null : findNode(dir);
-    if (folder && !folder.classList.contains('expanded')) folder.querySelector(':scope > .treeview-node-content > .treeview-expander')?.click();
+    const details = folderDetailsOf(folder);
+    if (details && !details.open) details.open = true;
     mountCreate();
     input.focus();
   }
@@ -2268,8 +2737,12 @@ window.solveitFileTree?.disable?.();
 
   function closeUploadPop() {
     if (!uploadPop) return false;
-    uploadPop.remove(); uploadPop = null;
-    return true;
+    const pop = uploadPop;
+    uploadPop = null;
+    const wasOpen = pop.matches(':popover-open');
+    if (wasOpen) pop.hidePopover();
+    pop.remove();
+    return wasOpen;
   }
 
   function openUploadPop(targetDir, anchorEl = null) {
@@ -2316,7 +2789,11 @@ window.solveitFileTree?.disable?.();
       },
     });
 
-    panel.append(pop);
+    document.body.append(pop);
+    on(pop, 'toggle', e => {
+      if (e.newState === 'closed' && uploadPop === pop) { pop.remove(); uploadPop = null; }
+    });
+    pop.showPopover();
     const b = anchorEl?.getBoundingClientRect?.() || panel.getBoundingClientRect();
     const r = pop.getBoundingClientRect();
     pop.style.left = Math.max(4, Math.min(b.left, innerWidth - r.width - 4)) + 'px';
@@ -2328,13 +2805,13 @@ window.solveitFileTree?.disable?.();
     closeMenu(); closeUploadPop(); dismissCreate();
     expandedPaths.clear();
     saveCache();
-    if (tree) renderTree();
+    if (rendered) renderTree();
     setStatus('Collapsed all folders');
   }
 
 /* #8c1d01d4 */
 /* ── Context menu ──────────────────────────────────────────────────── */
-  function closeMenu() { if (!menu) return false; menu.remove(); menu = null; return true; }
+  function closeMenu() { if (!menu?.isOpen()) return false; menu.close(); return true; }
 
   async function copyNodePath(node) {
     const path = `/app/data/${node.path}`;
@@ -2346,20 +2823,21 @@ window.solveitFileTree?.disable?.();
 
   function showMenu(e, forcedDir = null) {
     if (e.target.closest('.solveit-tree-create')) return;
-    const li = forcedDir ? null : e.target.closest('li[data-node-data]');
-    const node = li ? JSON.parse(li.dataset.nodeData) : null;
+    const li = forcedDir ? null : e.target.closest('li.solveit-tree-item[data-path]');
+    const node = li ? nodeByPath.get(li.dataset.path) || null : null;
     if (node?.kind === 'loading') return;
     e.preventDefault(); e.stopPropagation(); closeMenu();
 
     const clip = getClipboard();
-    menu = window.__craftCMCore.mountTpl('ft_menu');
+    menu ||= mountMenu('ft_menu');
+    menu.root.replaceChildren();
     const item = (label, fn, {disabled = false, title = '', danger = false} = {}) => {
-      menu.append(window.__craftCMCore.el('button', {
+      menu.root.append(window.__craftCMCore.el('button', {
         type: 'button', role: 'menuitem', disabled, title: title || null, cls: danger ? 'danger' : null,
         onClick: ev => { ev.stopPropagation(); closeMenu(); fn(); },
       }, label));
     };
-    const sep = () => { menu.append(window.__craftCMCore.el('hr', {cls: 'solveit-tree-menu-sep'})); };
+    const sep = () => { menu.root.append(window.__craftCMCore.el('hr', {cls: 'solveit-tree-menu-sep'})); };
 
     if (!node || node.kind === 'directory') {
       const targetDir = forcedDir ? normPath(forcedDir) : (node ? node.path : '.');
@@ -2398,22 +2876,10 @@ window.solveitFileTree?.disable?.();
       item('Delete…', () => deleteNode(node), {danger: true});
     }
 
-    menu.addEventListener('keydown', ev => {
-      if (ev.key !== 'ArrowDown' && ev.key !== 'ArrowUp') return;
-      ev.preventDefault(); ev.stopPropagation();
-      const btns = [...menu.querySelectorAll('button:not(:disabled)')];
-      if (!btns.length) return;
-      const i = btns.indexOf(document.activeElement);
-      btns[(i + (ev.key === 'ArrowDown' ? 1 : -1) + btns.length) % btns.length].focus();
-    });
-
-    panel.append(menu);
     const anchor = li || e.currentTarget;
     const at = (e.clientX || e.clientY) ? {x: e.clientX, y: e.clientY} : (b => ({x: b.left + 24, y: b.bottom}))(anchor.getBoundingClientRect());
-    const r = menu.getBoundingClientRect();
-    menu.style.left = Math.max(4, Math.min(at.x, innerWidth - r.width - 4)) + 'px';
-    menu.style.top = Math.max(4, Math.min(at.y, innerHeight - r.height - 4)) + 'px';
-    menu.querySelector('button:not(:disabled)')?.focus();
+    menu.openAt(at.x, at.y);
+    menu.items()[0]?.focus();
   }
 
   /* ── Drag and drop ─────────────────────────────────────────────────── */
@@ -2425,28 +2891,21 @@ window.solveitFileTree?.disable?.();
   function resolveDropTarget(targetEl) {
     const rootbar = panel?.querySelector('.solveit-tree-rootbar');
     if (targetEl.closest?.('.solveit-tree-rootbar')) return {destDir: '.', highlightEl: rootbar, dirLi: null};
-    const li = targetEl.closest?.('li[data-node-data]');
+    const li = targetEl.closest?.('li.solveit-tree-item[data-path]');
     if (!li) return {destDir: '.', highlightEl: rootbar, dirLi: null};
-    const node = JSON.parse(li.dataset.nodeData);
-    if (node.kind === 'loading') return null;
-    if (node.kind === 'directory') {
-      return {destDir: node.path, highlightEl: li.querySelector(':scope > .treeview-node-content'), dirLi: li};
-    }
+    const node = nodeByPath.get(li.dataset.path);
+    if (!node || node.kind === 'loading') return null;
+    if (node.kind === 'directory') return {destDir: node.path, highlightEl: rowOf(li), dirLi: li};
     const destDir = node.parentPath || '.';
     const parentLi = destDir === '.' ? null : findNode(destDir);
-    return {
-      destDir,
-      highlightEl: parentLi ? parentLi.querySelector(':scope > .treeview-node-content') : rootbar,
-      dirLi: parentLi,
-    };
+    return {destDir, highlightEl: parentLi ? rowOf(parentLi) : rootbar, dirLi: parentLi};
   }
 
   function wireDragAndDrop(treeEl, rootbar) {
     treeEl.addEventListener('dragstart', e => {
-      const li = e.target.closest('li[data-node-data]');
-      if (!li) return;
-      const node = JSON.parse(li.dataset.nodeData);
-      if (node.kind === 'loading') { e.preventDefault(); return; }
+      const li = e.target.closest('li.solveit-tree-item[data-path]');
+      const node = li ? nodeByPath.get(li.dataset.path) : null;
+      if (!node || node.kind === 'loading') { e.preventDefault(); return; }
       closeMenu();
       draggedNode = node;
       li.classList.add('solveit-tree-dragging');
@@ -2476,15 +2935,13 @@ window.solveitFileTree?.disable?.();
         dropHighlightEl = target.highlightEl;
         dropHighlightEl?.classList.add('solveit-tree-drop-target');
       }
-      if (target.dirLi && !target.dirLi.classList.contains('expanded') && target.destDir !== '.') {
+      const dirDetails = folderDetailsOf(target.dirLi);
+      if (dirDetails && !dirDetails.open && target.destDir !== '.') {
         if (hoverExpandPath !== target.destDir) {
           clearTimeout(hoverExpandTimer);
           hoverExpandPath = target.destDir;
-          const dirLi = target.dirLi;
           hoverExpandTimer = setTimeout(() => {
-            if (dirLi.isConnected && !dirLi.classList.contains('expanded')) {
-              dirLi.querySelector(':scope > .treeview-node-content > .treeview-expander')?.click();
-            }
+            if (dirDetails.isConnected && !dirDetails.open) dirDetails.open = true;
           }, 600);
         }
       } else {
@@ -2542,7 +2999,7 @@ window.solveitFileTree?.disable?.();
       lpCancel();
       if (e.touches.length !== 1) return;
       const t = e.target, onRoot = rootbar.contains(t);
-      if (t.closest('button, input, .solveit-tree-create') || !(onRoot || t.closest('li[data-node-data]'))) return;
+      if (t.closest('button, input, .solveit-tree-create') || !(onRoot || t.closest('li.solveit-tree-item[data-path]'))) return;
       const {clientX, clientY} = e.touches[0];
       lpStart = {x: clientX, y: clientY};
       lpTimer = setTimeout(() => {
@@ -2600,7 +3057,7 @@ window.solveitFileTree?.disable?.();
     const r = mountTpl('ft_panel', {refs: {
       brand: '.solveit-tree-brand', btnNew: '.solveit-tree-new', btnUpload: '.solveit-tree-upload',
       btnCollapse: '.solveit-tree-collapse', btnRefresh: '.solveit-tree-refresh', btnDots: '.solveit-tree-dots',
-      btnHome: '.solveit-tree-home', filter: '.solveit-tree-filter', treeEl: '#solveit-file-tree',
+      filter: '.solveit-tree-filter', treeEl: '#solveit-file-tree',
       rootbar: '.solveit-tree-rootbar', resizer: '.solveit-tree-resizer',
     }});
     panel = r.root;
@@ -2622,16 +3079,15 @@ window.solveitFileTree?.disable?.();
       hideDots = !hideDots;
       updateDotsBtn();
       store.set(DOTS_KEY, hideDots ? '1' : '0');
-      if (tree) renderTree();
+      if (rendered) renderTree();
     };
-    r.btnHome.onclick = () => { location.href = '/?at=.'; };
     window.solveitHotkeys?.refreshChips();
     let filterTimer = null;
     on(r.filter, 'input', e => {
       filterText = e.target.value;
       clearTimeout(filterTimer);
-      if (!filterText) { tree?.search(''); return; }
-      filterTimer = setTimeout(() => { tree?.search(filterText); }, 80);
+      if (!filterText) { if (rendered) renderTree(); return; }
+      filterTimer = setTimeout(() => { if (rendered) renderTree(); }, 80);
     });
     rootbar.querySelector('.solveit-tree-row-upload').onclick = e => {
       e.stopPropagation();
@@ -2643,10 +3099,8 @@ window.solveitFileTree?.disable?.();
       showMenu({target: b, currentTarget: b, clientX: 0, clientY: 0, preventDefault() {}, stopPropagation() {}}, '.');
     };
     treeEl.addEventListener('focusin', e => {
-      const li = e.target.closest?.('li[data-node-data]');
-      if (!li) return;
-      const node = JSON.parse(li.dataset.nodeData);
-      if (node.kind === 'loading') return;
+      const node = nodeOf(e.target);
+      if (!node || node.kind === 'loading') return;
       lastTreeDir = node.kind === 'directory' ? node.path : (node.parentPath || '.');
     });
     treeEl.addEventListener('contextmenu', e => showMenu(e));
@@ -2658,7 +3112,7 @@ window.solveitFileTree?.disable?.();
     panel.addEventListener('dblclick', e => {
       if (e.target.closest('.solveit-tree-row-upload, .solveit-tree-upload-pop')) return;
       const atRoot = rootbar.contains(e.target);
-      const onBlank = e.target === panel || e.target.matches('.solveit-tree-status') || (treeEl.contains(e.target) && !e.target.closest('li[data-node-data], .solveit-tree-create'));
+      const onBlank = e.target === panel || e.target.matches('.solveit-tree-status') || (treeEl.contains(e.target) && !e.target.closest('li.solveit-tree-item[data-path], .solveit-tree-create'));
       if (!atRoot && !onBlank) return;
       e.preventDefault(); e.stopPropagation();
       closeMenu();
@@ -2689,26 +3143,27 @@ async function toggle(focus = true) {
     }, CACHE_MAX_AGE);
     try {
       setStatus('Loading files…');
-      await loadAssets();
       await ensureCurrentDirLoaded();
       renderTree(); setStatus('');
       if (focus && p.classList.contains('open')) {
         const {dir, dlgPath} = getCurrentContext();
-        if (!(dlgPath && focusPath(dlgPath)) && !(dir !== '.' && focusPath(dir))) p.querySelector('#solveit-file-tree .treeview-node-content')?.focus();
+        if (!(dlgPath && focusPath(dlgPath)) && !(dir !== '.' && focusPath(dir))) p.querySelector('#solveit-file-tree .solveit-tree-row')?.focus();
       }
       if (activeRefreshPaths().some(path => Date.now() - (fetchedAtByPath.get(path) || 0) > CACHE_MAX_AGE)) refreshTree();
     } catch (err) { setStatus('Unable to load files: ' + (err.message || err)); }
   }
 
   function handleTreeKeys(e) {
-    const current = e.target.closest?.('.treeview-node-content');
+    const current = e.target.closest?.('.solveit-tree-row');
     if (!current) return;
-    const li = current.closest('li[data-node-data]'), node = JSON.parse(li.dataset.nodeData);
-    const items = [...panel.querySelectorAll('#solveit-file-tree li[data-node-data] > .treeview-node-content')].filter(item => {
-      const itemLi = item.closest('li[data-node-data]');
-      if (itemLi.closest('li.hidden')) return false;
-      let parent = itemLi.parentElement.closest('li[data-node-data]');
-      while (parent) { if (!parent.classList.contains('expanded')) return false; parent = parent.parentElement.closest('li[data-node-data]'); }
+    const li = current.closest('li.solveit-tree-item[data-path]');
+    const node = li ? nodeByPath.get(li.dataset.path) : null;
+    if (!node) return;
+    const details = folderDetailsOf(li);
+    const items = [...panel.querySelectorAll('#solveit-file-tree .solveit-tree-row')].filter(row => {
+      let d = row.parentElement.closest('details.solveit-tree-folder');
+      if (row.tagName === 'SUMMARY' && d === row.parentElement) d = d.parentElement.closest('details.solveit-tree-folder');
+      while (d) { if (!d.open) return false; d = d.parentElement.closest('details.solveit-tree-folder'); }
       return true;
     });
     const index = items.indexOf(current);
@@ -2717,15 +3172,15 @@ async function toggle(focus = true) {
       items[Math.max(0, Math.min(items.length - 1, index + (e.key === 'ArrowDown' ? 1 : -1)))]?.focus();
     } else if (e.key === 'ArrowRight' && node.kind === 'directory') {
       e.preventDefault();
-      if (li.classList.contains('expanded')) li.querySelector('ul li[data-node-data] > .treeview-node-content')?.focus();
-      else li.querySelector(':scope > .treeview-node-content > .treeview-expander')?.click();
+      if (details?.open) details.querySelector(':scope > ul.solveit-tree-list .solveit-tree-row')?.focus();
+      else if (details) details.open = true;
     } else if (e.key === 'ArrowLeft') {
       e.preventDefault();
-      if (node.kind === 'directory' && li.classList.contains('expanded')) li.querySelector(':scope > .treeview-node-content > .treeview-expander')?.click();
-      else li.parentElement.closest('li[data-node-data]')?.querySelector(':scope > .treeview-node-content')?.focus();
+      if (node.kind === 'directory' && details?.open) details.open = false;
+      else rowOf(li.parentElement.closest('li.solveit-tree-item[data-path]'))?.focus();
     } else if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      if (node.kind === 'directory') li.querySelector(':scope > .treeview-node-content > .treeview-expander')?.click();
+      if (node.kind === 'directory' && details) details.open = !details.open;
       else if (node.href) openNode(node);
     } else if (e.key === 'F2') {
       e.preventDefault(); renameNode(node);
@@ -2749,17 +3204,15 @@ async function toggle(focus = true) {
   }
 
   const onDocPointerDown = e => {
-    if (menu && !menu.contains(e.target)) closeMenu();
-    if (uploadPop && !uploadPop.contains(e.target) && !e.target.closest?.('.solveit-tree-upload, .solveit-tree-row-upload')) closeUploadPop();
     if (createDraft && !createDraft.input.readOnly && !createDraft.form.contains(e.target)) dismissCreate();
   };
   const onWinKeyDown = e => {
-    if (document.querySelector('#solveit-launcher.open')) return;
+    if (document.querySelector('#solveit-launcher[open], #solveit-launcher.open')) return;
     if (e.target.closest?.('.solveit-tree-create')) return;
     if (e.key === 'Escape' && (closeUploadPop() || closeMenu())) { e.preventDefault(); e.stopImmediatePropagation(); return; }
     const active = panel?.classList.contains('open') && panel.contains(document.activeElement);
     const isTreeMod = (e.metaKey || e.ctrlKey) && !e.altKey && ['c', 'v'].includes(e.key.toLowerCase());
-    if (active && !menu && !e.target.closest?.('.solveit-tree-filter') && (isTreeMod || ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Enter', ' ', 'ContextMenu', 'F10', 'F2', 'Delete', 'Backspace'].includes(e.key))) {
+    if (active && !menu?.isOpen() && !e.target.closest?.('.solveit-tree-filter') && (isTreeMod || ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Enter', ' ', 'ContextMenu', 'F10', 'F2', 'Delete', 'Backspace'].includes(e.key))) {
       if (e.key === 'F10' && !e.shiftKey) return;
       e.stopImmediatePropagation();
       handleTreeKeys(e);
@@ -2772,7 +3225,7 @@ async function toggle(focus = true) {
 
   function disable() {
     clearInterval(refreshTimer); refreshTimer = null;
-    closeMenu(); closeUploadPop(); dismissCreate(); clearDropState();
+    menu?.destroy(); menu = null; closeUploadPop(); tempEditor?.destroy(); tempEditor = null; dismissCreate(); clearDropState();
     ac.abort();
     if (dlgNameNode && dlgNameOrigParent) {
       if (dlgNameOrigNext && dlgNameOrigNext.parentNode === dlgNameOrigParent) dlgNameOrigParent.insertBefore(dlgNameNode, dlgNameOrigNext);
@@ -2785,10 +3238,10 @@ async function toggle(focus = true) {
       workspaceRow = null;
     }
     panel?.remove();
-    panel = null; tree = null;
+    panel = null; rendered = false; nodeByPath.clear(); liByPath.clear();
   }
 
-  const offMobile = window.craftMobile?.onChange(() => { if (tree) renderTree(); });
+  const offMobile = window.craftMobile?.onChange(() => { if (rendered) renderTree(); });
   window.solveitFileTree = {
     refresh: () => refreshCurrent(),
     getCurrentContext,
@@ -2814,36 +3267,38 @@ async function toggle(focus = true) {
 /* %% nbs/craft/06_file_tree.ipynb #c8602651 */
 (() => {
   window.craftDotPrompts?.disable?.();
-  function markDotPrompts() {
-    document.querySelectorAll('.editable').forEach(editable => {
-      const prompt = editable.querySelector(
-        '.msg-card.card-in[data-mtype="prompt"]'
-      );
-      const body = prompt?.querySelector('.msg-body');
+  if (!window.__craftCMCore.features.init('dot-prompts', 'Dot-prompt markers', 'Compact empty or bare-dot prompt cells')) return;
+  const {SOLVEIT, onCells} = window.__craftCMCore;
+  function markDotPrompts(cells = null) {
+    const list = cells || document.querySelectorAll(SOLVEIT.sel.cell);
+    list.forEach(editable => {
+      const prompt = editable.querySelector(`.msg-card${SOLVEIT.sel.promptCard}`);
+      const body = prompt?.querySelector(SOLVEIT.sel.msgBody);
       const isDot = !!body && ['', '.'].includes(body.textContent.trim()) && !body.querySelector('img,video,audio,iframe,canvas,svg');
 
       editable.classList.toggle('dot-prompt', isDot);
-      const response = editable.querySelector(':scope > .card-out .msg-content');
+      const response = editable.querySelector(`${SOLVEIT.sel.cardOut} ${SOLVEIT.sel.msgContent}`);
       const hasResponse = !!response && (!!response.textContent.trim() || !!response.querySelector('img,video,audio,iframe,canvas,svg'));
       editable.classList.toggle('dot-prompt-response', isDot && hasResponse);
     });
   }
 
-  markDotPrompts();
-  const offDom = window.__craftCMCore.onDomChange(markDotPrompts, {delay: 'raf', inDialog: true, charData: true});
-  window.craftDotPrompts = {refresh: markDotPrompts, disable() { offDom?.(); }};
+  const offDom = onCells(markDotPrompts, {initial: true});
+  window.craftDotPrompts = {refresh: () => markDotPrompts(), disable() { offDom?.(); }};
 })();
 
 /* %% nbs/craft/07_cell_presentation.ipynb #455c9f8a */
-window.__craftTpl = Object.assign(window.__craftTpl || {}, {"action_menu": "<div class=\"craft-menu craft-action-menu\" id=\"craft-cell-action-menu\" popover=\"auto\" role=\"menu\"></div>", "action_trigger": "<button type=\"button\" class=\"craft-action-trigger\" aria-haspopup=\"menu\" aria-expanded=\"false\" aria-controls=\"craft-cell-action-menu\">…</button>", "omit_marker": "<button type=\"button\" class=\"craft-omit-marker\"></button>"});
+window.__craftTpl = Object.assign(window.__craftTpl || {}, {"action_menu": "<div class=\"craft-menu craft-action-menu\" id=\"craft-cell-action-menu\" role=\"menu\" popover=\"auto\"></div>", "action_trigger": "<button type=\"button\" class=\"craft-action-trigger\" aria-haspopup=\"menu\" aria-expanded=\"false\" aria-controls=\"craft-cell-action-menu\">…</button>", "omit_marker": "<button type=\"button\" class=\"craft-omit-marker\"></button>"});
 
 /* %% nbs/craft/07_cell_presentation.ipynb #68ce4acb */
 (() => {
   window.craftCellChains?.disable();
+  if (!window.__craftCMCore.features.init('cell-chains', 'Cell chains', 'Group consecutive notes, code, and prompts')) return;
+  const {SOLVEIT, onCells} = window.__craftCMCore;
   const sync = () => {
-    const all = [...document.querySelectorAll('#dialog-container > .editable')];
+    const all = [...document.querySelectorAll(SOLVEIT.sel.cell)];
     const cells = all.filter(e => !e.hidden && getComputedStyle(e).display !== 'none');
-    const type = e => e?.querySelector(':scope > .card-in')?.dataset.mtype;
+    const type = e => e?.querySelector(SOLVEIT.sel.cardIn)?.dataset.mtype;
     const joins = (a, b) => ['prompt', 'code', 'note'].includes(type(a)) && type(a) === type(b);
     const prev = new Set(cells.filter((e, i) => i > 0 && joins(cells[i-1], e)));
     const next = new Set(cells.filter((e, i) => i < cells.length-1 && joins(e, cells[i+1])));
@@ -2852,7 +3307,7 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"action_menu": "<div
       if (e.classList.contains('craft-chain-next') !== next.has(e)) e.classList.toggle('craft-chain-next', next.has(e));
     }
   };
-  const offDom = window.__craftCMCore.onDomChange(sync, {attrs: ['class', 'style', 'hidden', 'data-mtype'], delay: 'raf', inDialog: true});
+  const offDom = onCells(sync, {attrs: ['class', 'style', 'hidden', 'data-mtype']});
   window.craftCellChains = {
     sync,
     disable() {
@@ -2866,25 +3321,31 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"action_menu": "<div
 /* %% nbs/craft/07_cell_presentation.ipynb #958ca2ad */
 (() => {
   window.craftActionMenus?.disable();
-  if (window.CRAFT_ACTION_MENUS === false) return;
+  if (window.CRAFT_ACTION_MENUS === false || !window.__craftCMCore.features.init('action-menus', 'Compact action menus', 'Collapse card action strips into popover menu')) return;
   let current = null;
   const providers = window.__craftActionMenuProviders || new Set();
   window.__craftActionMenuProviders = providers;
-  const {mountTpl, qsa, on, onDomChange} = window.__craftCMCore;
-  const menu = mountTpl('action_menu');
-  document.body.append(menu);
+  const {mountTpl, mountMenu, qsa, on, onCells, SOLVEIT, allCells} = window.__craftCMCore;
+  const ac = new AbortController(), sig = {signal: ac.signal}, cap = {capture: true, signal: ac.signal};
+  const menuCtl = mountMenu('action_menu', {
+    signal: ac.signal,
+    onClose() {
+      const trigger = current;
+      current = null;
+      trigger?.setAttribute('aria-expanded', 'false');
+    },
+  });
+  const menu = menuCtl.root;
   const close = (restore = false) => {
     const trigger = current;
-    current = null;
-    trigger?.setAttribute('aria-expanded', 'false');
-    if (menu.matches(':popover-open')) menu.hidePopover();
+    menuCtl.close();
     if (restore && trigger?.isConnected) trigger.focus({preventScroll: true});
   };
   const open = trigger => {
     if (current === trigger) return close(true);
     close();
     const card = trigger.closest('.msg-card');
-    const group = card.querySelector('.uk-card-header .uk-btn-group');
+    const group = card.querySelector(`${SOLVEIT.sel.cardHeader} .uk-btn-group`);
     if (!group) return;
     menu.replaceChildren();
     for (const source of group.querySelectorAll('button,a')) {
@@ -2901,19 +3362,6 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"action_menu": "<div
           queueMicrotask(() => { if (document.activeElement === document.body && trigger.isConnected) trigger.focus({preventScroll: true}); });
         },
       }, label));
-    }
-    if (card.matches('.card-in[data-mtype="code"]') && window.craftC2) {
-      const cellEl = card.closest('.editable');
-      const cid = cellEl?.id?.replace(/^_/, '');
-      if (cid) {
-        menu.append(
-          window.__craftCMCore.el('hr', {cls: 'craft-action-sep'}),
-          window.__craftCMCore.el('button', {
-            type: 'button', role: 'menuitem',
-            onClick: e => { e.stopPropagation(); close(); window.craftC2.toggleLineNumbers?.(); },
-          }, `Line numbers: ${window.craftC2.lineNumbers?.() ? 'On' : 'Off'}`),
-        );
-      }
     }
     const cellEl = card.closest('.editable');
     const cid = cellEl?.id?.replace(/^_/, '') || '';
@@ -2943,13 +3391,15 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"action_menu": "<div
     menu.setAttribute('aria-label', trigger.getAttribute('aria-label'));
     menu.showPopover();
     const r = trigger.getBoundingClientRect();
-    menu.style.left = Math.max(8, Math.min(r.right - menu.offsetWidth, innerWidth - menu.offsetWidth - 8)) + 'px';
-    menu.style.top = Math.max(8, Math.min(r.bottom + 4, innerHeight - menu.offsetHeight - 8)) + 'px';
+    menuCtl.openAt(r.right - menu.offsetWidth, r.bottom + 4);
     menu.querySelector('button:not(:disabled)')?.focus({preventScroll: true});
   };
-  const sync = () => {
+  const sync = (cells = null) => {
     if (current && !current.isConnected) close();
-    for (const group of document.querySelectorAll('#dialog-container .msg-card > .uk-card-header .uk-btn-group')) {
+    const roots = cells || allCells();
+    const groups = [];
+    for (const c of roots) for (const g of c.querySelectorAll(`.msg-card > ${SOLVEIT.sel.cardHeader} .uk-btn-group`)) groups.push(g);
+    for (const group of groups) {
       const nav = group.closest('nav');
       if (!nav) continue;
       let shell = group;
@@ -2968,27 +3418,12 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"action_menu": "<div
       nav.append(trigger);
     }
   };
-  const keys = e => {
-    if (!current) return;
-    if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); close(true); return; }
-    if (!menu.contains(e.target)) return;
-    e.stopImmediatePropagation();
-    const items = qsa('button:not(:disabled)', menu);
-    const i = items.indexOf(document.activeElement);
-    if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) {
-      e.preventDefault();
-      const j = e.key === 'Home' ? 0 : e.key === 'End' ? items.length-1 : (i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
-      items[j]?.focus();
-    }
-  };
-  const focus = e => { if (current && !menu.contains(e.target) && e.target !== current) close(); };
-  const toggled = () => { if (!menu.matches(':popover-open') && current) close(); };
-  const ac = new AbortController(), sig = {signal: ac.signal}, cap = {capture: true, signal: ac.signal};
-  const offDom = onDomChange(sync, {delay: 'raf', inDialog: true});
-  on(document, 'keydown', keys, cap);
+  const offDom = onCells(sync);
+  on(document, 'keydown', e => {
+    if (e.key === 'Escape' && current) { e.preventDefault(); e.stopImmediatePropagation(); close(true); }
+  }, cap);
   const beforeSwap = ['htmx', 'before', 'swap'].join(window.htmx?.config?.metaCharacter || ':');
-  on(document, {focusin: focus, [beforeSwap]: () => close()}, sig);
-  on(menu, 'toggle', toggled, sig);
+  on(document, beforeSwap, () => close(), sig);
   window.craftActionMenus = {
     sync,
     close,
@@ -2999,7 +3434,7 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"action_menu": "<div
       ac.abort();
       qsa('.craft-action-trigger').forEach(e => e.remove());
       qsa('.craft-action-source,.craft-old-action-toggle').forEach(e => e.classList.remove('craft-action-source', 'craft-old-action-toggle'));
-      menu.remove();
+      menuCtl.destroy();
     }
   };
   sync();
@@ -3007,18 +3442,19 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"action_menu": "<div
 
 /* %% nbs/craft/07_cell_presentation.ipynb #b89894f9 */
 (() => {
-  const {mountTpl, qsa, on, onDomChange, notify} = window.__craftCMCore;
+  const {mountTpl, qs, qsa, on, onCells, notify, SOLVEIT, features} = window.__craftCMCore;
   const preserved = qsa('.editable.craft-omitted').map(e => e.id);
   window.craftOmit?.disable();
+  if (!features.init('cell-omit', 'Whole-cell omit', 'Hide selected cells locally with U')) return;
   const omitted = new Set(preserved), markers = new Map();
   let approach = 1;
-  const root = () => document.getElementById('dialog-container');
-  const cells = () => qsa(':scope > .editable', root());
+  const root = () => qs(SOLVEIT.sel.dialog);
+  const cells = () => qsa(SOLVEIT.sel.cell);
   const eligible = e => !e.hidden && !e.matches('.filter-hidden,.heading-hidden,.hidden');
   const marker = () => document.activeElement?.closest('.craft-omit-marker');
   const blocked = () => window.__craftCMCore.typingBlocked();
-  const selected = () => cells().filter(e => e.matches('[data-sm="primary"],[data-sm="secondary"]') && e.offsetParent !== null);
-  const clearSelection = () => document.querySelectorAll('[data-sm="primary"],[data-sm="secondary"]').forEach(e => e.setAttribute('data-sm', 'unselected'));
+  const selected = () => cells().filter(e => e.matches(SOLVEIT.sel.selectedCell) && e.offsetParent !== null);
+  const clearSelection = () => document.querySelectorAll(SOLVEIT.sel.selectedCell).forEach(e => e.setAttribute('data-sm', 'unselected'));
   const choose = (e, direction = 1) => {
     if (!e) return;
     approach = direction;
@@ -3088,8 +3524,7 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"action_menu": "<div
     if (marker()) return restore(marker());
     const targets = selected();
     if (!targets.length) return false;
-    const editing = document.getElementById('id_')?.value;
-    if (targets.some(e => e.dataset.editing === 'true' || e.id === '_' + editing)) {
+    if (targets.some(e => e.dataset.editing === 'true' || e.dataset.c2Editing === 'true' || e.dataset.mdEditing === 'true')) {
       notify('Finish editing the cell before omitting it.', {status: 'warning'});
       return true;
     }
@@ -3108,7 +3543,7 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"action_menu": "<div
       const direction = ['ArrowDown','j'].includes(e.key) ? 1 : ['ArrowUp','k'].includes(e.key) ? -1 : 0;
       if (direction) {
         const visible = [...(root()?.children || [])].filter(n => n.matches('.editable,.craft-omit-marker') && n.offsetParent !== null);
-        const active = current || document.querySelector('#dialog-container > [data-sm="primary"]');
+        const active = current || qs(SOLVEIT.sel.primaryCell);
         const index = visible.indexOf(active), next = visible[index + direction];
         if (current || next?.matches('.craft-omit-marker')) { stop(e); choose(next, direction); return; }
       }
@@ -3121,7 +3556,7 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"action_menu": "<div
   };
   const pointer = e => { if (marker() && !e.target.closest('.craft-omit-marker')) marker().blur(); };
   const ac = new AbortController();
-  const offDom = onDomChange(sync, {attrs: ['class', 'hidden', 'data-sm-header'], delay: 'raf', inDialog: true});
+  const offDom = onCells(() => sync(), {attrs: ['class', 'hidden', 'data-sm-header']});
   on(document, {keydown: keys, pointerdown: pointer}, {capture: true, signal: ac.signal});
   window.__hotkeyRegister?.({id: 'cell-omit', label: 'Toggle omit cells', group: 'Dialog · Presentation', combo: 'u', handler: () => window.craftOmit?.toggle() === true});
   window.craftOmit = {
@@ -3140,16 +3575,17 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"action_menu": "<div
 /* %% nbs/craft/07_cell_presentation.ipynb #0ef67c86 */
 (() => {
   window.craftParts?.disable();
+  if (!window.__craftCMCore.features.init('cell-parts', 'Three-state part minimize', 'Cycle input/output between expanded, collapsed, and hidden')) return;
   const states = new Map(), controls = new Map(), pending = new Map();
   const originals = window.solveitHotkeys?.list().filter(s => ['si-i','si-o'].includes(s.id)) || [];
   let bypass = false;
-  const {qsa, on, onDomChange, notify} = window.__craftCMCore;
-  const cells = () => qsa('#dialog-container > .editable');
-  const card = (e, side) => e.querySelector(side === 'input' ? ':scope > .card-in' : ':scope > .card-out');
-  const button = (e, side) => card(e, side)?.querySelector('[hx-post="/collapse_"]');
-  const present = (e, side) => side === 'input' ? !!card(e, side) : !!card(e, side)?.querySelector('.msg-body');
+  const {qs, qsa, on, onCells, notify, SOLVEIT} = window.__craftCMCore;
+  const cells = () => qsa(SOLVEIT.sel.cell);
+  const card = (e, side) => e.querySelector(side === 'input' ? SOLVEIT.sel.cardIn : SOLVEIT.sel.cardOut);
+  const button = (e, side) => card(e, side)?.querySelector(SOLVEIT.sel.collapseBtn);
+  const present = (e, side) => side === 'input' ? !!card(e, side) : !!card(e, side)?.querySelector(SOLVEIT.sel.msgBody);
   const blocked = () => window.__craftCMCore.typingBlocked();
-  const busy = e => e.dataset.editing === 'true' || e.id === '_' + document.getElementById('id_')?.value;
+  const busy = e => e.dataset.editing === 'true' || e.dataset.c2Editing === 'true' || e.dataset.mdEditing === 'true';
   const waiting = (e, side) => {
     const key = e.id + side, p = pending.get(key);
     if (p && (p.collapsed !== !!card(e, side)?.classList.contains('collapsed') || performance.now() > p.until)) pending.delete(key);
@@ -3238,13 +3674,13 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"action_menu": "<div
       for (const id of JSON.parse(marker.dataset.omitIds)) if (states.get(id)?.hidden.has(side)) restore(id, side);
       return true;
     }
-    const selected = cells().filter(e => e.matches('[data-sm="primary"],[data-sm="secondary"]') && e.offsetParent !== null);
+    const selected = cells().filter(e => e.matches(SOLVEIT.sel.selectedCell) && e.offsetParent !== null);
     selected.forEach(e => cycleOne(e, side));
     return !!selected.length;
   };
   const click = event => {
     if (bypass) return;
-    const b = event.target.closest('[hx-post="/collapse_"]');
+    const b = event.target.closest(SOLVEIT.sel.collapseBtn);
     const c = b?.closest('.msg-card'), e = c?.closest('.editable');
     if (!e) return;
     event.preventDefault();
@@ -3252,12 +3688,12 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"action_menu": "<div
     cycleOne(e, c.classList.contains('card-in') ? 'input' : 'output');
   };
   const finished = event => {
-    const b = event.detail?.elt?.closest?.('[hx-post="/collapse_"]');
+    const b = event.detail?.elt?.closest?.(SOLVEIT.sel.collapseBtn);
     const c = b?.closest('.msg-card'), e = c?.closest('.editable');
     if (e) pending.delete(e.id + (c.classList.contains('card-in') ? 'input' : 'output'));
   };
   const ac = new AbortController();
-  const offDom = onDomChange(sync, {attrs: ['class'], delay: 'raf', inDialog: true});
+  const offDom = onCells(() => sync(), {attrs: ['class']});
   on(document, 'click', click, {capture: true, signal: ac.signal});
   on(document, 'htmx:afterRequest', finished, {signal: ac.signal});
   window.__hotkeyRegister?.({id: 'si-i', label: 'Cycle input: expanded / collapsed / hidden', group: 'Solveit · Dialog (selection mode)', combo: 'i', handler: () => cycle('input')});
@@ -3284,6 +3720,8 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"table_wrap": "<div 
 /* ── Progressive table enhancer (wrap, numeric align, flat-table sort, copy TSV) ── */
 (() => {
   window.craftTables?.disable?.();
+  if (!window.__craftCMCore.features.init('tables', 'Progressive tables', 'Scroll wrapper, numeric align, sort, and Copy TSV')) return;
+  const {mountTpl, onCells, SOLVEIT} = window.__craftCMCore;
   const NUM_RE = /^[-+\u2212]?[$€£¥]?\s*\d[\d,_]*(?:\.\d+)?(?:[eE][+-]?\d+)?%?$/;
   const EMPTY_RE = /^(?:|nan|na|n\/a|null|none|-|\u2014)$/i;
   const parseNum = s => {
@@ -3301,7 +3739,7 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"table_wrap": "<div 
     // 1. Wrap in a keyboard-scrollable container if not already wrapped
     let wrap = tbl.parentElement;
     if (!wrap?.classList.contains('craft-table-wrap')) {
-      wrap = window.__craftCMCore.mountTpl('table_wrap');
+      wrap = mountTpl('table_wrap');
       tbl.parentNode.insertBefore(wrap, tbl);
       wrap.appendChild(tbl);
     }
@@ -3391,7 +3829,7 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"table_wrap": "<div 
 
     // 4. Subtle Copy TSV button on output tables
     if (tbl.closest('.card-out') && !wrap.querySelector(':scope > .craft-table-copy')) {
-      const btn = window.__craftCMCore.mountTpl('table_copy_btn');
+      const btn = mountTpl('table_copy_btn');
       btn.addEventListener('click', async e => {
         e.stopPropagation();
         const rows = [...tbl.querySelectorAll('tr')].map(tr =>
@@ -3408,42 +3846,41 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"table_wrap": "<div 
     }
   };
 
+  const enhanceCells = cells => {
+    for (const cell of cells) {
+      for (const tbl of cell.querySelectorAll(`${SOLVEIT.sel.msgContent} table:not([data-craft-table])`)) enhanceTable(tbl);
+    }
+  };
   const enhanceAll = () => {
-    for (const tbl of document.querySelectorAll('#dialog-container .msg-content table:not([data-craft-table])')) {
+    for (const tbl of document.querySelectorAll(`${SOLVEIT.sel.dialog} ${SOLVEIT.sel.msgContent} table:not([data-craft-table])`)) {
       enhanceTable(tbl);
     }
   };
-  let offDom = null;
-  const start = () => {
-    offDom = window.__craftCMCore.onDomChange(enhanceAll, {delay: 80, inDialog: true});
-    enhanceAll();
-  };
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
-  else start();
+  let offDom = onCells(enhanceCells, {initial: true});
   window.craftTables = {
     enhance: enhanceAll,
     disable() {
       offDom?.();
       offDom = null;
-      document.removeEventListener('DOMContentLoaded', start);
     },
   };
 })();
 
 /* %% nbs/craft/09_cell_insertion.ipynb #99c8fe76 */
-window.__craftTpl = Object.assign(window.__craftTpl || {}, {"insert_trigger": "<button id=\"craft-insert-preview\" class=\"craft-nav-icon-btn\" type=\"button\" hidden popovertarget=\"craft-insert-preview-menu\"></button>", "insert_menu": "<div class=\"craft-menu\" id=\"craft-insert-preview-menu\" popover=\"auto\"><small>New cell type</small><button type=\"button\" data-kind=\"Code\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 6l-6 6 6 6m8-12 6 6-6 6M14 4l-4 16\"></path></svg>Code</button><button type=\"button\" data-kind=\"Note\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 3h10l4 4v14H5z M15 3v5h4M8 12h8m-8 4h8\"></path></svg>Note</button><button type=\"button\" data-kind=\"Raw\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 5h18v14H3z M7 9v6\"></path></svg>Raw</button><button type=\"button\" data-kind=\"Prompt\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 4h18v12H9l-6 4z M7 10h.01m5 0h.01m5 0h.01\"></path></svg>Prompt</button></div>", "desk_edge_below": "<button type=\"button\" class=\"craft-desk-edge\" data-edge=\"below\" aria-label=\"Insert cell below (drag to pick type)\"><span class=\"craft-desk-edge-pill\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"12\" height=\"12\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 6v12M6 12h12\"></path></svg><span class=\"craft-desk-edge-kind\"></span></span></button>", "desk_picker": "<div id=\"craft-desk-picker\" class=\"craft-type-picker\" role=\"menu\"><div class=\"craft-type-picker-head craft-desk-picker-head\"></div><div class=\"craft-type-picker-opts craft-desk-picker-opts\"><button class=\"uk-btn uk-btn-default uk-btn-sm\" role=\"menuitem\" data-type=\"Code\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 6l-6 6 6 6m8-12 6 6-6 6M14 4l-4 16\"></path></svg><span>Code</span><kbd>C</kbd></button><button class=\"uk-btn uk-btn-default uk-btn-sm\" role=\"menuitem\" data-type=\"Note\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 3h10l4 4v14H5z M15 3v5h4M8 12h8m-8 4h8\"></path></svg><span>Note</span><kbd>N</kbd></button><button class=\"uk-btn uk-btn-default uk-btn-sm\" role=\"menuitem\" data-type=\"Prompt\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 4h18v12H9l-6 4z M7 10h.01m5 0h.01m5 0h.01\"></path></svg><span>Prompt</span><kbd>P</kbd></button><button class=\"uk-btn uk-btn-default uk-btn-sm\" role=\"menuitem\" data-type=\"Raw\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 5h18v14H3z M7 9v6\"></path></svg><span>Raw</span><kbd>R</kbd></button></div></div>", "insert_placeholder": "<div class=\"craft-insert-placeholder\"></div>", "cell_icon_Code": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 6l-6 6 6 6m8-12 6 6-6 6M14 4l-4 16\"></path></svg>", "cell_icon_Note": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 3h10l4 4v14H5z M15 3v5h4M8 12h8m-8 4h8\"></path></svg>", "cell_icon_Raw": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 5h18v14H3z M7 9v6\"></path></svg>", "cell_icon_Prompt": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 4h18v12H9l-6 4z M7 10h.01m5 0h.01m5 0h.01\"></path></svg>", "desk_icon_Code": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"11\" height=\"11\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 6l-6 6 6 6m8-12 6 6-6 6M14 4l-4 16\"></path></svg>", "desk_icon_Note": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"11\" height=\"11\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 3h10l4 4v14H5z M15 3v5h4M8 12h8m-8 4h8\"></path></svg>", "desk_icon_Raw": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"11\" height=\"11\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 5h18v14H3z M7 9v6\"></path></svg>", "desk_icon_Prompt": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"11\" height=\"11\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 4h18v12H9l-6 4z M7 10h.01m5 0h.01m5 0h.01\"></path></svg>"});
+window.__craftTpl = Object.assign(window.__craftTpl || {}, {"insert_trigger": "<button id=\"craft-insert-preview\" class=\"craft-nav-icon-btn\" type=\"button\" hidden popovertarget=\"craft-insert-preview-menu\"></button>", "insert_menu": "<div class=\"craft-menu\" id=\"craft-insert-preview-menu\" popover=\"auto\"><small>New cell type</small><button type=\"button\" data-kind=\"Code\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 6l-6 6 6 6m8-12 6 6-6 6M14 4l-4 16\"></path></svg>Code</button><button type=\"button\" data-kind=\"Note\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 3h10l4 4v14H5z M15 3v5h4M8 12h8m-8 4h8\"></path></svg>Note</button><button type=\"button\" data-kind=\"Raw\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 5h18v14H3z M7 9v6\"></path></svg>Raw</button><button type=\"button\" data-kind=\"Prompt\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 4h18v12H9l-6 4z M7 10h.01m5 0h.01m5 0h.01\"></path></svg>Prompt</button></div>", "desk_edge_below": "<button type=\"button\" class=\"craft-desk-edge\" data-edge=\"below\" aria-label=\"Insert cell below (drag to pick type)\"><span class=\"craft-desk-edge-pill\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"12\" height=\"12\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 6v12M6 12h12\"></path></svg><span class=\"craft-desk-edge-kind\"></span></span></button>", "desk_picker": "<div id=\"craft-desk-picker\" class=\"craft-type-picker\" popover=\"auto\" role=\"menu\"><div class=\"craft-type-picker-head craft-desk-picker-head\"></div><div class=\"craft-type-picker-opts craft-desk-picker-opts\"><button class=\"uk-btn uk-btn-default uk-btn-sm\" role=\"menuitem\" data-type=\"Code\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 6l-6 6 6 6m8-12 6 6-6 6M14 4l-4 16\"></path></svg><span>Code</span><kbd>C</kbd></button><button class=\"uk-btn uk-btn-default uk-btn-sm\" role=\"menuitem\" data-type=\"Note\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 3h10l4 4v14H5z M15 3v5h4M8 12h8m-8 4h8\"></path></svg><span>Note</span><kbd>N</kbd></button><button class=\"uk-btn uk-btn-default uk-btn-sm\" role=\"menuitem\" data-type=\"Prompt\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 4h18v12H9l-6 4z M7 10h.01m5 0h.01m5 0h.01\"></path></svg><span>Prompt</span><kbd>P</kbd></button><button class=\"uk-btn uk-btn-default uk-btn-sm\" role=\"menuitem\" data-type=\"Raw\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 5h18v14H3z M7 9v6\"></path></svg><span>Raw</span><kbd>R</kbd></button></div></div>", "optimistic_cell": "<div class=\"editable craft-opt-cell\" data-craft-optimistic=\"1\"><div class=\"uk-card uk-card-default msg-card card-in\"><div class=\"msg-body\"><div class=\"msg-content\"></div></div><form hidden><textarea name=\"content\"></textarea></form></div></div>", "empty_add": "<div id=\"craft-empty-add\"><span class=\"craft-empty-add-label\">Empty dialog — press a/b or add your first cell</span><div class=\"craft-empty-add-btns\"><button class=\"uk-btn uk-btn-default uk-btn-sm\" data-type=\"Code\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 6l-6 6 6 6m8-12 6 6-6 6M14 4l-4 16\"></path></svg><span>Code</span></button><button class=\"uk-btn uk-btn-default uk-btn-sm\" data-type=\"Note\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 3h10l4 4v14H5z M15 3v5h4M8 12h8m-8 4h8\"></path></svg><span>Note</span></button><button class=\"uk-btn uk-btn-default uk-btn-sm\" data-type=\"Prompt\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 4h18v12H9l-6 4z M7 10h.01m5 0h.01m5 0h.01\"></path></svg><span>Prompt</span></button><button class=\"uk-btn uk-btn-default uk-btn-sm\" data-type=\"Raw\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 5h18v14H3z M7 9v6\"></path></svg><span>Raw</span></button></div></div>", "cell_icon_Code": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 6l-6 6 6 6m8-12 6 6-6 6M14 4l-4 16\"></path></svg>", "cell_icon_Note": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 3h10l4 4v14H5z M15 3v5h4M8 12h8m-8 4h8\"></path></svg>", "cell_icon_Raw": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 5h18v14H3z M7 9v6\"></path></svg>", "cell_icon_Prompt": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 4h18v12H9l-6 4z M7 10h.01m5 0h.01m5 0h.01\"></path></svg>", "desk_icon_Code": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"11\" height=\"11\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 6l-6 6 6 6m8-12 6 6-6 6M14 4l-4 16\"></path></svg>", "desk_icon_Note": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"11\" height=\"11\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 3h10l4 4v14H5z M15 3v5h4M8 12h8m-8 4h8\"></path></svg>", "desk_icon_Raw": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"11\" height=\"11\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 5h18v14H3z M7 9v6\"></path></svg>", "desk_icon_Prompt": "<svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"11\" height=\"11\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 4h18v12H9l-6 4z M7 10h.01m5 0h.01m5 0h.01\"></path></svg>"});
 window.__craftCfg = Object.assign(window.__craftCfg || {}, {"cell_types": ["Code", "Note", "Prompt", "Raw"], "key_to_type": {"c": "Code", "n": "Note", "p": "Prompt", "r": "Raw"}, "slash_map": {"c": "Code", "code": "Code", "n": "Note", "note": "Note", "p": "Prompt", "prompt": "Prompt", "r": "Raw", "raw": "Raw"}});
 
 /* %% nbs/craft/09_cell_insertion.ipynb #6d845b7d */
 (() => {
   window.craftInsertPreview?.disable();
-  if (!document.getElementById('dialog-container')) return;
+  if (!window.__craftCMCore.features.init('insert-preview', 'Insert type picker', 'Typed A/B optimistic cell insertion')) return;
+  if (!window.__craftCMCore.qs(window.__craftCMCore.SOLVEIT.sel.dialog)) return;
   const types = {Code: 1, Note: 1, Raw: 1, Prompt: 1};
   const icon = name => window.__craftTpl?.[`cell_icon_${name}`] || '';
   const key = 'craft-insert-preview:v1:' + (new URLSearchParams(location.search).get('name') || location.pathname);
-  const {mountTpl, qs, qsa, on, store, patch, onDomChange} = window.__craftCMCore;
+  const {mountTpl, qs, qsa, on, store, patch, onDomChange, SOLVEIT, allCells} = window.__craftCMCore;
   const ac = new AbortController(), sig = {signal: ac.signal}, cap = {capture: true, signal: ac.signal};
-  const trigger = mountTpl('insert_trigger'), menu = mountTpl('insert_menu');
+  const trigger = mountTpl('insert_trigger'), menu = mountTpl('insert_menu'), emptyAdd = mountTpl('empty_add');
   let current;
   const select = name => {
     current = name;
@@ -3454,34 +3891,24 @@ window.__craftCfg = Object.assign(window.__craftCfg || {}, {"cell_types": ["Code
   const saved = store.get(key);
   select(Object.hasOwn(types, saved) ? saved : document.getElementById('default_code')?.checked ? 'Code' : 'Prompt');
   let scroller;
-  const position = () => {
-    if (!scroller) return;
-    const rect = scroller.getBoundingClientRect();
-    trigger.hidden = !rect.width || !rect.height;
-    Object.assign(trigger.style, {left: 'auto', right: '42px', top: '6px'});
-    Object.assign(menu.style, {right: '10px', top: '36px'});
-    window.craftMobile?.reposition?.();
-  };
-  const resize = new ResizeObserver(position);
   const sync = () => {
-    const next = document.getElementById('dialog-container');
-    if (scroller === next) return;
-    if (scroller) {
-      resize.unobserve(scroller);
-      scroller.classList.remove('craft-insert-preview');
+    const next = qs(SOLVEIT.sel.dialog);
+    if (scroller !== next) {
+      scroller?.classList.remove('craft-insert-preview');
+      scroller = next;
+      trigger.hidden = !scroller;
+      scroller?.classList.add('craft-insert-preview');
+      window.craftMobile?.reposition?.();
     }
-    scroller = next;
-    if (!scroller) { trigger.hidden = true; return; }
-    scroller.classList.add('craft-insert-preview');
-    resize.observe(scroller); position();
+    if (scroller && !emptyAdd.isConnected) scroller.append(emptyAdd);
+    else if (!scroller && emptyAdd.isConnected) emptyAdd.remove();
   };
   const choose = name => {
     select(name);
     store.set(key, name);
   };
-  const activeCells = () => qsa('.editable:is([data-sm="primary"],[data-sm="secondary"])', scroller).filter(el => el.getClientRects().length);
-  const cellType = el => el?.querySelector('.card-in[data-mtype]')?.dataset.mtype;
-  const editorCell = () => (document.querySelector('#full_editor #id_')?.value || '').replace(/^_/, '');
+  const activeCells = () => allCells().filter(el => el.matches(SOLVEIT.sel.selectedCell) && el.getClientRects().length);
+  const cellType = el => el?.querySelector(SOLVEIT.sel.cardInType)?.dataset.mtype;
   const notify = error => {
     console.error('CRAFT insertion:', error);
     window.__craftCMCore.notify(error.message, {status: 'danger'});
@@ -3511,7 +3938,7 @@ window.__craftCfg = Object.assign(window.__craftCfg || {}, {"cell_types": ["Code
   };
   const setType = async (id, type) => {
     if (cellType(document.getElementById(id)) !== type) {
-      await window.__craftCMCore.htmxPost('/set_mtyp_', {id_: id, ids: id, mtyp: type});
+      await window.__craftCMCore.htmxPost(SOLVEIT.api.setMtyp, {id_: id, ids: id, mtyp: type});
       if (!(await waitFor(() => cellType(document.getElementById(id)) === type))) throw new Error(`Could not switch cell to ${type}.`);
     }
   };
@@ -3529,64 +3956,140 @@ window.__craftCfg = Object.assign(window.__craftCfg || {}, {"cell_types": ["Code
     choose(name);
     const cells = activeCells();
     if (cells.length !== 1) return true;
-    return execute(async () => { await setType(cells[0].id, name.toLowerCase()); });
+    return execute(async () => {
+      let id = cells[0].id;
+      if (window.__craftCMCore.optimistic?.isOptimistic?.(id)) {
+        const realId = await window.__craftCMCore.optimistic.waitForReal(id);
+        if (!realId) return;
+        id = '_' + realId;
+      }
+      await setType(id, name.toLowerCase());
+    });
   };
+  let optSeq = 0;
+  let serverQueue = Promise.resolve();
+  const isRealCell = el => Boolean(el?.id && !el.dataset.craftOptimistic);
+  const realCells = () => allCells().filter(isRealCell);
+
   // opts.type ('Code'|'Note'|'Prompt'|'Raw') overrides the picker; opts.cell targets a cell other than the
   // selection; opts.force skips the focus guard (the mobile toolbar has already closed any editor).
   const insert = (where, opts = {}) => {
     if (!opts.force && blocked()) return false;
     const primary = opts.cell || activeCells().find(el => el.dataset.sm === 'primary');
-    const button = primary?.querySelector(`[hx-post="/add_${where}_"]`);
-    if (!button) return true;
+    const isFirst = !primary && allCells().length === 0;
+    if (!primary && !isFirst) return true;
+    const addSel = `[hx-post="${where === 'above' ? SOLVEIT.api.addAbove : SOLVEIT.api.addBelow}"]`;
+    if (primary && !primary.dataset.craftOptimistic && !primary.querySelector(addSel)) return true;
+    const container = qs(SOLVEIT.sel.dialog);
+    if (isFirst && !container) return true;
     const name = Object.hasOwn(types, opts.type || '') ? opts.type : current;
-    return execute(async () => {
-      const type = name.toLowerCase(), old = new Set([...scroller.querySelectorAll('.editable[id]')].map(el => el.id));
-      if (!window.craftC2?.guardNonCodeInsertion) throw new Error('Reload this dialog to enable typed insertion.');
-      if (type === 'code') {
-        if (!window.craftC2?.expectCodeInsertion) throw new Error('Reload this dialog to enable C2 insertion.');
-        window.craftC2.expectCodeInsertion();
-      }
-      const release = type !== 'code' ? window.craftC2.guardNonCodeInsertion(old) : null;
-      const unhide = window.craftIdleComposer?.holdForInsertion();
-      const ph = window.__craftCMCore.mountTpl('insert_placeholder');
-      if (where === 'above') primary.before(ph); else primary.after(ph);
-      let id = null;
-      try {
-        button.dispatchEvent(new MouseEvent('click', {bubbles:false}));
-        id = await waitFor(() => {
-          const editing = editorCell(), id = '_' + editing;
-          if (editing && !old.has(id) && document.getElementById(id)) return id;
-          if (type === 'code') return [...scroller.querySelectorAll('.editable[id]')].find(el => !old.has(el.id) && window.craftC2?.manages(el.id))?.id;
-        });
-        if (!id) throw new Error(`Could not confirm ${name} insertion.`);
-        if (type === 'code') {
-          if (!(await waitFor(() => cellType(document.getElementById(id)) === 'code' && editorCell() !== id.slice(1) && Boolean(document.getElementById(id)?.querySelector('.craft-c2-host'))))) throw new Error('Could not confirm C2 handoff.');
-        } else {
-          await setType(id, type);
-          const cancel = await waitFor(() => {
-            if (editorCell() !== id.slice(1) || window.edValue?.()) return true;
-            const btn = document.getElementById('cancel_btn');
-            return btn && !btn.disabled ? btn : null;
-          });
-          if (!cancel) throw new Error('Could not close the insertion composer.');
-          if (cancel && cancel !== true) {
-            const field = document.querySelector('#full_editor #msg_type');
-            if (field) field.value = type;
-            cancel.click();
-            if (!(await waitFor(() => editorCell() !== id.slice(1)))) throw new Error('Could not close the insertion composer.');
-            if (cellType(document.getElementById(id)) !== type) throw new Error(`New cell did not retain type ${type}.`);
+    const type = name.toLowerCase();
+    const CORE = window.__craftCMCore;
+    const optId = 'craftopt_' + (++optSeq);
+    const optEl = mountTpl('optimistic_cell');
+    optEl.id = '_' + optId;
+    const optCard = optEl.querySelector(SOLVEIT.sel.cardIn);
+    if (optCard) optCard.dataset.mtype = type;
+    if (isFirst) container.append(optEl); else if (where === 'above') primary.before(optEl); else primary.after(optEl);
+    window.selectMsg?.(window.$(optEl), {scroll: false});
+    optEl.scrollIntoView({block: 'nearest'});
+
+    let resolveOpt;
+    const optPromise = new Promise(r => { resolveOpt = r; });
+    CORE.optimistic.register(optId, optPromise);
+
+    const openP = type === 'code'
+      ? Promise.resolve(window.craftC2?.edit?.(optId, {anchor: 0, head: 0}))
+      : Promise.resolve(window.craftMd?.edit?.(optId, {toEnd: true}));
+
+    const runSync = async () => {
+      const releaseAutoEdit = CORE.optimistic.suppressAutoEdit();
+      let oldReal = new Set();
+      let realDomId = null;
+      const hidden = new Set();
+      const hideIncoming = () => {
+        for (const c of realCells()) {
+          if (!oldReal.has(c.id)) {
+            if (!c.classList.contains('craft-opt-hidden')) c.classList.add('craft-opt-hidden');
+            hidden.add(c);
           }
         }
-      } finally { ph.remove(); release?.(); unhide?.(); }
-      if (id) {
-        document.getElementById(id)?.scrollIntoView({block: 'nearest'});
-        if (type === 'code') {
-          if (!document.activeElement?.closest?.(`#${id} .craft-c2-host`)) window.craftC2?.edit?.(id, {anchor: 0, head: 0});
-        } else if (!document.activeElement?.closest?.(`#${id} .craft-md-host`)) {
-          window.craftMd?.edit?.(id, {toEnd: true});
+      };
+      let offHide = null;
+      try {
+        if (isFirst) {
+          oldReal = new Set(realCells().map(el => el.id));
+          offHide = onDomChange(hideIncoming, {delay: 0, inDialog: true});
+          await CORE.htmxPost(SOLVEIT.api.upsertMsg, {id_: '', msg_type: type, is_input: '1', content: ' '});
+        } else {
+          let anchorEl = primary;
+          if (primary.dataset.craftOptimistic) {
+            const anchorRealId = await CORE.optimistic.waitForReal(primary.id);
+            if (!anchorRealId) throw new Error(`Could not confirm ${name} insertion.`);
+            anchorEl = document.getElementById('_' + anchorRealId);
+          }
+          const button = anchorEl?.querySelector(addSel);
+          if (!button) throw new Error(`Could not confirm ${name} insertion.`);
+          oldReal = new Set(realCells().map(el => el.id));
+          offHide = onDomChange(hideIncoming, {delay: 0, inDialog: true});
+          button.dispatchEvent(new MouseEvent('click', {bubbles: false}));
         }
+        realDomId = await waitFor(() => {
+          hideIncoming();
+          return realCells().find(el => !oldReal.has(el.id))?.id;
+        });
+        if (!realDomId) throw new Error(`Could not confirm ${name} insertion.`);
+        hideIncoming();
+        if (cellType(document.getElementById(realDomId)) !== type) await setType(realDomId, type);
+        const realEl = document.getElementById(realDomId);
+        if (!realEl) throw new Error(`Could not confirm ${name} insertion.`);
+        if (realEl.dataset.editing) delete realEl.dataset.editing;
+        await openP;
+        const realNormId = CORE.normId(realDomId);
+        const realCard = realEl.querySelector(SOLVEIT.sel.cardIn);
+        const editorApi = type === 'code' ? window.craftC2 : window.craftMd;
+        const optKey = type === 'code' ? optId : `${optId}:in`;
+        const realKey = type === 'code' ? realNormId : `${realNormId}:in`;
+        const hadView = Boolean(editorApi?.view?.(optKey));
+        realEl.classList.remove('craft-opt-hidden');
+        hidden.delete(realEl);
+        if (hadView) {
+          editorApi.rekey(optId, realNormId, {el: realEl, card: realCard});
+        } else {
+          window.selectMsg?.(window.$(realEl), {scroll: false});
+        }
+        optEl.remove();
+        CORE.optimistic.resolve(optId, realNormId);
+        resolveOpt(realNormId);
+        if (hadView && editorApi.active?.() === realKey) {
+          window.selectMsg?.(window.$(realEl), {scroll: false});
+        }
+      } catch (err) {
+        for (const c of hidden) c.classList.remove('craft-opt-hidden');
+        const editorApi = type === 'code' ? window.craftC2 : window.craftMd;
+        const optKey = type === 'code' ? optId : `${optId}:in`;
+        const v = editorApi?.view?.(optKey);
+        const draft = v ? v.state.doc.toString() : '';
+        CORE.optimistic.fail(optId);
+        resolveOpt(null);
+        editorApi?.abortOptimistic?.(optId);
+        optEl.remove();
+        CORE.optimistic.clear(optId);
+        if (primary?.isConnected) window.selectMsg?.(window.$(primary), {scroll: false});
+        let copied = false;
+        if (draft.trim() && navigator.clipboard?.writeText) {
+          try { await navigator.clipboard.writeText(draft); copied = true; } catch {}
+        }
+        const msg = copied ? `${err.message} Your draft was copied to the clipboard.` : err.message;
+        notify(new Error(msg));
+      } finally {
+        offHide?.();
+        for (const c of hidden) c.classList.remove('craft-opt-hidden');
+        releaseAutoEdit();
       }
-    });
+    };
+    serverQueue = serverQueue.then(runSync, runSync);
+    return true;
   };
   const defs = [
     ['si-a', 'a', 'Add message above', () => insert('above')],
@@ -3604,23 +4107,22 @@ window.__craftCfg = Object.assign(window.__craftCfg || {}, {"cell_types": ["Code
     menu.hidePopover(); trigger.focus();
   }, sig);
   document.body.append(trigger, menu);
+  on(emptyAdd, 'click', e => {
+    const opt = e.target.closest('button[data-type]');
+    if (!opt) return;
+    e.preventDefault(); e.stopPropagation();
+    insert('below', {type: opt.dataset.type, force: true});
+  }, sig);
   const KIND_MAP = {code: 'Code', note: 'Note', prompt: 'Prompt', raw: 'Raw'};
   const onHtmxConfig = e => {
     const path = e.detail?.path || '';
     const mtyp = e.detail?.parameters?.mtyp || e.detail?.parameters?.msg_type;
-    if ((path.includes('set_mtyp') || path.includes('upsert_msg')) && mtyp && KIND_MAP[String(mtyp).toLowerCase()]) {
+    if ((path.startsWith(SOLVEIT.api.setMtyp) || path.startsWith(SOLVEIT.api.upsertMsg)) && mtyp && KIND_MAP[String(mtyp).toLowerCase()]) {
       choose(KIND_MAP[String(mtyp).toLowerCase()]);
     }
   };
-  const onTabClick = e => {
-    const tab = e.target?.closest?.('#full_editor [role="tab"], #full_editor button');
-    const name = tab && KIND_MAP[(tab.textContent || '').trim().toLowerCase()];
-    if (name) choose(name);
-  };
   on(document, 'htmx:configRequest', onHtmxConfig, sig);
-  on(document, 'click', onTabClick, cap);
   const offDom = onDomChange(sync, {delay: 0});
-  on(window, 'resize', position, sig);
   window.craftInsertPreview = {
     insert: (where, opts) => insert(where, opts),
     choose,
@@ -3629,10 +4131,10 @@ window.__craftCfg = Object.assign(window.__craftCfg || {}, {"cell_types": ["Code
     isBusy: () => busy,
     disable() {
     ac.abort();
-    offDom(); resize.disconnect();
+    offDom();
     defs.forEach(spec => window.__hotkeyRegister?.({...spec, builtin:true, handler:() => true}));
     scroller?.classList.remove('craft-insert-preview');
-    trigger.remove(); menu.remove(); delete window.craftInsertPreview;
+    trigger.remove(); menu.remove(); emptyAdd.remove(); delete window.craftInsertPreview;
   }};
   sync();
 })();
@@ -3641,11 +4143,12 @@ window.__craftCfg = Object.assign(window.__craftCfg || {}, {"cell_types": ["Code
 /* ── Desktop UX: hover-edge drag-to-insert, click-margin escape, Shift+A/B seam picker & slash-morph ── */
 (() => {
   window.craftDesktopUX?.disable?.();
-  if (!document.getElementById('dialog-container')) return;
-  const {mountTpl, on} = window.__craftCMCore;
+  if (!window.__craftCMCore.features.init('desktop-ux', 'Desktop insertion UX', 'Hover-edge drag handle, Shift+A/B seam picker, slash-morph')) return;
+  const {mountTpl, qs, on, SOLVEIT} = window.__craftCMCore;
+  if (!qs(SOLVEIT.sel.dialog)) return;
   const ac = new AbortController(), sig = {signal: ac.signal}, cap = {capture: true, signal: ac.signal};
   const isMobile = () => !!window.craftMobile?.active?.();
-  const dialog = () => document.getElementById('dialog-container');
+  const dialog = () => qs(SOLVEIT.sel.dialog);
   const CELL_TYPES = window.__craftCfg?.cell_types || ['Code', 'Note', 'Prompt', 'Raw'];
   const KEY_TO_TYPE = window.__craftCfg?.key_to_type || {c: 'Code', n: 'Note', p: 'Prompt', r: 'Raw'};
   const SLASH_RE = /^\/(c|code|n|note|p|prompt|r|raw)[ \t\n]$/i;
@@ -3665,7 +4168,6 @@ window.__craftCfg = Object.assign(window.__craftCfg || {}, {"cell_types": ["Code
 
   let hostCell = null, pState = null; // {edge, cell, pointerId, startX, startY, dragged, hotType, keyMode}
   const detachHandles = () => {
-    hBelow.removeAttribute('data-near');
     hostCell?.classList.remove('craft-desk-host');
     hBelow.remove();
     hostCell = null;
@@ -3687,13 +4189,13 @@ window.__craftCfg = Object.assign(window.__craftCfg || {}, {"cell_types": ["Code
   };
   const closePicker = () => {
     hBelow.removeAttribute('data-active');
-    picker.classList.remove('open');
+    if (picker.matches(':popover-open')) picker.hidePopover();
     setHot(null);
     pState = null;
   };
   const positionPicker = (anchorRect, edge, hint) => {
     picker.querySelector('.craft-desk-picker-head').textContent = hint || (edge === 'above' ? 'Insert above' : 'Insert below');
-    picker.classList.add('open');
+    if (!picker.matches(':popover-open')) picker.showPopover();
     const pw = picker.offsetWidth || 270, ph = picker.offsetHeight || 68;
     const cx = anchorRect.left + anchorRect.width / 2;
     const left = Math.max(8, Math.min(cx - pw / 2, innerWidth - pw - 8));
@@ -3730,7 +4232,7 @@ window.__craftCfg = Object.assign(window.__craftCfg || {}, {"cell_types": ["Code
   const onHandleDown = e => {
     if (isMobile() || e.button !== 0) return;
     const handle = e.currentTarget;
-    const cell = handle.closest('#dialog-container > .editable[id]');
+    const cell = handle.closest(SOLVEIT.sel.cellWithId);
     if (!cell) return;
     e.preventDefault(); e.stopPropagation();
     closePicker();
@@ -3767,59 +4269,31 @@ window.__craftCfg = Object.assign(window.__craftCfg || {}, {"cell_types": ["Code
     doInsert(edge, cell, b.dataset.type);
   };
   on(picker, 'click', onPickerClick, sig);
+  on(picker, 'toggle', e => { if (e.newState === 'closed' && pState) closePicker(); }, sig);
 
-  /* Track cursor proximity to the bottom-center target area of a cell on desktop */
-  let moveRaf = 0, lastMoveEv = null;
-  const flushMouseMove = () => {
-    moveRaf = 0;
-    const e = lastMoveEv;
-    lastMoveEv = null;
-    if (!e || isMobile() || pState) return;
-    const t = e.target;
-    if (t instanceof Element && hBelow.contains(t)) {
-      hBelow.dataset.near = 'true';
-      return;
-    }
-    const cell = t instanceof Element ? t.closest('#dialog-container > .editable[id]') : null;
-    if (cell) {
-      attachHandles(cell);
-      if (hostCell === cell) {
-        const r = cell.getBoundingClientRect();
-        const nearY = Math.abs(e.clientY - r.bottom) <= 26;
-        const nearX = Math.abs(e.clientX - (r.left + r.width / 2)) <= 140;
-        hBelow.toggleAttribute('data-near', nearY && nearX);
-      }
-    } else if (hostCell) {
-      const r = hostCell.getBoundingClientRect();
-      const nearY = Math.abs(e.clientY - r.bottom) <= 26;
-      const nearX = Math.abs(e.clientX - (r.left + r.width / 2)) <= 140;
-      if (nearY && nearX) hBelow.dataset.near = 'true';
-      else hBelow.removeAttribute('data-near');
-    }
-  };
-  const onMouseMove = e => {
+  /* Attach bottom hover-edge handle to the hovered cell on desktop (CSS :hover reveals the pill) */
+  const onDialogOver = e => {
     if (isMobile() || pState) return;
-    lastMoveEv = e;
-    if (!moveRaf) moveRaf = requestAnimationFrame(flushMouseMove);
+    const cell = e.target instanceof Element ? e.target.closest(SOLVEIT.sel.cellWithId) : null;
+    if (cell && cell !== hostCell) attachHandles(cell);
   };
   const onDialogLeave = () => { if (!pState) detachHandles(); };
-  on(document, 'mousemove', onMouseMove, {passive: true, signal: ac.signal});
+  on(dialog(), 'mouseover', onDialogOver, sig);
   on(dialog(), 'mouseleave', onDialogLeave, sig);
 
   /* Click-margin / click-header to escape active inline editors on desktop */
   const onDocMouseDown = e => {
     if (isMobile()) return;
-    if (pState?.keyMode && !picker.contains(e.target)) closePicker();
     if (e.button !== 0) return;
     const hasEd = !!(window.craftC2?.active?.() || window.craftMd?.active?.());
     if (!hasEd) return;
     const t = e.target;
     if (!(t instanceof Element)) return;
     if (t.closest('#solveit-file-tree-panel, #solveit-temp-editor, #solveit-launcher, .craft-action-menu, #craft-desk-picker, .craft-desk-edge, .cm-editor, .cm-tooltip, .uk-modal, .uk-dropdown, .uk-drop, nav.monster-navbar')) return;
-    const inDialog = t.closest('#dialog-container');
+    const inDialog = t.closest(SOLVEIT.sel.dialog);
     if (!inDialog) return;
-    const inCell = t.closest('#dialog-container > .editable[id]');
-    const onHeaderBlank = inCell && t.closest('.uk-card-header') && !t.closest('button, a, input, select');
+    const inCell = t.closest(SOLVEIT.sel.cellWithId);
+    const onHeaderBlank = inCell && t.closest(SOLVEIT.sel.cardHeader) && !t.closest('button, a, input, select');
     if (!inCell || onHeaderBlank) {
       commitEditors();
     }
@@ -3844,7 +4318,7 @@ window.__craftCfg = Object.assign(window.__craftCfg || {}, {"cell_types": ["Code
     }
     if (e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && (e.key === 'A' || e.key === 'B')) {
       if (blocked()) return;
-      const cell = dialog()?.querySelector(':scope > .editable[data-sm="primary"]');
+      const cell = qs(SOLVEIT.sel.primaryCell);
       if (!cell) return;
       e.preventDefault(); e.stopImmediatePropagation();
       const edge = e.key === 'A' ? 'above' : 'below';
@@ -3882,7 +4356,7 @@ window.__craftCfg = Object.assign(window.__craftCfg || {}, {"cell_types": ["Code
     const targetName = SLASH_MAP[m[1].toLowerCase()];
     const targetType = targetName.toLowerCase();
     const el = document.getElementById(id);
-    const curType = el?.querySelector('.card-in[data-mtype]')?.dataset.mtype;
+    const curType = el?.querySelector(SOLVEIT.sel.cardInType)?.dataset.mtype;
     if (!el || curType === targetType) return;
     morphing = true;
     view.dispatch({changes: {from: 0, to: text.length, insert: ''}});
@@ -3913,7 +4387,7 @@ window.__craftCfg = Object.assign(window.__craftCfg || {}, {"cell_types": ["Code
   const offMobile = window.craftMobile?.onChange?.(active => { if (active) { closePicker(); detachHandles(); } });
   window.craftDesktopUX = {
     disable() {
-      offMobile?.(); closePicker(); detachHandles(); picker.remove(); if (moveRaf) { cancelAnimationFrame(moveRaf); moveRaf = 0; }
+      offMobile?.(); closePicker(); detachHandles(); picker.remove();
       ac.abort();
       delete window.craftDesktopUX;
     },
@@ -3923,16 +4397,12 @@ window.__craftCfg = Object.assign(window.__craftCfg || {}, {"cell_types": ["Code
 /* %% nbs/craft/09_cell_insertion.ipynb #dc465295 */
 (() => {
   window.craftImageDrop?.disable();
-  const {qs, on, notify: coreNotify} = window.__craftCMCore;
-  const target = e => {
-    if (e.target.closest?.('.monaco-editor')) return;
-    return e.target.closest?.('#dialog-container > .editable > .card-in:is([data-mtype="code"],[data-mtype="note"],[data-mtype="prompt"])');
-  };
-  const field = id => qs(`#full_editor #${id}`)?.value;
-  const editorId = () => (field('id_') || '').replace(/^_/, '');
-  const model = () => window.editor?.getModel();
+  if (!window.__craftCMCore.features.init('image-drop', 'Image drop upload', 'Drop images onto code/note/prompt cards')) return;
+  const {on, notify: coreNotify, SOLVEIT, kid, htmxPost, getCellInputText} = window.__craftCMCore;
+  const target = e => e.target.closest?.(`${SOLVEIT.sel.cell} > .card-in:is([data-mtype="code"],[data-mtype="note"],[data-mtype="prompt"])`);
   const notify = message => coreNotify(message, {status: 'warning'});
   let busy = false, disabled = false;
+
   const dragover = e => {
     if (!target(e)) return;
     const items = [...(e.dataTransfer?.items || [])];
@@ -3940,35 +4410,51 @@ window.__craftCfg = Object.assign(window.__craftCfg || {}, {"cell_types": ["Code
     e.preventDefault();
     e.dataTransfer.dropEffect = 'copy';
   };
+
+  const insertIntoActiveView = (id, md) => {
+    const view = window.craftC2?.view?.(id) || window.craftMd?.view?.(`${id}:in`) || window.craftMd?.view?.(id);
+    if (!view) return false;
+    const {from, to} = view.state.selection.main;
+    const ins = `\n${md}\n`;
+    view.dispatch({changes: {from, to, insert: ins}, selection: {anchor: from + ins.length}});
+    view.focus();
+    return true;
+  };
+
   const attach = async (e, card, file) => {
-    if (typeof window.handleBlob !== 'function') return;
     e.preventDefault();
     e.stopPropagation();
     if (busy) return notify('Wait for the current image upload to finish.');
-    const cell = card.parentElement, id = cell.id.slice(1), kind = card.dataset.mtype;
-    const priorModel = model();
-    const ready = () => editorId() === id && field('is_input') === '1' && field('msg_type') === kind && model() && !model().uri.path.endsWith('/temp');
+    const cell = card.parentElement, id = cell.id.replace(/^_/, ''), kind = card.dataset.mtype;
+    const k = kid();
+    if (!k) return notify('No active kernel session for image upload.');
     busy = true;
     try {
-      if (!ready()) {
-        if (editorId() || window.edValue?.()) return notify('Finish editing the open cell before attaching an image to another cell.');
-        if (window.craftC2?.active?.() === id) await window.craftC2.exit(id);
-        if (window.craftMd?.active?.() === `${id}:in`) await window.craftMd.exit(id, 'in');
-        const btn = card.querySelector('[hx-post="/editor_"]');
-        if (btn) { btn.dataset.craftAllowMonaco = '1'; btn.click(); delete btn.dataset.craftAllowMonaco; }
-        for (let i = 0; i < 100 && !disabled && !(ready() && model() !== priorModel); i++) await new Promise(resolve => setTimeout(resolve, 50));
-        if (disabled) return;
-        if (!ready() || model() === priorModel) return notify('Could not open the cell to attach the image.');
-      }
-      window.craftIdleComposer?.reveal();
-      window.editor.focus();
       const ext = file.name.match(/\.([^.]+)$/)?.[1] || file.type.split('/')[1] || 'png';
-      await window.handleBlob(file, ext, true, file.name);
+      const fd = new FormData();
+      fd.append('id_', id);
+      fd.append('msg_type', kind);
+      fd.append('kid', k);
+      fd.append('file', file, file.name || `image.${ext}`);
+      const resp = await fetch(SOLVEIT.api.uploadAttachment, {method: 'POST', body: fd});
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      if (disabled) return;
+      const ref = data.saved_file || (data.id ? `attachment:${data.id}` : '');
+      if (!ref) throw new Error('Upload did not return an attachment reference.');
+      const alt = (file.name || 'image').replace(/[\[\]]/g, '');
+      const md = `![${alt}](${ref})`;
+      if (!insertIntoActiveView(id, md)) {
+        const cur = getCellInputText(cell);
+        const next = cur ? `${cur.replace(/\n*$/, '')}\n${md}\n` : `${md}\n`;
+        await htmxPost(SOLVEIT.api.setContents, {id_: '_' + id, ids: id, contents: JSON.stringify({[id]: next})});
+      }
     } catch (err) {
       console.error('CRAFT image attachment:', err);
       notify('Could not attach the image.');
     } finally { busy = false; }
   };
+
   const drop = e => {
     const card = target(e), file = e.dataTransfer?.files[0];
     if (card && file?.type.startsWith('image/')) attach(e, card, file);
@@ -3983,14 +4469,15 @@ window.__craftCfg = Object.assign(window.__craftCfg || {}, {"cell_types": ["Code
 })();
 
 /* %% nbs/craft/10_code_editor_c2.ipynb #e2023303 */
-window.__craftTpl = Object.assign(window.__craftTpl || {}, {"c2_tooltip_portal": "<div id=\"craft-c2-tooltips\" class=\"craft-c2-tooltips\"></div>", "c2_ai_form": "<form class=\"craft-c2-ai-form\"><input class=\"uk-input craft-c2-ai-input\" name=\"query\" autocomplete=\"off\" placeholder=\"Enter your query... (Enter to apply, Esc to cancel)\" type=\"text\"></form>", "c2_spinner": "<div class=\"craft-c2-spinner\" data-uk-spinner=\"ratio: 0.5\"></div>"});
+window.__craftTpl = Object.assign(window.__craftTpl || {}, {"c2_tooltip_portal": "<div id=\"craft-c2-tooltips\" class=\"craft-c2-tooltips\"></div>", "c2_ai_form": "<form class=\"craft-c2-ai-form\"><input class=\"uk-input craft-c2-ai-input\" name=\"query\" autocomplete=\"off\" placeholder=\"Enter your query... (Enter to apply, Esc to cancel)\" type=\"text\"></form>", "c2_spinner": "<div class=\"craft-c2-spinner\" data-uk-spinner=\"ratio: 0.5\"></div>", "c2_sighelp": "<div class=\"craft-c2-sighelp\"><div class=\"craft-c2-sig-head\"><span class=\"craft-c2-sig-label\"></span><span class=\"craft-c2-sig-nav\" hidden><button type=\"button\" data-dir=\"-1\">▲</button><span class=\"craft-c2-sig-count\"></span><button type=\"button\" data-dir=\"1\">▼</button></span></div><div class=\"craft-c2-sig-meta\" hidden></div><pre class=\"craft-c2-sig-doc\" hidden></pre></div>"});
 
 /* %% nbs/craft/10_code_editor_c2.ipynb #d0e1d53d */
 (() => { /* iife:craftC2 */
 /* #d0e1d53d */
 window.craftC2?.disable();
-  const {mountTpl, qsa, on, store, patch, isMac} = window.__craftCMCore;
-  const LN_KEY = 'solveit-craft:c2:linenums';
+  const CORE = window.__craftCMCore;
+  if (!CORE.features.init('code-editor', 'Inline Code Editor (C2)', 'CodeMirror 6 inline editing for code cells')) return;
+  const {SOLVEIT, mountTpl, qsa, on, store, patch, isMac, normId, LANG_ALIASES, langCache, isDark, buildStyles} = CORE;
   const staticHlText = new WeakMap(), smartSelHist = new WeakMap();
   const ghostTimers = new Map(), ghostAborts = new Map(), sigAborts = new Map();
   const getTooltipPortal = () => {
@@ -3998,36 +4485,17 @@ window.craftC2?.disable();
     if (!p) { p = mountTpl('c2_tooltip_portal'); document.body.append(p); }
     return p;
   };
-  let showLineNums = store.get(LN_KEY) === '1';
 
-  let parsedServerPrefs = null;
-  const getServerPrefs = () => {
-    if (!parsedServerPrefs) {
-      let enterComp = false, autoClose = false;
-      try {
-        const s = qsa('script').map(n => n.textContent || '').find(t => t.includes('createMonacoEditor(')) || '';
-        const m = s.match(/createMonacoEditor\([\s\S]*?,\s*(true|false)\s*,\s*(true|false)\s*,\s*['"][^'"]*['"]\s*,\s*(true|false)\s*,\s*(true|false)\s*\)/);
-        if (m) enterComp = m[2] === 'true';
-        const acm = s.match(/['"]autoClosingBrackets['"]\s*:\s*(true|false|['"][^'"]+['"])/);
-        if (acm) autoClose = acm[1] !== 'false' && acm[1] !== "'never'" && acm[1] !== '"never"';
-      } catch {}
-      parsedServerPrefs = {enterComp, autoClose};
-    }
-    const rawAc = window.editor?.getRawOptions?.()?.autoClosingBrackets;
-    const autoClose = rawAc != null ? (rawAc !== 'never' && rawAc !== false) : parsedServerPrefs.autoClose;
-    return {enterComp: parsedServerPrefs.enterComp, autoClose};
-  };
+  const getServerPrefs = () => ({enterComp: false, autoClose: false});
 
-    const CORE = window.__craftCMCore, {normId} = CORE;
-  const {LANG_ALIASES, langCache, isDark, buildStyles} = CORE;
-  let cmCache = null, pendingPointer = null;
+  let cmCache = null;
 
   const kernelLang = () => (document.getElementById('kid')?.dataset.language || 'python').toLowerCase();
   const fimEnabled = () => kernelLang() === 'python';
   const dialogMode = () => document.querySelector('[name=mode]')?.value || '';
   const notifyErr = msg => CORE.notifyErr(msg, 'craftC2');
   const loadCM = CORE.loadCoreCM;
-  loadCM().then(cm => { cmCache = cm; schedule(); }).catch(() => {});
+  loadCM().then(cm => { cmCache = cm; reconcileCells(CORE.allCells()); schedule(); }).catch(() => {});
 
   let cmExtras = null;
   const ensureCMExtras = cm => {
@@ -4079,29 +4547,37 @@ window.craftC2?.disable();
       strictSide: false,
       arrow: false,
       create(edView) {
-        const {el} = CORE;
-        const dom = el('div', {cls: 'craft-c2-sighelp'});
+        const {el, mountTpl} = CORE;
+        const {root: dom, label: sigEl, nav, count, meta, doc} = mountTpl('c2_sighelp', {refs: {
+          label: '.craft-c2-sig-label', nav: '.craft-c2-sig-nav', count: '.craft-c2-sig-count',
+          meta: '.craft-c2-sig-meta', doc: '.craft-c2-sig-doc',
+        }});
+        let latest = val;
+        nav.addEventListener('mousedown', e => {
+          const btn = e.target.closest('button[data-dir]');
+          if (!btn || !latest?.values?.length) return;
+          e.preventDefault();
+          const n = latest.values.length;
+          edView.dispatch({effects: setSigHelp.of({...latest, active: (latest.active + Number(btn.dataset.dir) + n) % n})});
+        });
         const render = cur => {
-          dom.replaceChildren();
+          latest = cur;
           const s = cur.values[cur.active] || cur.values[0];
           if (!s) return;
           const descs = (s.params || []).map(p => typeof p === 'string' ? p : String(p.desc || p.name || '').replace(/^param /, ''));
           const fullLabel = String(s.label || ''), openIdx = fullLabel.indexOf('('), closeIdx = fullLabel.lastIndexOf(')');
-          const sigEl = el('span', {cls: 'craft-c2-sig-label'},
+          sigEl.replaceChildren(
             (openIdx >= 0 ? fullLabel.slice(0, openIdx) : fullLabel) + '(',
             ...descs.flatMap((d, i) => [i > 0 ? ', ' : null, i === s.idx ? el('strong', {cls: 'craft-c2-sig-active'}, d) : d]),
             closeIdx >= 0 ? fullLabel.slice(closeIdx) : ')');
-          const mkBtn = (txt, delta) => el('button', {type: 'button', onMousedown: e => {
-            e.preventDefault();
-            const n = cur.values.length;
-            edView.dispatch({effects: setSigHelp.of({...cur, active: (cur.active + delta + n) % n})});
-          }}, txt);
-          const nav = cur.values.length > 1 ? el('span', {cls: 'craft-c2-sig-nav'}, mkBtn('▲', -1), ` ${cur.active + 1}/${cur.values.length} `, mkBtn('▼', 1)) : null;
-          dom.append(el('div', {cls: 'craft-c2-sig-head'}, sigEl, nav));
-          if (s.typ || s.mod) dom.append(el('div', {cls: 'craft-c2-sig-meta'},
-            s.typ && [el('b', {}, 'Type: '), el('kbd', {}, s.typ), ' '],
-            s.mod && [el('b', {}, 'Module: '), el('kbd', {}, s.mod)]));
-          if (s.doc) dom.append(el('pre', {cls: 'craft-c2-sig-doc'}, s.doc));
+          nav.hidden = cur.values.length <= 1;
+          if (!nav.hidden) count.textContent = ` ${cur.active + 1}/${cur.values.length} `;
+          meta.hidden = !(s.typ || s.mod);
+          meta.replaceChildren(
+            ...(s.typ ? [el('b', {}, 'Type: '), el('kbd', {}, s.typ), ' '] : []),
+            ...(s.mod ? [el('b', {}, 'Module: '), el('kbd', {}, s.mod)] : []));
+          doc.hidden = !s.doc;
+          doc.textContent = s.doc || '';
         };
         render(val);
         return {
@@ -4256,13 +4732,7 @@ window.craftC2?.disable();
       update(u) { if (u.docChanged || u.viewportChanged || cm.lang.syntaxTree(u.startState) !== cm.lang.syntaxTree(u.state)) this.decorations = buildRainbowBrackets(u.view); }
     }, {decorations: p => p.decorations});
 
-    const hoverFoldGutter = cm.lang.foldGutter({
-      markerDOM(open) {
-        return CORE.el('span', {cls: 'craft-c2-fold ' + (open ? 'is-open' : 'is-closed')}, open ? '▾' : '▸');
-      },
-    });
-
-    cmExtras = {setGhost, ghostField, setSigHelp, sigHelpField, setAiEdit, aiEditField, staticHighlighter, indentGuidesExt, rainbowBracketsExt, hoverFoldGutter};
+    cmExtras = {setGhost, ghostField, setSigHelp, sigHelpField, setAiEdit, aiEditField, staticHighlighter, indentGuidesExt, rainbowBracketsExt};
     return cmExtras;
   };
 
@@ -4323,7 +4793,7 @@ const themeExtensions = cm => {
 
   function ensureStaticHighlighted(card) {
     if (!cmCache || !card) return;
-    const codeEl = card.querySelector('.msg-body .msg-content pre code');
+    const codeEl = card.querySelector(`${SOLVEIT.sel.msgBody} ${SOLVEIT.sel.msgContent} pre code`);
     if (!codeEl) return;
     const text = codeEl.textContent || '';
     if (!text.trim()) return;
@@ -4344,7 +4814,7 @@ const themeExtensions = cm => {
     }
     resolveLangExt(cmCache, langKey).then(ext => {
       if (ed.destroyed || !codeEl.isConnected) return;
-      const curCard = codeEl.closest('.card-in');
+      const curCard = codeEl.closest(SOLVEIT.sel.cardInType);
       if (curCard?.classList.contains('craft-c2-mounted')) return;
       if ((codeEl.textContent || '') !== text) return;
       const p = ext?.language?.parser || ext?.parser;
@@ -4402,10 +4872,8 @@ const themeExtensions = cm => {
 /* #564ce3de */
 const jumpToLastCell = id => CORE.jumpToLastCell(() => exitCell(id));
 
-  const editorId = () => String(document.querySelector('#full_editor #id_')?.value || '').replace(/^_/, '');
-  const model = () => window.editor?.getModel();
   const getCellEl = id => document.getElementById('_' + id);
-  const getCardIn = el => el?.querySelector('.card-in[data-mtype="code"]');
+  const getCardIn = el => el?.querySelector(SOLVEIT.sel.codeCard);
   const getCellText = el => el?.querySelector('form [name="content"]')?.value ?? '';
   const hasDiff = el => !!(el && (el.dataset.diff || el.querySelector('[data-diff]')));
   let nonCodeInsertion = null;
@@ -4413,26 +4881,6 @@ const jumpToLastCell = id => CORE.jumpToLastCell(() => exitCell(id));
   const isC2El = el => !!el && !isNonCodeInsertion(el.id) && !!getCardIn(el) && !hasDiff(el);
   const typingBlocked = () => CORE.typingBlocked();
 
-  const hasTraceback = el => {
-    const out = el?.querySelector('.card-out');
-    if (!out) return false;
-    const txt = out.textContent || '';
-    return /Traceback \(most recent call last\)|^\s*File ".*", line \d+/m.test(txt) || Boolean(out.querySelector('.ansi-red-fg, .ansi-red-intense-fg'));
-  };
-  const wantsLineNumbers = id => showLineNums || hasTraceback(getCellEl(id));
-  const syncCellLineNumbers = (id, rec) => {
-    if (!rec || !cmCache || !rec.lineNumComp) return;
-    const want = wantsLineNumbers(id);
-    if (rec.showLN === want) return;
-    rec.showLN = want;
-    rec.view.dispatch({effects: rec.lineNumComp.reconfigure(want ? cmCache.view.lineNumbers() : [])});
-    rec.host.classList.toggle('craft-c2-has-ln', want);
-  };
-  const setLineNums = on => {
-    showLineNums = Boolean(on);
-    store.set(LN_KEY, showLineNums ? '1' : '0');
-    for (const [id, rec] of views) syncCellLineNumbers(id, rec);
-  };
   const ed = CORE.createInlineEditor({
     tag: 'craftC2',
     mountedCls: 'craft-c2-mounted',
@@ -4456,7 +4904,7 @@ const jumpToLastCell = id => CORE.jumpToLastCell(() => exitCell(id));
       if (ab) { ab.abort(); sigAborts.delete(id); }
       if (!rec) return;
       const docText = rec.view.state.doc.toString();
-      const codeEl = getCardIn(getCellEl(id))?.querySelector('.msg-body .msg-content pre code');
+      const codeEl = getCardIn(getCellEl(id))?.querySelector(`${SOLVEIT.sel.msgBody} ${SOLVEIT.sel.msgContent} pre code`);
       if (codeEl) {
         if (cmCache && docText.trim()) {
           const tree = cmCache.lang.ensureSyntaxTree(rec.view.state, docText.length, 200) || cmCache.lang.syntaxTree(rec.view.state);
@@ -4471,41 +4919,27 @@ const jumpToLastCell = id => CORE.jumpToLastCell(() => exitCell(id));
     beforeExit: id => cancelGhost(id),
     beforeRun: id => cancelGhost(id),
     beforeSplit: (id, v) => cancelGhost(id, v),
+    onRekey: oldId => {
+      cancelGhost(oldId);
+      const ab = sigAborts.get(oldId);
+      if (ab) { ab.abort(); sigAborts.delete(oldId); }
+    },
     keepMounted: (_id, rec) => Boolean(cmCache && hasFolds(cmCache, rec.view.state)),
     isViewValid: (_id, _rec, el) => !hasDiff(el) && isC2El(el),
-    onViewSynced: (id, rec) => syncCellLineNumbers(id, rec),
     onSync: () => {
-      bindMonacoWatcher();
       reconcileAutoEdits();
       driveAutoEdit();
-      for (const card of document.querySelectorAll('#dialog-container .editable .card-in')) {
-        const el = card.closest('.editable');
-        const id = el.id.replace(/^_/, '');
-        el.classList.toggle('craft-c2', isC2El(el));
-        syncSaveState(id);
-        const outCard = el.querySelector(':scope > .card-out');
-        if (outCard) outCard.classList.toggle('craft-c2-traceback', card.dataset.mtype === 'code' && hasTraceback(el));
-        if (card.dataset.mtype === 'code' && !card.classList.contains('craft-c2-mounted') && !card.closest('[data-streaming]')) {
-          ensureStaticHighlighted(card);
-        }
-      }
     },
     onBeforeRequest: (ctx, pathname, body) => {
-      if (pathname === '/add_above_' || pathname === '/add_below_') {
-        if (nonCodeInsertion) return;
+      if (pathname === SOLVEIT.api.addAbove || pathname === SOLVEIT.api.addBelow) {
+        if (nonCodeInsertion || CORE.optimistic?.isSuppressingAutoEdit?.()) return;
         if (!pendingAutoEdits.some(r => r.forceCode && r.expires > Date.now())) queueAutoEdit({forceCode: false});
         return;
       }
-      if (pathname === '/add_runq_') {
+      if (pathname === SOLVEIT.api.addRunq) {
         if (body.get('cmd') === 'alt-run') queueAutoEdit({forceCode: false, ttl: 30000});
         return;
       }
-      if (pathname !== '/upsert_msg_') return;
-      const source = ctx.sourceElement, cmd = body.get('cmd');
-      const composerButton = source?.matches('#full_editor #submit_btn, #full_editor #cancel_btn');
-      const composerShortcut = source?.matches('#kid') && ['upsert-shift-run', 'upsert-alt-run'].includes(cmd);
-      if ((!composerButton && !composerShortcut) || body.get('is_input') !== '1') return;
-      if (cmd === 'upsert-alt-run') queueAutoEdit({forceCode: false, ttl: 30000});
     },
     openPrimaryOnEnter: (el, run) => {
       if (!isC2El(el)) return false;
@@ -4515,80 +4949,58 @@ const jumpToLastCell = id => CORE.jumpToLastCell(() => exitCell(id));
       return true;
     },
     onEditClick: (edit, e) => {
-      const cell = edit.closest('.editable'), cellId = cell?.id?.replace(/^_/, ''), codeCard = getCardIn(cell);
+      const cell = edit.closest(SOLVEIT.sel.cell), cellId = cell?.id?.replace(/^_/, ''), codeCard = getCardIn(cell);
       if (!cellId || !codeCard || hasDiff(cell) || isNonCodeInsertion(cell.id) || codeCard.classList.contains('collapsed')) return false;
       e.preventDefault(); e.stopImmediatePropagation();
       openCell(cellId);
       return true;
-    },
-    onExtraClick: e => {
-      const tab = e.target.closest?.('#full_editor .tabh');
-      if (tab?.id === 'tabh-code' && shouldInterceptCodeTab()) {
-        e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
-        newCodeCell();
-      }
     },
     getThemeExts: () => (cmCache ? themeExtensions(cmCache) : null),
     beforeSwitch: (id, v) => cancelGhost(id, v),
     failRenameMsg: 'Could not save code edit before reopening renamed dialog.',
     domAttrs: ['value', 'data-diff'],
     inDialog: false,
+    pointerEdit: {
+      ignoreSel: 'button, a, .craft-c2-host',
+      resolveTarget: e => {
+        const content = e.target.closest?.(`${SOLVEIT.sel.cell} ${SOLVEIT.sel.codeCard} ${SOLVEIT.sel.msgContent}`);
+        if (!content) return null;
+        const el = content.closest(SOLVEIT.sel.cell);
+        if (!isC2El(el)) return null;
+        return {id: normId(el.id), codeEl: content.querySelector('pre code')};
+      },
+      onOpen: (p, selSpec) => openCell(p.id, selSpec),
+    },
   });
   const {states, views, pendingSaves, dirtyIds, failedSaves, syncSaveState, saveCell, unmountCell, exitCell, saveAndRun, sync, schedule} = ed;
+  function reconcileCells(cells) {
+    for (const el of cells) {
+      const card = el.querySelector(SOLVEIT.sel.cardIn);
+      if (!card) continue;
+      syncSaveState(normId(el.id));
+      if (card.dataset.mtype === 'code' && !card.classList.contains('craft-c2-mounted') && !card.closest('[data-streaming]')) {
+        ensureStaticHighlighted(card);
+      }
+    }
+  }
+  const unsubCells = CORE.onCells(reconcileCells, {attrs: ['data-mtype', 'data-streaming'], initial: true});
   const splitCell = (id, v) => ed.splitCell(id, v, 'code');
 
   const pendingAutoEdits = [];
-  let autoEditGuard = null, cancelRetryTimer = null, monacoBoundEditor = null, monacoModelSub = null;
+  let autoEditGuard = null;
 
-  const clearAutoEditGuard = () => {
-    clearTimeout(cancelRetryTimer);
-    cancelRetryTimer = null;
-    autoEditGuard?.holdRelease?.();
-    autoEditGuard = null;
-  };
-
-  const monacoHoldsCell = id => {
-    if (!id) return false;
-    if (editorId() === id) return true;
-    const p = model()?.uri?.path || '';
-    if (p.endsWith('/' + id) || p.endsWith('/_' + id) || p.endsWith('/' + id + '-1') || p.endsWith('/_' + id + '-1')) return true;
-    return getCellEl(id)?.dataset.editing === 'true';
-  };
+  const clearAutoEditGuard = () => { autoEditGuard = null; };
 
   const queueAutoEdit = ({forceCode = false, ttl = 6000} = {}) => {
     clearAutoEditGuard();
-    const existing = new Set([...document.querySelectorAll('#dialog-container .editable[id]')].map(el => el.id));
+    const existing = new Set(qsa(SOLVEIT.sel.cellWithId).map(el => el.id));
     pendingAutoEdits.push({existing, forceCode, expires: Date.now() + ttl});
   };
 
   const claimNewCell = (nid, {forceCode = false} = {}) => {
     clearAutoEditGuard();
-    autoEditGuard = {
-      id: nid, forceCode, wantOpen: true, canceling: false, cancelAt: 0, converted: false,
-      holdRelease: window.craftIdleComposer?.holdForInsertion?.() || null,
-      expires: Date.now() + 4000,
-    };
+    autoEditGuard = {id: nid, forceCode, wantOpen: true, converted: false, expires: Date.now() + 4000};
     driveAutoEdit();
-  };
-
-  const releaseMonacoFor = g => {
-    if (editorId() !== g.id) return;
-    if (g.canceling && Date.now() - g.cancelAt < 1500) return;
-    const cancelBtn = document.getElementById('cancel_btn');
-    if (!cancelBtn || cancelBtn.disabled) {
-      clearTimeout(cancelRetryTimer);
-      cancelRetryTimer = setTimeout(driveAutoEdit, 60);
-      return;
-    }
-    const rec = views.get(g.id);
-    if (rec) {
-      const curDoc = rec.view.state.doc.toString();
-      const m = model();
-      if (curDoc && m && m.getValue() !== curDoc) m.setValue(curDoc);
-    }
-    g.canceling = true;
-    g.cancelAt = Date.now();
-    cancelBtn.click();
   };
 
   const driveAutoEdit = () => {
@@ -4596,14 +5008,13 @@ const jumpToLastCell = id => CORE.jumpToLastCell(() => exitCell(id));
     const g = autoEditGuard;
     if (Date.now() > g.expires) { clearAutoEditGuard(); return; }
     const el = getCellEl(g.id);
-    const card = el?.querySelector('.card-in');
+    const card = el?.querySelector(SOLVEIT.sel.cardIn);
     const isCode = card?.dataset.mtype === 'code';
     if (el && card && !isCode) {
       if (g.forceCode) {
-        if (monacoHoldsCell(g.id)) { releaseMonacoFor(g); return; }
         if (!g.converted) {
           g.converted = true;
-          CORE.htmxPost('/set_mtyp_', {id_: '_' + g.id, ids: '_' + g.id, mtyp: 'code'})
+          CORE.htmxPost(SOLVEIT.api.setMtyp, {id_: '_' + g.id, ids: '_' + g.id, mtyp: 'code'})
             .catch(err => console.error('craftC2: set_mtyp failed', err));
         }
         return;
@@ -4611,67 +5022,12 @@ const jumpToLastCell = id => CORE.jumpToLastCell(() => exitCell(id));
       clearAutoEditGuard();
       return;
     }
-    if (monacoHoldsCell(g.id)) {
-      releaseMonacoFor(g);
-      return;
-    }
     if (el && isCode && !hasDiff(el) && g.wantOpen) {
       g.wantOpen = false;
-      g.holdRelease?.(); g.holdRelease = null;
-      window.craftIdleComposer?.hide?.();
+      if (el.dataset.editing) delete el.dataset.editing;
       el.scrollIntoView({block: 'nearest'});
       openCell(g.id, {anchor: 0, head: 0});
     }
-  };
-
-  const checkMonacoHandover = () => {
-    if (ed.destroyed) return;
-    const edId = editorId();
-    if (edId) {
-      if (isNonCodeInsertion('_' + edId)) return;
-      if (autoEditGuard && autoEditGuard.id === edId && Date.now() < autoEditGuard.expires) {
-        if (!autoEditGuard.holdRelease) autoEditGuard.holdRelease = window.craftIdleComposer?.holdForInsertion?.() || null;
-        autoEditGuard.wantOpen = true;
-        if (autoEditGuard.canceling && Date.now() - autoEditGuard.cancelAt >= 1500) autoEditGuard.canceling = false;
-        driveAutoEdit();
-        return;
-      }
-      if (!autoEditGuard && pendingAutoEdits.length) {
-        const now = Date.now();
-        for (let i = pendingAutoEdits.length - 1; i >= 0; i--) {
-          if (pendingAutoEdits[i].expires < now) pendingAutoEdits.splice(i, 1);
-        }
-        const mtype = document.querySelector('#full_editor #msg_type')?.value;
-        for (let i = 0; i < pendingAutoEdits.length; i++) {
-          const req = pendingAutoEdits[i];
-          if (req.existing.has('_' + edId)) continue;
-          if (!req.forceCode && mtype !== 'code') continue;
-          pendingAutoEdits.splice(i, 1);
-          claimNewCell(edId, req);
-          return;
-        }
-      }
-    } else if (autoEditGuard && autoEditGuard.canceling) {
-      autoEditGuard.canceling = false;
-      autoEditGuard.cancelAt = 0;
-      autoEditGuard.wantOpen = true;
-      window.craftIdleComposer?.hide?.();
-      driveAutoEdit();
-    }
-  };
-
-  const onFullEditorSettle = e => {
-    if (ed.destroyed) return;
-    const tgt = e.target;
-    if (tgt?.id === 'full_editor' || e.detail?.target?.id === 'full_editor') checkMonacoHandover();
-  };
-
-  const bindMonacoWatcher = () => {
-    const ed = window.editor;
-    if (!ed || ed === monacoBoundEditor) return;
-    monacoModelSub?.dispose?.();
-    monacoBoundEditor = ed;
-    monacoModelSub = ed.onDidChangeModel?.(() => { queueMicrotask(checkMonacoHandover); }) || null;
   };
 
   const reconcileAutoEdits = () => {
@@ -4681,10 +5037,10 @@ const jumpToLastCell = id => CORE.jumpToLastCell(() => exitCell(id));
       if (pendingAutoEdits[i].expires < now) pendingAutoEdits.splice(i, 1);
     }
     if (!pendingAutoEdits.length) return;
-    const cells = [...document.querySelectorAll('#dialog-container .editable[id]')];
+    const cells = qsa(SOLVEIT.sel.cellWithId);
     for (let i = 0; i < pendingAutoEdits.length; i++) {
       const req = pendingAutoEdits[i];
-      const added = cells.filter(el => !isNonCodeInsertion(el.id) && !req.existing.has(el.id) && (req.forceCode ? Boolean(el.querySelector('.card-in')) : Boolean(getCardIn(el))));
+      const added = cells.filter(el => !isNonCodeInsertion(el.id) && !req.existing.has(el.id) && (req.forceCode ? Boolean(el.querySelector(SOLVEIT.sel.cardIn)) : Boolean(getCardIn(el))));
       if (!added.length) continue;
       pendingAutoEdits.splice(i, 1);
       claimNewCell(added[0].id.replace(/^_/, ''), req);
@@ -4692,43 +5048,28 @@ const jumpToLastCell = id => CORE.jumpToLastCell(() => exitCell(id));
     }
   };
 
-  function shouldInterceptCodeTab() {
-    if (editorId()) return false;
-    const uri = model()?.uri?.path || '';
-    if (uri && !uri.endsWith('/temp')) return false;
-    if (window.edValue?.().trim()) return false;
-    if (document.querySelector('.editable[data-editing="true"]')) return false;
-    return true;
-  }
-
   async function newCodeCell() {
     if (ed.destroyed) return false;
     if (ed.activeKey) await exitCell(ed.activeKey);
-    const fullEd = document.getElementById('full_editor');
-    if (fullEd?.contains(document.activeElement)) document.activeElement.blur();
-    window.craftIdleComposer?.hide?.();
-    const kid = document.getElementById('kid')?.value || '';
+    const kid = CORE.kid();
     if (!kid) return false;
-    const allCells = [...document.querySelectorAll('#dialog-container > .editable[id]')];
+    const allCells = qsa(SOLVEIT.sel.cellWithId);
     const last = allCells[allCells.length - 1];
     queueAutoEdit({forceCode: true});
-    const unhide = window.craftIdleComposer?.holdForInsertion();
     try {
       if (last) {
         const lastId = last.id.replace(/^_/, '');
         const after = window.sectionTail ? window.sectionTail(last) : last.id;
-        await CORE.htmxPost('/add_below_', {id_: lastId, after});
+        await CORE.htmxPost(SOLVEIT.api.addBelow, {id_: lastId, after});
       } else {
-        await CORE.htmxPost('/upsert_msg_', {id_: '', msg_type: 'code', is_input: '1', content: ''});
+        await CORE.htmxPost(SOLVEIT.api.upsertMsg, {id_: '', msg_type: 'code', is_input: '1', content: ' '});
       }
       schedule();
-      const existing = new Set(allCells.map(el => el.id)), deadline = Date.now() + 6000;
-      let addedId = null;
-      while (Date.now() < deadline) {
-        const added = [...document.querySelectorAll('#dialog-container > .editable[id]')].find(el => !existing.has(el.id) && isC2El(el));
-        if (added && !monacoHoldsCell(added.id.slice(1)) && added.querySelector('.craft-c2-host')) { addedId = added.id.slice(1); break; }
-        await CORE.sleep(50);
-      }
+      const existing = new Set(allCells.map(el => el.id));
+      const added = await CORE.waitForHtmxSettle(() =>
+        CORE.allCells().find(el => !existing.has(el.id) && isC2El(el) && el.querySelector('.craft-c2-host')) || null
+      , 6000);
+      const addedId = added ? added.id.slice(1) : null;
       if (addedId && !document.activeElement?.closest?.(`#_${addedId} .craft-c2-host`)) openCell(addedId, {anchor: 0, head: 0});
       return true;
     } catch (err) {
@@ -4736,7 +5077,7 @@ const jumpToLastCell = id => CORE.jumpToLastCell(() => exitCell(id));
       notifyErr('Could not create code cell.');
       console.error('craftC2: newCodeCell failed', err);
       return false;
-    } finally { unhide?.(); }
+    }
   }
 
   function stepBoundary(id, v, up) {
@@ -4788,15 +5129,10 @@ const hasFolds = (cm, state) => {
     if (context.aborted) return null;
     const line = doc.lineAt(context.pos);
     try {
-      const r = await fetch('/complete_', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({code, line_no: line.number, col_no: context.pos - line.from + 1, kid}),
+      const {completions} = await CORE.fetchJson('/complete_', {
+        body: {code, line_no: line.number, col_no: context.pos - line.from + 1, kid},
         signal: ctrl.signal,
-        priority: 'low',
       });
-      if (!r.ok || context.aborted) return null;
-      const {completions} = await r.json();
       if (!Array.isArray(completions) || !completions.length || context.aborted) return null;
       const clamp = n => Math.max(0, Math.min(doc.length, n));
       const toPos = (ln, col) => clamp(doc.line(Math.max(1, Math.min(doc.lines, ln))).from + Math.max(0, col - 1));
@@ -4884,15 +5220,10 @@ const hasFolds = (cm, state) => {
     const req_id = Math.random().toString(36).slice(2);
     const origText = doc.toString();
     try {
-      const r = await fetch('/ghost_', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({id_: id, mtype: 'code', output: false, pfx, sfx, req_id, kid}),
+      const {completions} = await CORE.fetchJson('/ghost_', {
+        body: {id_: id, mtype: 'code', output: false, pfx, sfx, req_id, kid},
         signal: ctrl.signal,
-        priority: 'low',
       });
-      if (!r.ok || ctrl.signal.aborted) return;
-      const {completions} = await r.json();
       if (!Array.isArray(completions) || !completions.length || ctrl.signal.aborted) return;
       const cur = views.get(id);
       if (!cur || cur.view !== v || !v.hasFocus || v.state.doc.toString() !== origText || v.state.selection.main.head !== pos || !v.state.selection.main.empty) return;
@@ -4966,14 +5297,10 @@ const hasFolds = (cm, state) => {
     const line = doc.lineAt(pos);
     const origText = doc.toString();
     try {
-      const res = await fetch('/sig_help_', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({code: origText, line_no: line.number, col_no: pos - line.from, kid}),
+      const {values} = await CORE.fetchJson('/sig_help_', {
+        body: {code: origText, line_no: line.number, col_no: pos - line.from, kid},
         signal: ctrl.signal,
       });
-      if (!res.ok || ctrl.signal.aborted) return false;
-      const {values} = await res.json();
       if (ctrl.signal.aborted) return false;
       let items = [], active = 0;
       if (Array.isArray(values)) {
@@ -5029,14 +5356,10 @@ const hasFolds = (cm, state) => {
     try {
       const doc = v.state.doc;
       const pfx = doc.sliceString(0, from), sfx = doc.sliceString(to);
-      const r = await fetch(hl ? '/supere_' : '/superc_', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({id_: id, mtype: 'code', output: false, pfx, sfx, hl, instr, kid}),
+      const {completions} = await CORE.fetchJson(hl ? '/supere_' : '/superc_', {
+        body: {id_: id, mtype: 'code', output: false, pfx, sfx, hl, instr, kid},
+        timeoutMs: 60000,
       });
-      const result = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(result.error || 'Completion request failed.');
-      const {completions} = result;
       const cur = views.get(id);
       if (cur && cur.view === v) {
         v.dispatch({effects: rec.readOnlyComp.reconfigure(cmCache.state.EditorState.readOnly.of(false))});
@@ -5095,10 +5418,11 @@ const hasFolds = (cm, state) => {
   }
 
 /* #f3ed72d7 */
-function buildExtensions(cm, id, comps) {
+function buildExtensions(cm, idOrRef, comps) {
+    const ref = typeof idOrRef === 'string' ? {id: idOrRef, key: idOrRef} : idOrRef;
     const {state, view, lang, python, cmds, ac, search} = cm;
-    const {ghostField, sigHelpField, setSigHelp, aiEditField, indentGuidesExt, rainbowBracketsExt, hoverFoldGutter} = ensureCMExtras(cm);
-    const {langComp, themeComp, readOnlyComp, lineNumComp} = comps;
+    const {ghostField, sigHelpField, setSigHelp, aiEditField, indentGuidesExt, rainbowBracketsExt} = ensureCMExtras(cm);
+    const {langComp, themeComp, readOnlyComp} = comps;
 
     const autoSurroundExt = view.EditorView.inputHandler.of((v, _from, _to, text) => {
       if (v.state.readOnly || text.length !== 1 || !SURROUND_PAIRS[text]) return false;
@@ -5148,28 +5472,28 @@ function buildExtensions(cm, id, comps) {
     };
 
     const solveitKeys = state.Prec.high(view.keymap.of([
-      {key: 'Shift-Enter', run: () => { saveAndRun(id, 'shift-run'); return true; }},
-      {key: 'Mod-Enter', run: () => { saveAndRun(id, 'run'); return true; }},
-      {key: 'Alt-Enter', run: () => { saveAndRun(id, 'alt-run'); return true; }},
-      {key: 'Mod-Shift-Enter', run: () => { saveAndRun(id, 'continue'); return true; }},
-      {key: 'Alt-.', run: v => { requestGhost(id, v, true); return true; }},
-      {key: 'ArrowRight', run: v => !getServerPrefs().enterComp && acceptGhost(id, v)},
-      {key: 'ArrowUp', run: v => stepBoundary(id, v, true)},
-      {key: 'ArrowDown', run: v => stepBoundary(id, v, false)},
-      {key: 'Mod-Shift-.', run: v => triggerSuperComplete(id, v)},
-      {key: 'Mod-Shift->', run: v => triggerSuperComplete(id, v)},
-      {key: 'Ctrl-Shift--', run: v => { splitCell(id, v); return true; }},
-      {key: 'Ctrl-Shift-_', run: v => { splitCell(id, v); return true; }},
+      {key: 'Shift-Enter', run: () => { saveAndRun(ref.id, 'shift-run'); return true; }},
+      {key: 'Mod-Enter', run: () => { saveAndRun(ref.id, 'run'); return true; }},
+      {key: 'Alt-Enter', run: () => { saveAndRun(ref.id, 'alt-run'); return true; }},
+      {key: 'Mod-Shift-Enter', run: () => { saveAndRun(ref.id, 'continue'); return true; }},
+      {key: 'Alt-.', run: v => { requestGhost(ref.id, v, true); return true; }},
+      {key: 'ArrowRight', run: v => !getServerPrefs().enterComp && acceptGhost(ref.id, v)},
+      {key: 'ArrowUp', run: v => stepBoundary(ref.id, v, true)},
+      {key: 'ArrowDown', run: v => stepBoundary(ref.id, v, false)},
+      {key: 'Mod-Shift-.', run: v => triggerSuperComplete(ref.id, v)},
+      {key: 'Mod-Shift->', run: v => triggerSuperComplete(ref.id, v)},
+      {key: 'Ctrl-Shift--', run: v => { splitCell(ref.id, v); return true; }},
+      {key: 'Ctrl-Shift-_', run: v => { splitCell(ref.id, v); return true; }},
       {key: 'Mod-Shift-j', run: () => true},
-      {key: 'Mod-Shift-k', run: v => { switchCellType(id, v, 'note'); return true; }},
-      {key: 'Mod-Shift-l', run: v => { switchCellType(id, v, 'prompt'); return true; }},
-      {key: 'Mod-Shift-;', run: v => { switchCellType(id, v, 'raw'); return true; }},
+      {key: 'Mod-Shift-k', run: v => { switchCellType(ref.id, v, 'note'); return true; }},
+      {key: 'Mod-Shift-l', run: v => { switchCellType(ref.id, v, 'prompt'); return true; }},
+      {key: 'Mod-Shift-;', run: v => { switchCellType(ref.id, v, 'raw'); return true; }},
       {key: 'Mod-Shift-d', run: () => { document.getElementById('brain-btn')?.click(); return true; }},
       {key: smartExpandKey, run: v => smartExpandSelection(v)},
       {key: smartShrinkKey, run: v => smartShrinkSelection(v)},
-      {key: jumpLastKey, run: () => { jumpToLastCell(id); return true; }},
+      {key: jumpLastKey, run: () => { jumpToLastCell(ref.id); return true; }},
       {key: 'Alt-Shift-n', run: () => { newCodeCell(); return true; }},
-      {key: 'Shift-Escape', run: () => { exitCell(id); return true; }},
+      {key: 'Shift-Escape', run: () => { exitCell(ref.id); return true; }},
       {key: 'Enter', run: v => {
         if (ac.completionStatus(v.state) !== 'active') return false;
         if (ac.selectedCompletionIndex(v.state) != null) return ac.acceptCompletion(v);
@@ -5178,22 +5502,22 @@ function buildExtensions(cm, id, comps) {
       {key: 'Escape', run: v => {
         if (v.state.field(sigHelpField, false)) { v.dispatch({effects: setSigHelp.of(null)}); return true; }
         if (ac.completionStatus(v.state)) return ac.closeCompletion(v);
-        if (v.state.field(ghostField, false)) { cancelGhost(id, v); return true; }
+        if (v.state.field(ghostField, false)) { cancelGhost(ref.id, v); return true; }
         if (search.searchPanelOpen(v.state)) return search.closeSearchPanel(v);
         if (v.state.selection.ranges.length > 1) return cmds.simplifySelection(v);
-        exitCell(id);
+        exitCell(ref.id);
         return true;
       }},
       {key: 'Tab', run: v => {
         if (getServerPrefs().enterComp) {
-          if (acceptGhost(id, v)) return true;
+          if (acceptGhost(ref.id, v)) return true;
           return cmds.indentWithTab.run(v);
         }
         if (acceptOrPickFirst(v)) return true;
         return cmds.indentWithTab.run(v);
       }, shift: v => {
         if (v.state.selection.main.empty && fimEnabled() && !v.state.field(sigHelpField, false)) {
-          triggerSigHelp(id, v);
+          triggerSigHelp(ref.id, v);
           return true;
         }
         return cmds.indentWithTab.shift(v);
@@ -5236,7 +5560,6 @@ function buildExtensions(cm, id, comps) {
       langComp.of(python.python()),
       themeComp.of(themeExtensions(cm)),
       readOnlyComp.of(state.EditorState.readOnly.of(false)),
-      lineNumComp.of(wantsLineNumbers(id) ? view.lineNumbers() : []),
       ghostField,
       sigHelpField,
       aiEditField,
@@ -5255,7 +5578,6 @@ function buildExtensions(cm, id, comps) {
       lang.indentOnInput(),
       lang.bracketMatching(),
       lang.codeFolding({placeholderText: '…'}),
-      hoverFoldGutter,
       indentGuidesExt,
       rainbowBracketsExt,
       search.search({top: false}),
@@ -5269,28 +5591,29 @@ function buildExtensions(cm, id, comps) {
       }),
       view.tooltips({parent: getTooltipPortal(), position: 'fixed'}),
       view.EditorView.updateListener.of(u => {
-        states.set(id, u.state);
+        const curId = ref.id;
+        states.set(curId, u.state);
         if (u.docChanged) {
-          const el = getCellEl(id);
+          const el = getCellEl(curId);
           if (el) {
-            if (u.state.doc.toString() !== getCellText(el)) dirtyIds.add(id);
-            else { dirtyIds.delete(id); failedSaves.delete(id); }
-            syncSaveState(id);
+            if (u.state.doc.toString() !== getCellText(el)) dirtyIds.add(curId);
+            else { dirtyIds.delete(curId); failedSaves.delete(curId); }
+            syncSaveState(curId);
           }
-          if (u.view.hasFocus && u.state.selection.main.empty) scheduleGhost(id, u.view);
-          else cancelGhost(id, u.view);
+          if (u.view.hasFocus && u.state.selection.main.empty) scheduleGhost(curId, u.view);
+          else cancelGhost(curId, u.view);
           let line1Changed = false;
           const l1End = u.startState.doc.line(1).to;
           u.changes.iterChangedRanges(fromA => { if (fromA <= l1End) line1Changed = true; });
-          if (line1Changed) syncCellLanguage(id, u.view);
+          if (line1Changed) syncCellLanguage(curId, u.view);
         } else if (u.selectionSet) {
-          clearTimeout(ghostTimers.get(id));
-          ghostTimers.delete(id);
+          clearTimeout(ghostTimers.get(curId));
+          ghostTimers.delete(curId);
         }
-        if (!u.view.hasFocus && ed.activeKey !== id && !pendingSaves.has(id) && !dirtyIds.has(id) && !hasFolds(cm, u.state)) {
+        if (!u.view.hasFocus && ed.activeKey !== curId && !pendingSaves.has(curId) && !dirtyIds.has(curId) && !hasFolds(cm, u.state) && !CORE.optimistic?.isPending?.(curId)) {
           queueMicrotask(() => {
-            const cur = views.get(id);
-            if (cur && !cur.view.hasFocus && ed.activeKey !== id && !pendingSaves.has(id) && !dirtyIds.has(id) && !hasFolds(cm, cur.view.state)) unmountCell(id);
+            const k = ref.id, cur = views.get(k);
+            if (cur && !cur.view.hasFocus && ed.activeKey !== k && !pendingSaves.has(k) && !dirtyIds.has(k) && !hasFolds(cm, cur.view.state) && !CORE.optimistic?.isPending?.(k)) unmountCell(k);
           });
         }
       }),
@@ -5310,69 +5633,36 @@ async function openCell(id, selSpec = null) {
     ed.openView(id, {
       el, card, text, cm, selSpec,
       hostClass: 'craft-cm-host craft-c2-host',
-      extraRec: {langKey: 'python', showLN: null},
+      extraRec: {langKey: 'python'},
       themeExts: themeExtensions(cm),
-      prepareState: () => {
+      prepareState: ref => {
         const comps = {
           langComp: new cm.state.Compartment(), themeComp: new cm.state.Compartment(),
-          readOnlyComp: new cm.state.Compartment(), lineNumComp: new cm.state.Compartment(),
+          readOnlyComp: new cm.state.Compartment(),
         };
         const prev = states.get(id);
-        const reusePrev = Boolean(prev && prev.doc.toString() === text && prev._c2Comps?.lineNumComp);
-        const edState = reusePrev ? prev : cm.state.EditorState.create({doc: text, extensions: buildExtensions(cm, id, comps)});
+        const reusePrev = Boolean(prev && prev.doc.toString() === text && prev._c2Comps?.langComp);
+        const edState = reusePrev ? prev : cm.state.EditorState.create({doc: text, extensions: buildExtensions(cm, ref, comps)});
         const activeComps = reusePrev ? prev._c2Comps : comps;
         edState._c2Comps = activeComps;
         return {edState, activeComps, reusePrev};
       },
       onExisting: rec => syncCellLanguage(id, rec.view),
-      onMounted: rec => { syncCellLineNumbers(id, rec); syncCellLanguage(id, rec.view); },
+      onMounted: rec => { syncCellLanguage(id, rec.view); },
     });
   }
 
-  const {offsetIn} = CORE;
-
-  const onMouseDown = e => {
-    if (e.button !== 0 || e.target.closest?.('button, a, .craft-c2-host')) return;
-    const content = e.target.closest?.('.editable.craft-c2 .card-in[data-mtype="code"] .msg-content');
-    if (!content) return;
-    const el = content.closest('.editable');
-    if (!isC2El(el)) return;
-    pendingPointer = {
-      id: el.id.replace(/^_/, ''),
-      codeEl: content.querySelector('pre code'),
-      x: e.clientX,
-      y: e.clientY,
-    };
-  };
-
-  const onMouseUp = e => {
-    if (!pendingPointer) return;
-    const p = pendingPointer;
-    pendingPointer = null;
-    const sel = window.getSelection();
-    const anchor = offsetIn(p.codeEl, sel?.anchorNode, sel?.anchorOffset);
-    const head = offsetIn(p.codeEl, sel?.focusNode, sel?.focusOffset);
-    if (anchor != null) sel?.removeAllRanges();
-    openCell(p.id, anchor != null ? {anchor, head: head ?? anchor} : {coords: {x: e.clientX, y: e.clientY}});
-  };
 
   const onKernelConnected = () => {
     for (const [id, rec] of views) syncCellLanguage(id, rec.view);
   };
 
   const ac = new AbortController(), sig = {signal: ac.signal};
-  const sep = window.htmx?.config.metaCharacter || ':';
-  const settleEvent = ['htmx', 'after', 'settle'].join(sep);
-  on(document, {mousedown: onMouseDown, mouseup: onMouseUp, [settleEvent]: onFullEditorSettle}, sig);
   on(document.body, 'kernel-connected', onKernelConnected, sig);
 
   window.__hotkeyRegister?.({
     id: 'c2-new-code', combo: 'Alt+Shift+N', label: 'New code cell at bottom', group: 'Code',
     handler: () => { newCodeCell(); return true; },
-  });
-  window.__hotkeyRegister?.({
-    id: 'c2-line-numbers', combo: 'Alt+Shift+L', label: 'Toggle code line numbers', group: 'Code',
-    handler: () => { setLineNums(!showLineNums); return true; },
   });
 
   window.craftC2 = {
@@ -5383,21 +5673,16 @@ async function openCell(id, selSpec = null) {
     exit: id => exitCell(normId(id ?? ed.activeKey)),
     run: (id, cmd = 'run') => saveAndRun(normId(id ?? ed.activeKey), cmd),
     newCodeCell,
+    rekey: (oldId, newId, opts) => ed.rekey(normId(oldId), normId(newId), opts),
+    abortOptimistic: id => { const nid = normId(id); dirtyIds.delete(nid); failedSaves.delete(nid); states.delete(nid); unmountCell(nid); },
     expectCodeInsertion: () => queueAutoEdit({forceCode: true}),
     guardNonCodeInsertion(existing) {
       nonCodeInsertion = existing;
       return () => { if (nonCodeInsertion === existing) { nonCodeInsertion = null; schedule(); } };
     },
-    shouldInterceptCodeTab,
-    lineNumbers: () => showLineNums,
-    setLineNumbers: setLineNums,
-    toggleLineNumbers: () => setLineNums(!showLineNums),
     dirty: () => [...dirtyIds],
     source: () => cmCache?._source || 'pending',
     disable() {
-      monacoModelSub?.dispose?.();
-      monacoModelSub = null;
-      monacoBoundEditor = null;
       clearAutoEditGuard();
       ac.abort();
       for (const t of ghostTimers.values()) clearTimeout(t);
@@ -5407,6 +5692,7 @@ async function openCell(id, selSpec = null) {
       for (const c of sigAborts.values()) c.abort();
       sigAborts.clear();
       pendingAutoEdits.length = 0;
+      unsubCells();
       ed.disable();
       qsa('.editable.craft-c2, .editable[data-c2-save]').forEach(el => patch(el, {classes: {'craft-c2': false}, dataset: {c2Editing: null, c2Save: null}}));
       qsa('.card-out.craft-c2-traceback').forEach(el => el.classList.remove('craft-c2-traceback'));
@@ -5420,7 +5706,8 @@ async function openCell(id, selSpec = null) {
 (() => {
   window.craftInlineNote?.disable?.();
   window.craftInlineText?.disable?.();
-  if (!document.getElementById('dialog-container')) return;
+  if (!window.__craftCMCore?.features?.init?.('markdown-editor', 'Inline Markdown & Raw Editor', 'Obsidian-style Live Preview CM6 editor for note, prompt, and raw cells')) return;
+  if (!document.querySelector(window.__craftCMCore.SOLVEIT.sel.dialog)) return;
   if (!document.querySelector('script[data-craft-md="1"]')) {
     const s = document.createElement('script');
     s.src = '/static/.craft-assets/craft_md.js';
@@ -5430,20 +5717,21 @@ async function openCell(id, selSpec = null) {
 })();
 
 /* %% nbs/craft/12_mobile.ipynb #83f4bb08 */
-window.__craftTpl = Object.assign(window.__craftTpl || {}, {"mb_bar": "<nav id=\"craft-mbar\" aria-label=\"Mobile toolbar\" data-mode=\"idle\"><div class=\"craft-mbar-row\" data-row=\"idle\"><button type=\"button\" data-act=\"nav\" aria-label=\"Menu\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 6h16M4 12h16M4 18h16\"></path></svg><span>Menu</span></button><button type=\"button\" data-act=\"files\" aria-label=\"Files\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z\"></path></svg><span>Files</span></button></div><div class=\"craft-mbar-row\" data-row=\"edit\"><button type=\"button\" data-act=\"tab\" aria-label=\"Tab\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 12h13m-4-4 4 4-4 4M20 6v12\"></path></svg><span>Tab</span></button><span class=\"craft-mbar-spacer\"></span><button type=\"button\" data-act=\"run\" aria-label=\"Run\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M7 5v14l11-7z\"></path></svg><span>Run</span></button><button type=\"button\" data-act=\"done\" aria-label=\"Done\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 12.5l4.5 4.5L19 7.5\"></path></svg><span>Done</span></button></div></nav>", "mb_backdrop": "<div class=\"craft-overlay\" id=\"craft-mobile-backdrop\"></div>", "mb_jump_btn": "<button id=\"craft-scroll-bottom\" type=\"button\" aria-label=\"Jump to bottom\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 5v14m-6-6 6 6 6-6\"></path></svg></button>", "mb_picker": "<div id=\"craft-edge-picker\" class=\"craft-type-picker\" role=\"menu\" aria-label=\"Insert cell\"><div class=\"craft-type-picker-head craft-edge-picker-head\"></div><div class=\"craft-type-picker-opts craft-edge-picker-opts\"><button class=\"uk-btn uk-btn-default uk-btn-sm\" role=\"menuitem\" data-type=\"Code\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 6l-6 6 6 6m8-12 6 6-6 6M14 4l-4 16\"></path></svg><span>Code</span></button><button class=\"uk-btn uk-btn-default uk-btn-sm\" role=\"menuitem\" data-type=\"Note\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 3h10l4 4v14H5z M15 3v5h4M8 12h8m-8 4h8\"></path></svg><span>Note</span></button><button class=\"uk-btn uk-btn-default uk-btn-sm\" role=\"menuitem\" data-type=\"Prompt\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 4h18v12H9l-6 4z M7 10h.01m5 0h.01m5 0h.01\"></path></svg><span>Prompt</span></button><button class=\"uk-btn uk-btn-default uk-btn-sm\" role=\"menuitem\" data-type=\"Raw\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 5h18v14H3z M7 9v6\"></path></svg><span>Raw</span></button></div></div>", "mb_bulge_above": "<button type=\"button\" class=\"craft-edge-bulge\" data-edge=\"above\" aria-label=\"Insert cell above\"><svg aria-hidden=\"true\" viewbox=\"0 0 36 10\" width=\"36\" height=\"10\"><path class=\"craft-edge-stroke\" d=\"M0 9 C9 9 12 1.5 18 1.5 C24 1.5 27 9 36 9\"></path></svg></button>", "mb_bulge_below": "<button type=\"button\" class=\"craft-edge-bulge\" data-edge=\"below\" aria-label=\"Insert cell below\"><svg aria-hidden=\"true\" viewbox=\"0 0 36 10\" width=\"36\" height=\"10\"><path class=\"craft-edge-stroke\" d=\"M0 1 C9 1 12 8.5 18 8.5 C24 8.5 27 1 36 1\"></path></svg></button>", "mb_empty_add": "<div id=\"craft-empty-add\"><span class=\"craft-empty-add-label\">Add first cell</span><div class=\"craft-empty-add-btns\"><button class=\"uk-btn uk-btn-default uk-btn-sm\" data-type=\"Code\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 6l-6 6 6 6m8-12 6 6-6 6M14 4l-4 16\"></path></svg><span>Code</span></button><button class=\"uk-btn uk-btn-default uk-btn-sm\" data-type=\"Note\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 3h10l4 4v14H5z M15 3v5h4M8 12h8m-8 4h8\"></path></svg><span>Note</span></button><button class=\"uk-btn uk-btn-default uk-btn-sm\" data-type=\"Prompt\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 4h18v12H9l-6 4z M7 10h.01m5 0h.01m5 0h.01\"></path></svg><span>Prompt</span></button><button class=\"uk-btn uk-btn-default uk-btn-sm\" data-type=\"Raw\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 5h18v14H3z M7 9v6\"></path></svg><span>Raw</span></button></div></div>"});
+window.__craftTpl = Object.assign(window.__craftTpl || {}, {"mb_bar": "<nav id=\"craft-mbar\" aria-label=\"Mobile toolbar\" data-mode=\"idle\"><div class=\"craft-mbar-row\" data-row=\"idle\"><button type=\"button\" data-act=\"nav\" aria-label=\"Menu\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 6h16M4 12h16M4 18h16\"></path></svg><span>Menu</span></button><button type=\"button\" data-act=\"files\" aria-label=\"Files\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z\"></path></svg><span>Files</span></button></div><div class=\"craft-mbar-row\" data-row=\"edit\"><button type=\"button\" data-act=\"tab\" aria-label=\"Tab\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 12h13m-4-4 4 4-4 4M20 6v12\"></path></svg><span>Tab</span></button><span class=\"craft-mbar-spacer\"></span><button type=\"button\" data-act=\"run\" aria-label=\"Run\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M7 5v14l11-7z\"></path></svg><span>Run</span></button><button type=\"button\" data-act=\"done\" aria-label=\"Done\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 12.5l4.5 4.5L19 7.5\"></path></svg><span>Done</span></button></div></nav>", "mb_backdrop": "<div id=\"craft-mobile-backdrop\" class=\"craft-mobile-backdrop\"></div>", "mb_jump_btn": "<button id=\"craft-scroll-bottom\" type=\"button\" aria-label=\"Jump to bottom\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 5v14m-6-6 6 6 6-6\"></path></svg></button>", "mb_picker": "<div id=\"craft-edge-picker\" class=\"craft-type-picker\" popover=\"auto\" role=\"menu\" aria-label=\"Insert cell\"><div class=\"craft-type-picker-head craft-edge-picker-head\"></div><div class=\"craft-type-picker-opts craft-edge-picker-opts\"><button class=\"uk-btn uk-btn-default uk-btn-sm\" role=\"menuitem\" data-type=\"Code\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 6l-6 6 6 6m8-12 6 6-6 6M14 4l-4 16\"></path></svg><span>Code</span></button><button class=\"uk-btn uk-btn-default uk-btn-sm\" role=\"menuitem\" data-type=\"Note\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 3h10l4 4v14H5z M15 3v5h4M8 12h8m-8 4h8\"></path></svg><span>Note</span></button><button class=\"uk-btn uk-btn-default uk-btn-sm\" role=\"menuitem\" data-type=\"Prompt\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 4h18v12H9l-6 4z M7 10h.01m5 0h.01m5 0h.01\"></path></svg><span>Prompt</span></button><button class=\"uk-btn uk-btn-default uk-btn-sm\" role=\"menuitem\" data-type=\"Raw\" type=\"button\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 5h18v14H3z M7 9v6\"></path></svg><span>Raw</span></button></div></div>", "mb_bulge_above": "<button type=\"button\" class=\"craft-edge-bulge\" data-edge=\"above\" aria-label=\"Insert cell above\"><svg aria-hidden=\"true\" viewbox=\"0 0 36 10\" width=\"36\" height=\"10\"><path class=\"craft-edge-stroke\" d=\"M0 9 C9 9 12 1.5 18 1.5 C24 1.5 27 9 36 9\"></path></svg></button>", "mb_bulge_below": "<button type=\"button\" class=\"craft-edge-bulge\" data-edge=\"below\" aria-label=\"Insert cell below\"><svg aria-hidden=\"true\" viewbox=\"0 0 36 10\" width=\"36\" height=\"10\"><path class=\"craft-edge-stroke\" d=\"M0 1 C9 1 12 8.5 18 8.5 C24 8.5 27 1 36 1\"></path></svg></button>"});
 
 /* %% nbs/craft/12_mobile.ipynb #87343c83 */
 (() => { /* iife:mobileBar */
 /* #87343c83 */
 window.craftMobileBar?.disable();
+  const CORE = window.__craftCMCore;
+  if (!CORE.features.init('mobile-bar', 'Mobile Bottom Toolbar', 'Mobile editing bar, cell-edge insertion bulges, and tap-to-select')) return;
   const root = document.documentElement;
-  const {mountTpl, qs, qsa, on, htmxPost, patch, rafOnce, onDomChange, sleep, notify} = window.__craftCMCore;
+  const {SOLVEIT, mountTpl, qs, qsa, on, htmxPost, patch, rafOnce, onDomChange, sleep, waitForNewCell, notify, kid} = CORE;
   const ac = new AbortController(), sig = {signal: ac.signal}, cap = {capture: true, signal: ac.signal}, pas = {passive: true, signal: ac.signal};
   const bar = mountTpl('mb_bar'), backdrop = mountTpl('mb_backdrop'), jumpBtn = mountTpl('mb_jump_btn');
   const picker = mountTpl('mb_picker'), bulgeAbove = mountTpl('mb_bulge_above'), bulgeBelow = mountTpl('mb_bulge_below');
-  const emptyAdd = mountTpl('mb_empty_add');
 
-  const dialog = () => document.getElementById('dialog-container');
+  const dialog = () => qs(SOLVEIT.sel.dialog);
   const navEl = () => qs('.uk-container > nav.monster-navbar');
 
   /* Which inline editor (if any) owns the keyboard right now. */
@@ -5486,35 +5774,20 @@ window.craftMobileBar?.disable();
     if (window.craftC2?.active?.()) await window.craftC2.exit();
     if (window.craftMd?.active?.()) await window.craftMd.exit();
   }
-
-  async function createFirst(type) {
-    if (type === 'Code') return window.craftC2?.newCodeCell?.();
-    const kid = document.getElementById('kid')?.value;
-    if (!kid || !window.htmx) return notify('Reload the dialog and try again.', 'warning');
-    const before = new Set(qsa('.editable[id]', dialog()).map(el => el.id));
-    await htmxPost('/upsert_msg_', {id_: '', msg_type: type.toLowerCase(), is_input: '1', content: ''});
-    for (let i = 0; i < 100; i++) {
-      const el = qsa('.editable[id]', dialog()).find(x => !before.has(x.id));
-      if (el) { el.scrollIntoView({block: 'nearest'}); window.craftMd?.edit?.(el.id.slice(1), {toEnd: true}); return; }
-      await sleep(50);
-    }
-  }
-
   let adding = false;
   async function addCell(type, where = 'below', targetCell = null) {
     const container = dialog();
     if (!container || adding || window.craftInsertPreview?.isBusy?.()) return;
     adding = true;
     try {
-      const editingCell = document.activeElement?.closest?.('#dialog-container > .editable');
+      const editingCell = document.activeElement?.closest?.(SOLVEIT.sel.cell);
       await closeEditors();
       document.activeElement?.blur?.();
-      const cells = qsa(':scope > .editable[id]', container).filter(el => el.getClientRects().length);
+      const cells = qsa(SOLVEIT.sel.cellWithId).filter(el => el.getClientRects().length);
       const target = (targetCell?.isConnected && targetCell) || (editingCell?.isConnected && editingCell) || cells.find(el => el.dataset.sm === 'primary') || cells[cells.length - 1];
-      if (!target) { await createFirst(type); return; }
       if (!window.craftInsertPreview?.insert) return notify('Reload this dialog to enable inserting cells.', 'warning');
       await sleep(0);
-      window.craftInsertPreview.insert(where === 'above' ? 'above' : 'below', {type, cell: target, force: true});
+      window.craftInsertPreview.insert(where === 'above' ? 'above' : 'below', {type, cell: target || null, force: true});
     } catch (err) {
       console.error('craftMobileBar: add cell failed', err);
       notify('Could not add the cell.', 'warning');
@@ -5525,7 +5798,6 @@ window.craftMobileBar?.disable();
 /* ── Cell-edge bulges: attach to the editing cell or primary selected cell ── */
   let bulgeHost = null;
   const detachBulges = () => {
-    bulgeHost?.classList.remove('craft-bulge-host');
     bulgeAbove.remove(); bulgeBelow.remove();
     bulgeHost = null;
   };
@@ -5545,19 +5817,13 @@ window.craftMobileBar?.disable();
   const syncBulges = () => {
     if (!mounted) return;
     const container = dialog();
-    if (!container) { detachBulges(); emptyAdd.remove(); return; }
-    const cells = qsa(':scope > .editable[id]', container).filter(el => !el.hidden && el.getClientRects().length);
-    if (!cells.length) {
-      detachBulges();
-      if (!emptyAdd.isConnected) container.append(emptyAdd);
-      return;
-    }
-    emptyAdd.remove();
+    if (!container) { detachBulges(); return; }
+    const cells = qsa(SOLVEIT.sel.cellWithId).filter(el => !el.hidden && el.getClientRects().length);
+    if (!cells.length) { detachBulges(); return; }
     const target = activeEditingCell(cells) || cells.find(el => el.dataset.sm === 'primary') || null;
     if (target !== bulgeHost) {
       detachBulges();
       if (target) {
-        target.classList.add('craft-bulge-host');
         target.append(bulgeAbove, bulgeBelow);
         bulgeHost = target;
       }
@@ -5576,12 +5842,13 @@ window.craftMobileBar?.disable();
   const closePicker = () => {
     bulgeAbove.removeAttribute('data-active');
     bulgeBelow.removeAttribute('data-active');
-    picker.classList.remove('open');
+    if (picker.matches(':popover-open')) picker.hidePopover();
     setHot(null);
     pickerState = null;
   };
   const positionPicker = (anchorRect, edge) => {
-    patch(picker, {dataset: {edge}, classes: {open: true}});
+    picker.dataset.edge = edge;
+    if (!picker.matches(':popover-open')) picker.showPopover();
     qs('.craft-edge-picker-head', picker).textContent = edge === 'above' ? 'Insert above' : 'Insert below';
     const pw = picker.offsetWidth || 280;
     const ph = picker.offsetHeight || 76;
@@ -5611,14 +5878,14 @@ window.craftMobileBar?.disable();
   const selectCell = cell => {
     const container = dialog();
     if (!container || !cell?.isConnected) return;
-    for (const el of qsa(':scope > .editable[data-sm="primary"], :scope > .editable[data-sm="secondary"]', container)) {
+    for (const el of qsa(`:scope > .editable:is(${SOLVEIT.sel.selectedCell})`, container)) {
       if (el !== cell) el.setAttribute('data-sm', 'unselected');
     }
     cell.setAttribute('data-sm', 'primary');
   };
   const onBulgePointerDown = e => {
     const handle = e.currentTarget;
-    const cell = handle.closest('#dialog-container > .editable');
+    const cell = handle.closest(SOLVEIT.sel.cell);
     if (!cell) return;
     e.preventDefault(); e.stopPropagation();
     const edge = handle.dataset.edge;
@@ -5671,12 +5938,7 @@ window.craftMobileBar?.disable();
     addCell(opt.dataset.type, edge, cell);
   };
   on(picker, 'click', onPickerClick, sig);
-  on(emptyAdd, 'click', e => {
-    const opt = e.target.closest('button[data-type]');
-    if (!opt) return;
-    e.preventDefault(); e.stopPropagation();
-    addCell(opt.dataset.type, 'below', null);
-  }, sig);
+  on(picker, 'toggle', e => { if (e.newState === 'closed' && pickerState) closePicker(); }, sig);
 
 /* #cc9a7fbd */
 /* After Run/Send the output lands below the fold: keep the cell in view while it grows,
@@ -5684,22 +5946,24 @@ window.craftMobileBar?.disable();
   let stopFollow = null;
   function followCell(id) {
     stopFollow?.();
-    const elId = '_' + String(id).replace(/^_/, '');
-    let lastH = -1, quiet = 0;
-    let offStop = null;
+    const el = document.getElementById('_' + String(id).replace(/^_/, ''));
+    if (!el) return;
+    let quietTimer = null, offStop = null;
     const stop = () => {
-      clearInterval(timer); clearTimeout(cap);
+      ro.disconnect(); clearTimeout(quietTimer); clearTimeout(cap);
       offStop?.();
       if (stopFollow === stop) stopFollow = null;
     };
-    const tick = () => {
-      const el = document.getElementById(elId);
-      if (!el) return stop();
-      const h = Math.round(el.getBoundingClientRect().height);
-      if (h !== lastH) { lastH = h; quiet = 0; el.scrollIntoView({block: 'nearest'}); }
-      else if (++quiet > 40) stop();
+    const bump = () => {
+      if (!el.isConnected) return stop();
+      el.scrollIntoView({block: 'nearest'});
+      clearTimeout(quietTimer);
+      quietTimer = setTimeout(stop, 10000);
     };
-    const timer = setInterval(tick, 250), cap = setTimeout(stop, 120000);
+    const ro = new ResizeObserver(bump);
+    ro.observe(el);
+    bump();
+    const cap = setTimeout(stop, 120000);
     offStop = on(window, 'touchstart wheel', stop, {capture: true, passive: true});
     stopFollow = stop;
   }
@@ -5808,7 +6072,7 @@ window.craftMobileBar?.disable();
     if (!mounted || e.button !== 0) return;
     const t = e.target;
     if (!(t instanceof Element) || t.closest(INTERACTIVE_SEL)) return;
-    const cell = t.closest('#dialog-container > .editable[id]');
+    const cell = t.closest(SOLVEIT.sel.cellWithId);
     if (!cell) return;
     const editingOther = isEditingOther(cell);
     if (cell.dataset.sm === 'primary' && !editingOther) return;
@@ -5842,7 +6106,6 @@ window.craftMobileBar?.disable();
      tapping outside a tap-opened edge picker dismisses it. */
   const onDocPointerDown = e => {
     const t = e.target;
-    if (pickerState?.tapOpen && !picker.contains(t) && !t.closest?.('.craft-edge-bulge')) closePicker();
     if (!root.classList.contains('craft-nav-open')) return;
     if (bar.contains(t) || navEl()?.contains(t) || t.closest?.('#craft-mobile-toggle, .uk-drop, .uk-dropdown, .uk-modal, [role="dialog"]')) return;
     toggleNav(false);
@@ -5852,7 +6115,7 @@ window.craftMobileBar?.disable();
   /* Observe DOM updates for: temp editor auto-close, selected cell changes, scroller changes. */
   const onDomMut = () => {
     if (!mounted) return;
-    if (window.craftMobile?.active() && qs('#solveit-temp-editor.open') && window.solveitFileTree?.isOpen?.()) window.solveitFileTree.close();
+    if (window.craftMobile?.active() && qs('#solveit-temp-editor[open], #solveit-temp-editor.open') && window.solveitFileTree?.isOpen?.()) window.solveitFileTree.close();
     bindScroller();
     scheduleBulges();
   };
@@ -5887,7 +6150,7 @@ window.craftMobileBar?.disable();
       guardedTapCell = null; clearTimeout(guardClearTimer);
       offMount?.(); offMount = null;
       offDom?.(); offDom = null;
-      closePicker(); detachBulges(); emptyAdd.remove();
+      closePicker(); detachBulges();
       bar.remove(); backdrop.remove(); jumpBtn.remove(); picker.remove();
       toggleNav(false);
       offScroll?.(); offScroll = null; scrollerEl = null;
@@ -5911,7 +6174,7 @@ window.craftMobileBar?.disable();
 })();
 
 /* %% nbs/craft/13_context_control.ipynb #1dc6810b */
-window.__craftTpl = Object.assign(window.__craftTpl || {}, {"ctx_staging_bar": "<div id=\"craft-ab-bar\" role=\"region\" aria-label=\"All-But context staging\"><span class=\"craft-ab-summary\" data-ref=\"summary\"></span><select class=\"uk-select craft-ab-preset\" aria-label=\"Context presets\" data-ref=\"preset\"><option value=\"\">Presets…</option></select><button class=\"uk-btn uk-btn-default uk-btn-xs craft-ab-save\" data-ref=\"save\" type=\"button\">Save preset</button><button class=\"uk-btn uk-btn-default uk-btn-xs craft-ab-perm\" data-ref=\"perm\" type=\"button\">Apply perm</button><button class=\"uk-btn uk-btn-primary uk-btn-xs craft-ab-run\" data-ref=\"run\" type=\"button\">Run prompt</button><button class=\"uk-btn uk-btn-default uk-btn-xs craft-ab-cancel\" data-ref=\"cancel\" type=\"button\">Cancel</button></div>", "ctx_recover_bar": "<div id=\"craft-ab-recover\" role=\"alert\"><span class=\"craft-ab-rec-msg\" data-ref=\"msg\">Pre-All-But cell visibility snapshot detected.</span><button class=\"uk-btn uk-btn-primary uk-btn-xs\" data-ref=\"restore\" type=\"button\">Restore pre-All-But visibility</button><button class=\"uk-btn uk-btn-default uk-btn-xs\" data-ref=\"dismiss\" type=\"button\">Dismiss</button></div>", "ctx_meter": "<button id=\"craft-ctx-meter\" type=\"button\" class=\"craft-ctx-meter\" title=\"Active AI context budget (click to preview what the AI sees)\" aria-label=\"Active AI context budget\"><span class=\"craft-ctx-meter-val\" data-ref=\"val\">0 tok</span></button>", "ctx_preview_modal": "<div class=\"craft-overlay\" id=\"craft-ai-preview\" role=\"dialog\" aria-modal=\"true\" aria-label=\"What the AI Sees preview\"><div class=\"uk-card craft-card craft-ctx-prev-card\"><div class=\"craft-modal-head\"><strong>What the AI Sees</strong><span class=\"craft-ctx-prev-total\" data-ref=\"total\"></span><button type=\"button\" class=\"craft-modal-x\" aria-label=\"Close\" data-ref=\"close\">×</button></div><div class=\"craft-ctx-prev-note\">Approximation of dialog cells sent to the AI. Server-side system prompts, tool schemas, and CRAFT.ipynb injections are not inspectable from the client.</div><div class=\"craft-ctx-prev-list\" data-ref=\"list\"></div><div class=\"craft-modal-foot\"><button class=\"uk-btn uk-btn-default uk-btn-xs\" data-ref=\"heat\" type=\"button\">Toggle heat strip</button><button class=\"uk-btn uk-btn-default uk-btn-xs\" data-ref=\"savePreset\" type=\"button\">Save as preset</button><button class=\"uk-btn uk-btn-primary uk-btn-xs\" data-ref=\"done\" type=\"button\">Close</button></div></div></div>", "ctx_tb_fix_btn": "<button type=\"button\" class=\"craft-tb-fix-btn\" title=\"Insert a prompt below and run All-But scoped to this failing cell and traceback\">Ask AI about this error</button>"});
+window.__craftTpl = Object.assign(window.__craftTpl || {}, {"ctx_staging_bar": "<div id=\"craft-ab-bar\" role=\"region\" aria-label=\"All-But context staging\"><span class=\"craft-ab-summary\" data-ref=\"summary\"></span><select class=\"uk-select craft-ab-preset\" aria-label=\"Context presets\" data-ref=\"preset\"><option value=\"\">Presets…</option></select><button class=\"uk-btn uk-btn-default uk-btn-xs craft-ab-save\" data-ref=\"save\" type=\"button\">Save preset</button><button class=\"uk-btn uk-btn-default uk-btn-xs craft-ab-perm\" data-ref=\"perm\" type=\"button\">Apply perm</button><button class=\"uk-btn uk-btn-primary uk-btn-xs craft-ab-run\" data-ref=\"run\" type=\"button\">Run prompt</button><button class=\"uk-btn uk-btn-default uk-btn-xs craft-ab-cancel\" data-ref=\"cancel\" type=\"button\">Cancel</button></div>", "ctx_recover_bar": "<div id=\"craft-ab-recover\" role=\"alert\"><span class=\"craft-ab-rec-msg\" data-ref=\"msg\">Pre-All-But cell visibility snapshot detected.</span><button class=\"uk-btn uk-btn-primary uk-btn-xs\" data-ref=\"restore\" type=\"button\">Restore pre-All-But visibility</button><button class=\"uk-btn uk-btn-default uk-btn-xs\" data-ref=\"dismiss\" type=\"button\">Dismiss</button></div>", "ctx_meter": "<button id=\"craft-ctx-meter\" type=\"button\" class=\"craft-ctx-meter\" title=\"Active AI context budget (click to preview what the AI sees)\" aria-label=\"Active AI context budget\"><span class=\"craft-ctx-meter-val\" data-ref=\"val\">0 tok</span></button>", "ctx_preview_modal": "<dialog class=\"craft-overlay\" id=\"craft-ai-preview\" aria-label=\"What the AI Sees preview\"><div class=\"uk-card craft-card craft-ctx-prev-card\"><div class=\"craft-modal-head\"><strong>What the AI Sees</strong><span class=\"craft-ctx-prev-total\" data-ref=\"total\"></span><button type=\"button\" class=\"craft-modal-x\" aria-label=\"Close\" data-ref=\"close\">×</button></div><div class=\"craft-ctx-prev-note\">Approximation of dialog cells sent to the AI. Server-side system prompts, tool schemas, and CRAFT.ipynb injections are not inspectable from the client.</div><div class=\"craft-ctx-prev-list\" data-ref=\"list\"></div><div class=\"craft-modal-foot\"><button class=\"uk-btn uk-btn-default uk-btn-xs\" data-ref=\"heat\" type=\"button\">Toggle heat strip</button><button class=\"uk-btn uk-btn-default uk-btn-xs\" data-ref=\"savePreset\" type=\"button\">Save as preset</button><button class=\"uk-btn uk-btn-primary uk-btn-xs\" data-ref=\"done\" type=\"button\">Close</button></div></div></dialog>", "ctx_tb_fix_btn": "<button type=\"button\" class=\"craft-tb-fix-btn\" title=\"Insert a prompt below and run All-But scoped to this failing cell and traceback\">Ask AI about this error</button>"});
 
 /* %% nbs/craft/13_context_control.ipynb #8e750387 */
 (() => { /* iife:craftContext */
@@ -5920,11 +6183,12 @@ window.craftContext?.disable?.();
 if (!document.getElementById('dialog-container')) return;
 
 const CORE = window.__craftCMCore;
-if (!CORE) return;
+if (!CORE || !CORE.features.init('context-control', 'Context Control', 'All-But scoping, Context Lenses, Presets, Budget Meter, Traceback Quick-Fix')) return;
 const {
-  el, qs, qsa, on, store, mountTpl, mountModal, htmxPost, onDomChange,
+  el, qs, qsa, on, store, mountTpl, mountModal, htmxPost, onCells, onDomChange, SOLVEIT,
   notify, notifyErr, kid, normId, getCellEl, typingBlocked,
-  allCells, selectedCells, primaryCell, cellMtype, dlgKey, sleep,
+  allCells, selectedCells, primaryCell, cellMtype, dlgKey,
+  waitForHtmxSettle, waitForNewCell, onCellHtmx, headingLevel, mountBar,
 } = CORE;
 const ac = new AbortController(), sig = {signal: ac.signal}, cap = {capture: true, signal: ac.signal};
 
@@ -5932,12 +6196,12 @@ const snapKey = () => `craft-allbut:${kid() || dlgKey()}`;
 const presetKey = () => `craft-ctx-presets:${dlgKey()}`;
 const HEAT_KEY = 'craft-ctx-heat';
 
-const isHiddenFromAI = cell => !!cell?.querySelector('button[hx-post="/toggle_skip_"] use[href="#lc-eye-off"]');
+const isHiddenFromAI = cell => !!cell?.querySelector(SOLVEIT.sel.skipActive);
 const isPinned = cell => !!cell?.querySelector('button[hx-post="/toggle_pin_"] use[href="#lc-pin"]');
 const hasTraceback = cell => {
-  const out = cell?.querySelector(':scope > .card-out');
+  const out = cell?.querySelector(SOLVEIT.sel.cardOut);
   if (!out) return false;
-  if (out.classList.contains('craft-c2-traceback')) return true;
+  if (out.matches(`:has(${SOLVEIT.sel.ansiRed}, .ansi-red-intense-fg)`)) return true;
   return /Traceback \(most recent call last\)|Error:|Exception:/i.test(out.textContent || '');
 };
 
@@ -5959,7 +6223,7 @@ const cellTokens = cell => {
     for (const a of attrs) sum += parseTokenNum(a.getAttribute('data-tokens'));
     if (sum > 0) return sum;
   }
-  const hdrs = qsa(':scope > .msg-card > .uk-card-header nav > div.grow', cell);
+  const hdrs = qsa(`:scope > .msg-card > ${SOLVEIT.sel.cardHeader} nav > div.grow`, cell);
   let sum = 0;
   for (const h of hdrs) {
     const m = (h.textContent || '').match(/(?:Code|Note|Prompt|Raw|Output|Assistant|You)\s*[:·]\s*([\d,]+)/i);
@@ -5975,28 +6239,22 @@ const fmtTok = n => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 async function setHiddenFromAI(cell, wantHidden) {
   if (!cell || !cell.isConnected) return false;
   if (isHiddenFromAI(cell) === wantHidden) return true;
-  const btn = cell.querySelector('button[hx-post="/toggle_skip_"]');
+  const btn = cell.querySelector(SOLVEIT.sel.skipBtn);
   if (btn) {
     btn.click();
   } else {
-    try { await htmxPost('/toggle_skip_', {id_: cell.id, ids: cell.id}); }
+    try { await htmxPost(SOLVEIT.api.toggleSkip, {id_: cell.id, ids: cell.id}); }
     catch (err) { console.error('craftContext: toggle_skip failed', err); return false; }
   }
-  for (let i = 0; i < 30; i++) {
+  return Boolean(await waitForHtmxSettle(() => {
     const cur = document.getElementById(cell.id);
-    if (cur && isHiddenFromAI(cur) === wantHidden) return true;
-    await sleep(40);
-  }
-  const finalEl = document.getElementById(cell.id);
-  return !!(finalEl && isHiddenFromAI(finalEl) === wantHidden);
+    return cur && isHiddenFromAI(cur) === wantHidden;
+  }, 1200));
 }
 
 const getHeadingLevel = cell => {
-  if (!cell) return 0;
-  const sh = cell.getAttribute('data-sm-header');
-  if (sh && /^[1-6]$/.test(sh)) return +sh;
-  const h = cell.querySelector(':scope > .card-in[data-mtype="note"] .msg-content :is(h1,h2,h3,h4,h5,h6)');
-  return h ? +h.tagName.slice(1) : 0;
+  const sh = cell?.getAttribute('data-sm-header');
+  return (sh && /^[1-6]$/.test(sh)) ? +sh : headingLevel(cell);
 };
 
 const getSectionCells = startCell => {
@@ -6056,20 +6314,21 @@ const deletePreset = name => {
 /* #b57c3759 */
 /* ── Staging & Transactional Apply/Restore (1.1) ───────────────────── */
 let staging = null; // {scopeIds: Set<id>, preHiddenIds: Set<id>, label: string, applying: bool, running: bool}
-let stagingBar = null, recoverBar = null, restoreWatch = null;
+const stagingBar = mountBar('ctx_staging_bar'), recoverBar = mountBar('ctx_recover_bar');
+let stagingWired = false, recoverWired = false, restoreWatch = null;
 
 const readSnapshot = () => store.json(snapKey(), null, sessionStorage);
 const writeSnapshot = snap => snap ? store.setJson(snapKey(), snap, sessionStorage) : store.del(snapKey(), sessionStorage);
 
 function clearStagingVisuals() {
   document.documentElement.classList.remove('craft-ab-staging');
-  for (const c of allCells()) c.classList.remove('craft-ab-included', 'craft-ab-excluded');
+  for (const c of allCells()) c.classList.remove('craft-ab-included');
 }
 
 function syncStagingUI() {
   if (!staging) {
     clearStagingVisuals();
-    stagingBar?.root?.remove();
+    stagingBar.hide();
     return;
   }
   document.documentElement.classList.add('craft-ab-staging');
@@ -6079,25 +6338,25 @@ function syncStagingUI() {
     const id = normId(c.id);
     const inc = staging.scopeIds.has(id);
     c.classList.toggle('craft-ab-included', inc);
-    c.classList.toggle('craft-ab-excluded', !inc);
     const t = cellTokens(c);
     totalTok += t;
     if (inc) scopeTok += t;
   }
-  if (!stagingBar) {
-    stagingBar = mountTpl('ctx_staging_bar', {refs: true});
-    on(stagingBar.cancel, 'click', () => cancelStaging(), sig);
-    on(stagingBar.run, 'click', () => applyAndRun(), sig);
-    on(stagingBar.perm, 'click', () => applyPermanent(), sig);
-    on(stagingBar.save, 'click', () => {
+  const b = stagingBar.show();
+  if (!stagingWired) {
+    stagingWired = true;
+    on(b.cancel, 'click', () => cancelStaging(), sig);
+    on(b.run, 'click', () => applyAndRun(), sig);
+    on(b.perm, 'click', () => applyPermanent(), sig);
+    on(b.save, 'click', () => {
       const name = prompt('Save current context selection as preset:');
       if (name && savePreset(name, [...staging.scopeIds])) {
         refreshPresetDropdown();
         notify(`Saved preset "${name}".`, 'success');
       }
     }, sig);
-    on(stagingBar.preset, 'change', () => {
-      const name = stagingBar.preset.value;
+    on(b.preset, 'change', () => {
+      const name = b.preset.value;
       if (!name) return;
       const presets = loadPresets();
       if (presets[name]) {
@@ -6105,18 +6364,18 @@ function syncStagingUI() {
         staging.label = `Preset: ${name}`;
         syncStagingUI();
       }
-      stagingBar.preset.value = '';
+      b.preset.value = '';
     }, sig);
   }
-  if (!stagingBar.root.isConnected) document.body.append(stagingBar.root);
-  stagingBar.summary.textContent = `${staging.label}: ${staging.scopeIds.size} ${staging.scopeIds.size === 1 ? 'cell' : 'cells'} · ~${fmtTok(scopeTok)} / ${fmtTok(totalTok)} tokens · Click cells to toggle · Esc to cancel`;
+  b.summary.textContent = `${staging.label}: ${staging.scopeIds.size} ${staging.scopeIds.size === 1 ? 'cell' : 'cells'} · ~${fmtTok(scopeTok)} / ${fmtTok(totalTok)} tokens · Click cells to toggle · Esc to cancel`;
   refreshPresetDropdown();
 }
 
 function refreshPresetDropdown() {
-  if (!stagingBar?.preset) return;
+  const b = stagingBar.current;
+  if (!b?.preset) return;
   const presets = loadPresets();
-  stagingBar.preset.replaceChildren(
+  b.preset.replaceChildren(
     el('option', {value: ''}, 'Presets…'),
     ...Object.keys(presets).sort().map(n => el('option', {value: n}, `${n} (${presets[n].length})`))
   );
@@ -6166,7 +6425,7 @@ async function restoreFromSnapshot(snap = null) {
     if (isHiddenFromAI(c) !== wantHidden) await setHiddenFromAI(c, wantHidden);
   }
   writeSnapshot(null);
-  recoverBar?.root?.remove();
+  recoverBar.hide();
   staging = null;
   syncStagingUI();
   updateMeter();
@@ -6188,10 +6447,10 @@ function watchRunCompletion(snap) {
     cleanup();
     await restoreFromSnapshot(snap);
   };
-  const isRunning = () => !!qs('#dialog-container .editable[data-wait="true"], #dialog-container .htmx-request, #dialog-container [data-running="true"], #dialog-container .uk-spinner');
+  const isRunning = () => !!qs(`${SOLVEIT.sel.running}, ${SOLVEIT.sel.dialog} .uk-spinner`);
   const offReq = on(document, 'htmx:beforeRequest', e => {
     const p = String(e.detail?.path || '');
-    if (p.includes('/add_runq_') || p.includes('/run_')) sawBusy = true;
+    if (p.includes(SOLVEIT.api.addRunq) || p.includes('/run_')) sawBusy = true;
   }, sig);
   const timer = setInterval(() => {
     if (isRunning()) { sawBusy = true; idleTicks = 0; }
@@ -6226,7 +6485,7 @@ async function applyDiffForOneShot() {
   }
   staging.running = true;
   clearStagingVisuals();
-  stagingBar?.root?.remove();
+  stagingBar.hide();
   staging = null;
   updateMeter();
   return snap;
@@ -6247,20 +6506,20 @@ async function applyAndRun(promptCellId = null) {
 
 function checkRecoveryBanner() {
   const snap = readSnapshot();
-  if (!snap || !snap.applied || staging) { recoverBar?.root?.remove(); return; }
-  if (!recoverBar) {
-    recoverBar = mountTpl('ctx_recover_bar', {refs: true});
-    on(recoverBar.restore, 'click', () => restoreFromSnapshot(), sig);
-    on(recoverBar.dismiss, 'click', () => { writeSnapshot(null); recoverBar.root.remove(); }, sig);
+  if (!snap || !snap.applied || staging) { recoverBar.hide(); return; }
+  const b = recoverBar.show();
+  if (!recoverWired) {
+    recoverWired = true;
+    on(b.restore, 'click', () => restoreFromSnapshot(), sig);
+    on(b.dismiss, 'click', () => { writeSnapshot(null); recoverBar.hide(); }, sig);
   }
-  if (!recoverBar.root.isConnected) document.body.append(recoverBar.root);
 }
 
 /* Intercept clicks in staging mode to toggle cell inclusion, and Esc to cancel */
 on(document, 'click', e => {
   if (!staging) return;
   if (stagingBar?.root?.contains(e.target)) return;
-  const cell = e.target.closest?.('#dialog-container > .editable[id]');
+  const cell = e.target.closest?.(SOLVEIT.sel.cellWithId);
   if (!cell) return;
   e.preventDefault();
   e.stopImmediatePropagation();
@@ -6280,16 +6539,12 @@ on(window, 'keydown', e => {
 }, cap);
 
 /* Intercept prompt run requests while staging so normal Mod+Enter / Send button triggers All-But */
-on(document, 'htmx:configRequest', e => {
+onCellHtmx([SOLVEIT.api.addRunq, SOLVEIT.api.continuePrompt], ({id, event}) => {
   if (!staging || staging.applying) return;
-  const path = String(e.detail?.path || '');
-  if (!path.includes('/add_runq_') && !path.includes('/continue_prompt_')) return;
-  const rawId = e.detail?.parameters?.id_ || '';
-  const cellId = normId(rawId);
-  if (cellId && cellMtype(getCellEl(cellId)) === 'prompt') {
-    e.preventDefault();
-    staging.scopeIds.add(cellId);
-    applyAndRun(cellId);
+  if (id && cellMtype(getCellEl(id)) === 'prompt') {
+    event.preventDefault();
+    staging.scopeIds.add(id);
+    applyAndRun(id);
   }
 }, sig);
 
@@ -6365,20 +6620,25 @@ function updateMeter() {
     cellList.push({c, t, hid});
   }
   if (meter?.val) {
-    meter.val.textContent = `~${fmtTok(activeTok)} tok`;
+    const nextTxt = `~${fmtTok(activeTok)} tok`;
+    if (meter.val.textContent !== nextTxt) meter.val.textContent = nextTxt;
     const lvl = activeTok >= 120000 ? 'high' : activeTok >= 50000 ? 'warn' : 'ok';
-    meter.root.dataset.level = lvl;
-    meter.root.title = `Active AI context: ~${activeTok.toLocaleString()} tokens (${hiddenTok.toLocaleString()} hidden) · Click to preview`;
+    if (meter.root.dataset.level !== lvl) meter.root.dataset.level = lvl;
+    const nextTitle = `Active AI context: ~${activeTok.toLocaleString()} tokens (${hiddenTok.toLocaleString()} hidden) · Click to preview`;
+    if (meter.root.title !== nextTitle) meter.root.title = nextTitle;
   }
-  document.documentElement.classList.toggle('craft-ctx-heat-on', heatEnabled);
+  if (document.documentElement.classList.contains('craft-ctx-heat-on') !== heatEnabled) {
+    document.documentElement.classList.toggle('craft-ctx-heat-on', heatEnabled);
+  }
   for (const {c, t, hid} of cellList) {
     if (heatEnabled && !hid && activeTok > 0) {
       const share = Math.min(1, t / Math.max(activeTok, 1));
-      c.style.setProperty('--craft-heat', (0.12 + share * 0.88).toFixed(2));
-      c.classList.add('craft-ctx-heat-cell');
+      const heatVal = (0.12 + share * 0.88).toFixed(2);
+      if (c.style.getPropertyValue('--craft-heat') !== heatVal) c.style.setProperty('--craft-heat', heatVal);
+      if (!c.classList.contains('craft-ctx-heat-cell')) c.classList.add('craft-ctx-heat-cell');
     } else {
-      c.classList.remove('craft-ctx-heat-cell');
-      c.style.removeProperty('--craft-heat');
+      if (c.classList.contains('craft-ctx-heat-cell')) c.classList.remove('craft-ctx-heat-cell');
+      if (c.style.getPropertyValue('--craft-heat')) c.style.removeProperty('--craft-heat');
     }
   }
 }
@@ -6396,7 +6656,7 @@ function renderPreview() {
     const tok = cellTokens(c);
     if (!hid) { activeTok += tok; includedCount++; }
     const mtype = cellMtype(c);
-    const snippet = (c.querySelector(':scope > .card-in .msg-content')?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 90) || '(empty)';
+    const snippet = (c.querySelector(`${SOLVEIT.sel.cardIn} ${SOLVEIT.sel.msgContent}`)?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 90) || '(empty)';
     return el('div', {cls: `craft-ctx-prev-row${hid ? ' is-hidden' : ''}${pin ? ' is-pinned' : ''}`},
       el('span', {cls: 'craft-ctx-prev-idx'}, `#${idx + 1}`),
       el('span', {cls: `craft-ctx-prev-type type-${mtype}`}, mtype),
@@ -6438,30 +6698,26 @@ async function askAiAboutTraceback(codeCell) {
   const codeId = normId(codeCell.id);
   const before = new Set(allCells().map(c => c.id));
   try {
-    await htmxPost('/add_below_', {id_: codeCell.id, after: ''});
+    await htmxPost(SOLVEIT.api.addBelow, {id_: codeCell.id, after: ''});
   } catch (err) {
     notifyErr('Could not insert prompt cell below traceback.', 'craftContext');
     return;
   }
-  let newCell = null;
-  for (let i = 0; i < 60; i++) {
-    newCell = allCells().find(c => !before.has(c.id));
-    if (newCell) break;
-    await sleep(50);
-  }
+  const newCell = await waitForNewCell(before, 3000);
   if (!newCell) return;
   const newId = normId(newCell.id);
   await CORE.switchCellMtype({id: newId, mtyp: 'prompt', tag: 'craftContext'});
   const promptText = 'Explain and fix the traceback error in the code cell above.';
-  await htmxPost('/set_contents_', {id_: '_' + newId, ids: newId, contents: JSON.stringify({[newId]: promptText})});
+  await htmxPost(SOLVEIT.api.setContents, {id_: '_' + newId, ids: newId, contents: JSON.stringify({[newId]: promptText})});
   enterStaging([codeId, newId], 'Traceback Fix');
   newCell.scrollIntoView({block: 'nearest'});
 }
 
-function syncTracebackButtons() {
-  for (const out of qsa('#dialog-container > .editable > .card-out.craft-c2-traceback')) {
-    if (out.querySelector(':scope > .craft-tb-fix-btn')) continue;
-    const cell = out.closest('.editable');
+function syncTracebackButtons(cells = allCells()) {
+  const tbSel = `:has(${SOLVEIT.sel.ansiRed}, .ansi-red-intense-fg)`;
+  for (const cell of cells) {
+    const out = cell.querySelector(SOLVEIT.sel.cardOut);
+    if (!out || !out.matches(tbSel) || out.querySelector(':scope > .craft-tb-fix-btn')) continue;
     const btn = mountTpl('ctx_tb_fix_btn');
     on(btn, 'click', e => {
       e.preventDefault(); e.stopPropagation();
@@ -6521,11 +6777,11 @@ reg({id: 'ctx-preset-del', label: 'Delete context preset', group: 'CRAFT · Cont
   return true;
 }});
 
-const offDom = onDomChange(() => {
-  updateMeter();
-  syncTracebackButtons();
+const offCells = onCells(cells => {
+  syncTracebackButtons(cells);
   if (staging) syncStagingUI();
-}, {delay: 180, inDialog: true});
+}, {attrs: ['class']});
+const offMeter = onDomChange(updateMeter, {inDialog: true, attrs: ['class'], delay: 200});
 
 updateMeter();
 syncTracebackButtons();
@@ -6538,12 +6794,13 @@ window.craftContext = {
   loadPresets, savePreset, deletePreset, openPreview, updateMeter, askAiAboutTraceback,
   disable() {
     ac.abort();
-    offDom?.();
+    offCells?.();
+    offMeter?.();
     offMenu?.();
     restoreWatch?.();
     clearStagingVisuals();
-    stagingBar?.root?.remove();
-    recoverBar?.root?.remove();
+    stagingBar.destroy();
+    recoverBar.destroy();
     meter?.root?.remove();
     prevModal?.destroy?.();
     qsa('.craft-tb-fix-btn').forEach(b => b.remove());
@@ -6553,229 +6810,60 @@ window.craftContext = {
 };
 })();
 
-/* %% nbs/craft/14_font_settings.ipynb #5017f048 */
-window.__craftTpl = Object.assign(window.__craftTpl || {}, {"font_modal": "<div class=\"craft-overlay\" id=\"craft-font-modal\" role=\"dialog\" aria-modal=\"true\" aria-label=\"Font Settings by Cell Type\"><div class=\"uk-card craft-card craft-font-card\"><div class=\"craft-modal-head\"><strong>Font Settings by Cell Type</strong><button type=\"button\" class=\"craft-modal-x\" aria-label=\"Close\" data-ref=\"close\">×</button></div><div class=\"craft-font-main\"><div class=\"craft-font-tabs\" role=\"tablist\" data-ref=\"tabs\"></div><div class=\"craft-font-body\" data-ref=\"body\"></div></div><div class=\"craft-modal-foot\"><button class=\"uk-btn uk-btn-default uk-btn-xs\" data-ref=\"copyCss\" type=\"button\">Copy as CRAFT.css snippet</button><button class=\"uk-btn uk-btn-default uk-btn-xs\" data-ref=\"reset\" type=\"button\">Reset to defaults</button><button class=\"uk-btn uk-btn-primary uk-btn-xs\" data-ref=\"save\" type=\"button\">Save &amp; Close</button></div></div></div>"});
-
-/* %% nbs/craft/14_font_settings.ipynb #ca029cb5 */
-(() => { /* iife:craftFonts */
-/* #ca029cb5 */
-window.craftFonts?.disable?.();
-
-const CORE = window.__craftCMCore;
-if (!CORE) return;
-const {el, on, store, mountModal, notify} = CORE;
-const ac = new AbortController(), sig = {signal: ac.signal};
-const STORE_KEY = 'craft-font-settings-v1';
-
-const TYPES = [
-  {key: 'prompt',   label: 'Prompt',             defFamily: "'Craft Encode Sans', -apple-system, sans-serif", defSize: 11, defLh: 1.2, defWeight: 360, sample: 'You: Summarize the trade-offs of this indexing strategy in 3 bullet points.'},
-  {key: 'response', label: 'Assistant response',  defFamily: "'Craft Encode Sans', -apple-system, sans-serif", defSize: 11, defLh: 1.25, defWeight: 360, sample: 'Assistant: Covering indexes avoid heap lookups, at the cost of extra write amplification and storage.'},
-  {key: 'note',     label: 'Note',               defFamily: "'Craft Encode Sans', -apple-system, sans-serif", defSize: 11, defLh: 1.25, defWeight: 360, sample: 'Design note — keep per-cell typography variables falling back to --craft-prose and --craft-code.'},
-  {key: 'code',     label: 'Code',               defFamily: "'Craft Iosevka', monospace",                     defSize: 10, defLh: 1.2,  defWeight: 400, sample: 'def fib(n: int) -> int:\n    return n if n < 2 else fib(n - 1) + fib(n - 2)'},
-  {key: 'raw',      label: 'Raw',                defFamily: "'Craft Iosevka', monospace",                     defSize: 10, defLh: 1.25, defWeight: 400, sample: '{"status": "ok", "tokens": 1257, "mode": "raw"}'},
-];
-
-const FAMILY_PRESETS = [
-  ["Craft Encode Sans (default prose)", "'Craft Encode Sans', -apple-system, sans-serif"],
-  ["Craft Iosevka (default code)", "'Craft Iosevka', monospace"],
-  ["System Sans-Serif", "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"],
-  ["System Serif", "Georgia, 'Iowan Old Style', 'Times New Roman', serif"],
-  ["System Monospace", "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"],
-];
-
-const defaults = () => Object.fromEntries(TYPES.map(t => [t.key, {
-  family: t.defFamily, size: t.defSize, lh: t.defLh, weight: t.defWeight,
-}]));
-
-const loadSettings = () => {
+/* %% nbs/craft/14_font_settings.ipynb #6c6c311e */
+(() => {
+  window.craftFonts?.disable?.();
+  const CORE = window.__craftCMCore;
+  if (!CORE || !CORE.features.init('font-settings', 'Font Settings', 'Per-cell-type font family, size, line-height, and weight')) return;
+  const {store} = CORE;
+  const STORE_KEY = 'craft-font-settings-v1';
+  // Apply persisted font CSS variables immediately without loading modal code
   const saved = store.json(STORE_KEY, null);
-  const base = defaults();
-  if (!saved || typeof saved !== 'object') return base;
-  for (const t of TYPES) {
-    if (saved[t.key]) base[t.key] = {...base[t.key], ...saved[t.key]};
+  if (saved && typeof saved === 'object') {
+    const root = document.documentElement.style;
+    for (const k of ['prompt', 'response', 'note', 'code', 'raw']) {
+      const c = saved[k];
+      if (!c) continue;
+      if (c.family) root.setProperty(`--craft-font-${k}-family`, c.family);
+      if (c.size != null) root.setProperty(`--craft-font-${k}-size`, `${c.size}px`);
+      if (c.lh != null) root.setProperty(`--craft-font-${k}-lh`, String(c.lh));
+      if (c.weight != null) root.setProperty(`--craft-font-${k}-weight`, String(c.weight));
+    }
+    if (saved.code) {
+      if (saved.code.size != null) root.setProperty('--craft-code', `${saved.code.size}px`);
+      if (saved.code.lh != null) root.setProperty('--craft-code-lh', String(saved.code.lh));
+      if (saved.code.family) root.setProperty('--craft-code-family', saved.code.family);
+    }
   }
-  return base;
-};
-
-let current = loadSettings();
-let modal = null, activeTab = 'prompt';
-
-function syncMonaco(codeCfg) {
-  const mon = window.monaco?.editor;
-  if (!mon || !codeCfg) return;
-  const fs = parseFloat(codeCfg.size) || 10;
-  const lh = Math.round(fs * (parseFloat(codeCfg.lh) || 1.2));
-  const fam = codeCfg.family || 'monospace';
-  try {
-    mon.getEditors?.().forEach(ed => ed.updateOptions({fontSize: fs, lineHeight: lh, fontFamily: fam}));
-    mon.getDiffEditors?.().forEach(ed => ed.updateOptions({fontSize: fs, lineHeight: lh, fontFamily: fam}));
-    mon.remeasureFonts?.();
-  } catch {}
-}
-
-function applySettings(cfg = current) {
-  const root = document.documentElement.style;
-  for (const t of TYPES) {
-    const c = cfg[t.key];
-    if (!c) continue;
-    root.setProperty(`--craft-font-${t.key}-family`, c.family);
-    root.setProperty(`--craft-font-${t.key}-size`, `${c.size}px`);
-    root.setProperty(`--craft-font-${t.key}-lh`, String(c.lh));
-    root.setProperty(`--craft-font-${t.key}-weight`, String(c.weight));
-  }
-  if (cfg.code) {
-    root.setProperty('--craft-code', `${cfg.code.size}px`);
-    root.setProperty('--craft-code-lh', String(cfg.code.lh));
-    root.setProperty('--craft-code-family', cfg.code.family);
-    syncMonaco(cfg.code);
-  }
-}
-
-function buildCssSnippet(cfg = current) {
-  const lines = [':root {'];
-  for (const t of TYPES) {
-    const c = cfg[t.key];
-    lines.push(`  --craft-font-${t.key}-family: ${c.family};`);
-    lines.push(`  --craft-font-${t.key}-size: ${c.size}px;`);
-    lines.push(`  --craft-font-${t.key}-lh: ${c.lh};`);
-    lines.push(`  --craft-font-${t.key}-weight: ${c.weight};`);
-  }
-  lines.push('}');
-  return lines.join('\n');
-}
-
-/* #0af4085b */
-function renderModal() {
-  if (!modal) return;
-  modal.tabs.replaceChildren(...TYPES.map(t => el('button', {
-    type: 'button', role: 'tab', 'aria-selected': String(t.key === activeTab),
-    cls: `craft-font-tab${t.key === activeTab ? ' is-active' : ''}`,
-    onClick: () => { activeTab = t.key; renderModal(); },
-  }, t.label)));
-
-  const t = TYPES.find(x => x.key === activeTab) || TYPES[0];
-  const cfg = current[t.key];
-  const preview = el('div', {
-    cls: `craft-font-preview is-${t.key}`,
-    style: {fontFamily: cfg.family, fontSize: `${cfg.size}px`, lineHeight: String(cfg.lh), fontWeight: String(cfg.weight)},
-  }, t.sample);
-
-  const updatePreview = () => {
-    Object.assign(preview.style, {
-      fontFamily: cfg.family, fontSize: `${cfg.size}px`, lineHeight: String(cfg.lh), fontWeight: String(cfg.weight),
+  let loading = null;
+  const load = () => {
+    if (window.craftFonts?.__loaded) return Promise.resolve(window.craftFonts);
+    if (loading) return loading;
+    loading = new Promise((resolve, reject) => {
+      document.querySelector('script[data-craft-asset="craft_fonts.js"]')?.remove();
+      const s = document.createElement('script');
+      s.src = '/static/.craft-assets/craft_fonts.js';
+      s.dataset.craftAsset = 'craft_fonts.js';
+      s.onload = () => { loading = null; resolve(window.craftFonts); };
+      s.onerror = err => { loading = null; reject(err); };
+      document.head.append(s);
     });
-    applySettings(current);
+    return loading;
   };
-
-  const famSel = el('select', {cls: 'uk-select craft-font-ctrl', aria_label: 'Font family preset'},
-    ...FAMILY_PRESETS.map(([lbl, val]) => el('option', {value: val, selected: cfg.family === val}, lbl)),
-    el('option', {value: '__custom__', selected: !FAMILY_PRESETS.some(([, v]) => v === cfg.family)}, 'Custom…'),
-  );
-  const famInput = el('input', {cls: 'uk-input craft-font-ctrl', type: 'text', value: cfg.family, placeholder: 'CSS font-family stack'});
-  on(famSel, 'change', () => {
-    if (famSel.value !== '__custom__') { cfg.family = famSel.value; famInput.value = cfg.family; updatePreview(); }
-  });
-  on(famInput, 'input', () => {
-    cfg.family = famInput.value.trim() || t.defFamily;
-    famSel.value = FAMILY_PRESETS.some(([, v]) => v === cfg.family) ? cfg.family : '__custom__';
-    updatePreview();
-  });
-
-  const sizeVal = el('span', {cls: 'craft-font-val'}, `${cfg.size}px`);
-  const sizeInput = el('input', {type: 'range', min: '8', max: '24', step: '0.5', value: String(cfg.size), cls: 'craft-font-range'});
-  on(sizeInput, 'input', () => { cfg.size = parseFloat(sizeInput.value); sizeVal.textContent = `${cfg.size}px`; updatePreview(); });
-
-  const lhVal = el('span', {cls: 'craft-font-val'}, String(cfg.lh));
-  const lhInput = el('input', {type: 'range', min: '1.0', max: '2.0', step: '0.05', value: String(cfg.lh), cls: 'craft-font-range'});
-  on(lhInput, 'input', () => { cfg.lh = parseFloat(lhInput.value); lhVal.textContent = String(cfg.lh); updatePreview(); });
-
-  const wtVal = el('span', {cls: 'craft-font-val'}, String(cfg.weight));
-  const wtInput = el('input', {type: 'range', min: '200', max: '700', step: '20', value: String(cfg.weight), cls: 'craft-font-range'});
-  on(wtInput, 'input', () => { cfg.weight = parseInt(wtInput.value, 10); wtVal.textContent = String(cfg.weight); updatePreview(); });
-
-  modal.body.replaceChildren(
-    el('div', {cls: 'craft-font-grid'},
-      el('label', {cls: 'craft-font-row'}, el('span', {}, 'Family preset'), famSel),
-      el('label', {cls: 'craft-font-row'}, el('span', {}, 'CSS font-family'), famInput),
-      el('label', {cls: 'craft-font-row'}, el('span', {}, 'Size ', sizeVal), sizeInput),
-      el('label', {cls: 'craft-font-row'}, el('span', {}, 'Line height ', lhVal), lhInput),
-      el('label', {cls: 'craft-font-row'}, el('span', {}, 'Weight ', wtVal), wtInput),
-    ),
-    el('div', {cls: 'craft-font-prev-wrap'},
-      el('div', {cls: 'craft-font-prev-lbl'}, `Live preview — ${t.label}`),
-      preview,
-    ),
-  );
-}
-
-let revertOnClose = true;
-
-function openModal() {
-  if (!modal) {
-    modal = mountModal('font_modal', {
-      refs: true,
-      signal: ac.signal,
-      onClose: () => {
-        if (revertOnClose) { current = loadSettings(); applySettings(current); }
-        revertOnClose = true;
-      },
-    });
-    on(modal.save, 'click', () => {
-      store.setJson(STORE_KEY, current);
-      applySettings(current);
-      revertOnClose = false;
-      modal.close();
-      notify('Font settings saved.', 'success');
-    }, sig);
-    on(modal.reset, 'click', () => {
-      current = defaults();
-      store.del(STORE_KEY);
-      applySettings(current);
-      renderModal();
-      notify('Font settings reset to defaults.');
-    }, sig);
-    on(modal.copyCss, 'click', async () => {
-      const css = buildCssSnippet(current);
-      try {
-        await navigator.clipboard.writeText(css);
-        notify('Copied CRAFT.css font snippet to clipboard.', 'success');
-      } catch {
-        prompt('Copy CRAFT.css snippet:', css);
-      }
-    }, sig);
-  }
-  current = loadSettings();
-  revertOnClose = true;
-  renderModal();
-  modal.open();
-}
-
-// Apply persisted settings immediately on load
-if (store.json(STORE_KEY, null)) applySettings(current);
-
-window.__hotkeyRegister?.({id: 'craft-font-settings', label: 'Font settings (by cell type)', group: 'CRAFT · Appearance', combo: '', handler: () => { openModal(); return true; }});
-window.__hotkeyRegister?.({id: 'craft-font-reset', label: 'Reset font settings to defaults', group: 'CRAFT · Appearance', combo: '', handler: () => {
-  current = defaults(); store.del(STORE_KEY); applySettings(current);
-  notify('Font settings reset to defaults.');
-  return true;
-}});
-
-window.craftFonts = {
-  open: openModal,
-  get: () => loadSettings(),
-  apply: applySettings,
-  reset: () => { current = defaults(); store.del(STORE_KEY); applySettings(current); },
-  snippet: () => buildCssSnippet(current),
-  disable() {
-    ac.abort();
-    modal?.destroy?.();
-    delete window.craftFonts;
-  },
-};
+  window.__hotkeyRegister?.({id: 'craft-font-settings', label: 'Font settings (by cell type)', group: 'CRAFT · Appearance', combo: '', handler: () => { load().then(api => api?.open?.()); return true; }});
+  window.__hotkeyRegister?.({id: 'craft-font-reset', label: 'Reset font settings to defaults', group: 'CRAFT · Appearance', combo: '', handler: () => { load().then(api => api?.reset?.()); return true; }});
+  window.craftFonts = {
+    open: () => load().then(api => api?.open?.()),
+    reset: () => load().then(api => api?.reset?.()),
+    get: () => load().then(api => api?.get?.()),
+    apply: cfg => load().then(api => api?.apply?.(cfg)),
+    snippet: () => load().then(api => api?.snippet?.()),
+    disable() { delete window.craftFonts; },
+  };
 })();
 
 /* %% nbs/craft/15_structural_ops.ipynb #c190c6dc */
-window.__craftTpl = Object.assign(window.__craftTpl || {}, {"struct_batch_bar": "<div id=\"craft-batch-bar\" role=\"toolbar\" aria-label=\"Multi-cell batch actions\"><span class=\"craft-batch-count\" data-ref=\"count\">0 selected</span><button class=\"uk-btn uk-btn-default uk-btn-xs\" data-act=\"allbut\" type=\"button\">All-But</button><button class=\"uk-btn uk-btn-default uk-btn-xs\" data-act=\"omit\" type=\"button\">Omit</button><button class=\"uk-btn uk-btn-default uk-btn-xs\" data-act=\"hide\" type=\"button\">Hide AI</button><button class=\"uk-btn uk-btn-default uk-btn-xs\" data-act=\"partition\" type=\"button\">Partition</button><button class=\"uk-btn uk-btn-default uk-btn-xs\" data-act=\"merge\" data-ref=\"mergeBtn\" type=\"button\">Merge</button><button class=\"uk-btn uk-btn-default uk-btn-xs\" data-act=\"up\" aria-label=\"Move selection up\" title=\"Move up (Alt+Up)\" type=\"button\">↑</button><button class=\"uk-btn uk-btn-default uk-btn-xs\" data-act=\"down\" aria-label=\"Move selection down\" title=\"Move down (Alt+Down)\" type=\"button\">↓</button><button class=\"uk-btn uk-btn-default uk-btn-xs\" data-act=\"send\" type=\"button\">Send to…</button><button class=\"uk-btn uk-btn-default uk-btn-xs craft-btn-danger\" data-act=\"delete\" type=\"button\">Delete</button></div>", "struct_partition_modal": "<div class=\"craft-overlay\" id=\"craft-partition-modal\" role=\"dialog\" aria-modal=\"true\" aria-label=\"Partition Dialog\"><div class=\"uk-card craft-card craft-part-card\"><div class=\"craft-modal-head\"><strong>Partition Dialog</strong><button type=\"button\" class=\"craft-modal-x\" aria-label=\"Close\" data-ref=\"close\">×</button></div><div class=\"craft-part-body\"><div class=\"craft-ctx-prev-note\">Note: Each Solveit dialog owns its own kernel (kid). The newly created dialog will start with a fresh kernel state.</div><div class=\"craft-part-modes\" data-ref=\"modes\"><label class=\"craft-part-opt\"><input type=\"radio\" name=\"craft-part-mode\" value=\"split\" checked><span> Split here — keep cells above, move cut &amp; below to new dialog</span></label><label class=\"craft-part-opt\"><input type=\"radio\" name=\"craft-part-mode\" value=\"fork\"><span> Fork from here — duplicate dialog and drop everything below cut</span></label><label class=\"craft-part-opt\"><input type=\"radio\" name=\"craft-part-mode\" value=\"extract\"><span> Extract selection — copy or move selected cells to new dialog</span></label></div><div class=\"craft-part-field\"><label class=\"craft-part-lbl\">New dialog name</label><input class=\"uk-input\" placeholder=\"new_dialog.ipynb\" data-ref=\"name\" type=\"text\"></div><div class=\"craft-part-extra\" data-ref=\"extractOpts\"><label class=\"craft-part-opt\"><input type=\"checkbox\" data-ref=\"moveSel\"><span> Remove extracted cells from current dialog (move)</span></label><label class=\"craft-part-opt\"><input type=\"checkbox\" data-ref=\"leaveLink\" checked><span> Leave a note with a link to the new dialog</span></label></div></div><div class=\"craft-modal-foot\"><button class=\"uk-btn uk-btn-default uk-btn-xs\" data-ref=\"cancel\" type=\"button\">Cancel</button><button class=\"uk-btn uk-btn-primary uk-btn-xs\" data-ref=\"go\" type=\"button\">Create dialog</button></div></div></div>", "struct_send_modal": "<div class=\"craft-overlay\" id=\"craft-send-dialog-modal\" role=\"dialog\" aria-modal=\"true\" aria-label=\"Send cells to another dialog\"><div class=\"uk-card craft-card craft-part-card\"><div class=\"craft-modal-head\"><strong>Send Cell(s) to Another Dialog</strong><button type=\"button\" class=\"craft-modal-x\" aria-label=\"Close\" data-ref=\"close\">×</button></div><div class=\"craft-part-body\"><input class=\"uk-input\" placeholder=\"Filter dialogs…\" data-ref=\"filter\" type=\"text\"><label class=\"craft-part-opt\"><input type=\"checkbox\" data-ref=\"moveFlag\"><span> Move (delete from current dialog after copying)</span></label><div class=\"craft-send-list\" data-ref=\"list\"></div></div><div class=\"craft-modal-foot\"><button class=\"uk-btn uk-btn-default uk-btn-xs\" data-ref=\"cancel\" type=\"button\">Cancel</button></div></div></div>", "struct_sec_menu": "<div class=\"craft-menu\" id=\"craft-sec-menu\" role=\"menu\"></div>"});
+window.__craftTpl = Object.assign(window.__craftTpl || {}, {"struct_batch_bar": "<div id=\"craft-batch-bar\" role=\"toolbar\" aria-label=\"Multi-cell batch actions\"><span class=\"craft-batch-count\" data-ref=\"count\">0 selected</span><button class=\"uk-btn uk-btn-default uk-btn-xs\" data-act=\"allbut\" type=\"button\">All-But</button><button class=\"uk-btn uk-btn-default uk-btn-xs\" data-act=\"omit\" type=\"button\">Omit</button><button class=\"uk-btn uk-btn-default uk-btn-xs\" data-act=\"hide\" type=\"button\">Hide AI</button><button class=\"uk-btn uk-btn-default uk-btn-xs\" data-act=\"partition\" type=\"button\">Partition</button><button class=\"uk-btn uk-btn-default uk-btn-xs\" data-act=\"merge\" data-ref=\"mergeBtn\" type=\"button\">Merge</button><button class=\"uk-btn uk-btn-default uk-btn-xs\" data-act=\"up\" aria-label=\"Move selection up\" title=\"Move up (Alt+Up)\" type=\"button\">↑</button><button class=\"uk-btn uk-btn-default uk-btn-xs\" data-act=\"down\" aria-label=\"Move selection down\" title=\"Move down (Alt+Down)\" type=\"button\">↓</button><button class=\"uk-btn uk-btn-default uk-btn-xs\" data-act=\"send\" type=\"button\">Send to…</button><button class=\"uk-btn uk-btn-default uk-btn-xs craft-btn-danger\" data-act=\"delete\" type=\"button\">Delete</button></div>", "struct_partition_modal": "<dialog class=\"craft-overlay\" id=\"craft-partition-modal\" aria-label=\"Partition Dialog\"><div class=\"uk-card craft-card craft-part-card\"><div class=\"craft-modal-head\"><strong>Partition Dialog</strong><button type=\"button\" class=\"craft-modal-x\" aria-label=\"Close\" data-ref=\"close\">×</button></div><div class=\"craft-part-body\"><div class=\"craft-ctx-prev-note\">Note: Each Solveit dialog owns its own kernel (kid). The newly created dialog will start with a fresh kernel state.</div><div class=\"craft-part-modes\" data-ref=\"modes\"><label class=\"craft-part-opt\"><input type=\"radio\" name=\"craft-part-mode\" value=\"split\" checked><span> Split here — keep cells above, move cut &amp; below to new dialog</span></label><label class=\"craft-part-opt\"><input type=\"radio\" name=\"craft-part-mode\" value=\"fork\"><span> Fork from here — duplicate dialog and drop everything below cut</span></label><label class=\"craft-part-opt\"><input type=\"radio\" name=\"craft-part-mode\" value=\"extract\"><span> Extract selection — copy or move selected cells to new dialog</span></label></div><div class=\"craft-part-field\"><label class=\"craft-part-lbl\">New dialog name</label><input class=\"uk-input\" placeholder=\"new_dialog.ipynb\" data-ref=\"name\" type=\"text\"></div><div class=\"craft-part-extra\" data-ref=\"extractOpts\"><label class=\"craft-part-opt\"><input type=\"checkbox\" data-ref=\"moveSel\"><span> Remove extracted cells from current dialog (move)</span></label><label class=\"craft-part-opt\"><input type=\"checkbox\" data-ref=\"leaveLink\" checked><span> Leave a note with a link to the new dialog</span></label></div></div><div class=\"craft-modal-foot\"><button class=\"uk-btn uk-btn-default uk-btn-xs\" data-ref=\"cancel\" type=\"button\">Cancel</button><button class=\"uk-btn uk-btn-primary uk-btn-xs\" data-ref=\"go\" type=\"button\">Create dialog</button></div></div></dialog>", "struct_send_modal": "<dialog class=\"craft-overlay\" id=\"craft-send-dialog-modal\" aria-label=\"Send cells to another dialog\"><div class=\"uk-card craft-card craft-part-card\"><div class=\"craft-modal-head\"><strong>Send Cell(s) to Another Dialog</strong><button type=\"button\" class=\"craft-modal-x\" aria-label=\"Close\" data-ref=\"close\">×</button></div><div class=\"craft-part-body\"><input class=\"uk-input\" placeholder=\"Filter dialogs…\" data-ref=\"filter\" type=\"text\"><label class=\"craft-part-opt\"><input type=\"checkbox\" data-ref=\"moveFlag\"><span> Move (delete from current dialog after copying)</span></label><div class=\"craft-send-list\" data-ref=\"list\"></div></div><div class=\"craft-modal-foot\"><button class=\"uk-btn uk-btn-default uk-btn-xs\" data-ref=\"cancel\" type=\"button\">Cancel</button></div></div></dialog>"});
 
 /* %% nbs/craft/15_structural_ops.ipynb #f52d5c1c */
 (() => { /* iife:craftStruct */
@@ -6784,11 +6872,12 @@ window.craftStruct?.disable?.();
 if (!document.getElementById('dialog-container')) return;
 
 const CORE = window.__craftCMCore;
-if (!CORE) return;
+if (!CORE || !CORE.features.init('structural-ops', 'Structural Ops', 'Batch bar, Merge, Partition, Send to Dialog, Reorder')) return;
 const {
-  el, qsa, on, store, mountTpl, mountModal, htmxPost, onDomChange,
+  el, qsa, on, store, mountTpl, mountModal, htmxPost, onCells, SOLVEIT,
   notify, notifyErr, normId, getCellEl, typingBlocked,
   allCells, selectedCells, primaryCell, cellMtype, deleteCellEl,
+  waitForHtmxSettle, mountMenu, mountBar, getCellInputText, headingLevel,
 } = CORE;
 const ac = new AbortController(), sig = {signal: ac.signal}, cap = {capture: true, signal: ac.signal};
 const DRAG_MOD_KEY = 'craft-reorder-mod'; // 'alt' (default) | 'hyper'
@@ -6796,19 +6885,6 @@ const DRAG_MOD_KEY = 'craft-reorder-mod'; // 'alt' (default) | 'hyper'
 async function commitEditors() {
   if (window.craftC2?.active?.()) await window.craftC2.exit();
   if (window.craftMd?.active?.()) await window.craftMd.exit();
-}
-
-function getCellInputText(cell) {
-  if (!cell) return null;
-  const id = normId(cell.id);
-  const inp = cell.querySelector(`textarea[name="content"], input[name="content"], textarea#_${id}_content, textarea[data-content]`);
-  if (inp && typeof inp.value === 'string') return inp.value;
-  const mtype = cellMtype(cell);
-  if (mtype === 'code' || mtype === 'raw') {
-    const pre = cell.querySelector(':scope > .card-in .msg-content pre code, :scope > .card-in .msg-content pre');
-    if (pre) return pre.textContent || '';
-  }
-  return null;
 }
 
 /* ── 2.2 Merge Cells ───────────────────────────────────────────────── */
@@ -6842,7 +6918,7 @@ async function mergeSelectedCells(cells = selectedCells()) {
   let rawMap = null;
   const parts = [];
   for (const c of cells) {
-    let txt = getCellInputText(c);
+    let txt = getCellInputText(c, {rawOnly: true});
     if (txt === null) {
       if (!rawMap) rawMap = await loadDialogRawSources();
       const id = normId(c.id);
@@ -6857,7 +6933,7 @@ async function mergeSelectedCells(cells = selectedCells()) {
   const combined = parts.join('\n\n');
   const firstId = normId(cells[0].id);
   try {
-    await htmxPost('/set_contents_', {id_: '_' + firstId, ids: firstId, contents: JSON.stringify({[firstId]: combined})});
+    await htmxPost(SOLVEIT.api.setContents, {id_: '_' + firstId, ids: firstId, contents: JSON.stringify({[firstId]: combined})});
     for (let i = cells.length - 1; i >= 1; i--) await deleteCellEl(cells[i], {tag: 'craftStruct'});
     notify(`Merged ${cells.length} cells.`, 'success');
     return true;
@@ -6889,7 +6965,7 @@ function staticUrl(relPath) {
 
 function domCellToNbCell(cell) {
   const mtype = cellMtype(cell);
-  const src = getCellInputText(cell) ?? (cell.querySelector(':scope > .card-in .msg-content')?.textContent || '').trim();
+  const src = getCellInputText(cell, {rawOnly: true}) ?? (cell.querySelector(`${SOLVEIT.sel.cardIn} ${SOLVEIT.sel.msgContent}`)?.textContent || '').trim();
   return {
     cell_type: mtype === 'code' ? 'code' : (mtype === 'raw' ? 'raw' : 'markdown'),
     id: normId(cell.id),
@@ -6965,7 +7041,7 @@ async function executePartition({mode, name, moveSel, leaveLink}) {
     }
     if (mode === 'extract' && leaveLink) {
       const linkText = `> Extracted ${newCells.length} cell(s) to [${cleanName}](/dialog_?name=${encodeURIComponent(newPath.replace(/\.ipynb$/, ''))})`;
-      await htmxPost('/upsert_msg_', {id_: '', msg_type: 'note', is_input: '1', content: linkText});
+      await htmxPost(SOLVEIT.api.upsertMsg, {id_: '', msg_type: 'note', is_input: '1', content: linkText});
     }
     notify(`Created dialog "${cleanName}" (${newCells.length} cells).`, 'success');
     return newPath;
@@ -6982,11 +7058,6 @@ function openPartitionModal(cells = null) {
   if (!partModal) {
     partModal = mountModal('struct_partition_modal', {refs: true, signal: ac.signal});
     on(partModal.cancel, 'click', () => partModal.close(), sig);
-    const syncExtract = () => {
-      const m = partModal.modes.querySelector('input:checked')?.value;
-      partModal.extractOpts.hidden = m !== 'extract';
-    };
-    on(partModal.modes, 'change', syncExtract, sig);
     on(partModal.go, 'click', async () => {
       const mode = partModal.modes.querySelector('input:checked')?.value || 'split';
       const res = await executePartition({
@@ -6995,13 +7066,12 @@ function openPartitionModal(cells = null) {
       });
       if (res) partModal.close();
     }, sig);
-    syncExtract();
   }
   const base = (currentDlgPath() || 'dialog').split('/').pop().replace(/\.ipynb$/, '');
   partModal.name.value = `${base}_part`;
   if (partTargetCells.length > 1) {
     const rad = partModal.modes.querySelector('input[value="extract"]');
-    if (rad) { rad.checked = true; partModal.extractOpts.hidden = false; }
+    if (rad) rad.checked = true;
   }
   partModal.open();
   partModal.name.focus(); partModal.name.select();
@@ -7066,39 +7136,20 @@ const fireKey = (key, target = document.body) => {
   target.dispatchEvent(new KeyboardEvent('keydown', {key, bubbles: true, cancelable: true}));
 };
 
-function waitForDomSettle(pred, timeout = 2000) {
-  return new Promise(resolve => {
-    if (pred()) return resolve(true);
-    let settled = false;
-    const onAbort = () => done(false);
-    const done = ok => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(t);
-      off?.();
-      ac.signal.removeEventListener('abort', onAbort);
-      resolve(ok);
-    };
-    const off = onDomChange(() => { if (pred()) done(true); }, {delay: 30, inDialog: true});
-    const t = setTimeout(() => done(!!pred()), timeout);
-    ac.signal.addEventListener('abort', onAbort, {once: true});
-  });
-}
-
 async function cutAndPasteAfter(block, afterId) {
   const all = allCells();
   for (const c of all) c.setAttribute('data-sm', 'unselected');
   block.forEach((c, i) => c.setAttribute('data-sm', i === 0 ? 'primary' : 'secondary'));
   const cutIds = block.map(c => normId(c.id));
   fireKey('x');
-  const cutOk = await waitForDomSettle(() => cutIds.every(id => !getCellEl(id)), 2500);
+  const cutOk = await waitForHtmxSettle(() => cutIds.every(id => !getCellEl(id)), 2500);
   if (!cutOk) return false;
   const target = getCellEl(afterId);
   if (!target) return false;
   window.selectMsg?.(window.$?.(target));
-  await waitForDomSettle(() => target.getAttribute('data-sm') === 'primary', 400);
+  await waitForHtmxSettle(() => target.getAttribute('data-sm') === 'primary', 400);
   fireKey('v');
-  return await waitForDomSettle(() => cutIds.every(id => !!getCellEl(id)), 2500);
+  return Boolean(await waitForHtmxSettle(() => cutIds.every(id => !!getCellEl(id)), 2500));
 }
 
 async function moveCells(cells, delta) {
@@ -7144,7 +7195,7 @@ const hasDragMod = e => {
 
 on(document, 'pointerdown', e => {
   if (window.craftMobile?.active?.() || e.button !== 0 || !hasDragMod(e) || typingBlocked()) return;
-  const cell = e.target.closest?.('#dialog-container > .editable[id]');
+  const cell = e.target.closest?.(SOLVEIT.sel.cellWithId);
   if (!cell) return;
   e.preventDefault();
   dragState = {cell, startY: e.clientY, active: false, targetCell: null, before: true};
@@ -7192,15 +7243,17 @@ on(document, 'pointerup', async () => {
 
 /* #a170e981 */
 /* ── 2.4 Contextual Multi-Cell Batch Bar ───────────────────────────── */
-let batchBar = null;
+const batchBar = mountBar('struct_batch_bar');
+let batchWired = false;
 
 function syncBatchBar() {
   const sel = selectedCells();
   const show = sel.length >= 2 && !typingBlocked() && !document.documentElement.classList.contains('craft-ab-staging');
-  if (!show) { batchBar?.root?.remove(); return; }
-  if (!batchBar) {
-    batchBar = mountTpl('struct_batch_bar', {refs: true});
-    on(batchBar.root, 'click', async e => {
+  if (!show) { batchBar.hide(); return; }
+  const b = batchBar.show();
+  if (!batchWired) {
+    batchWired = true;
+    on(b.root, 'click', async e => {
       const btn = e.target.closest('button[data-act]');
       if (!btn) return;
       e.preventDefault(); e.stopPropagation();
@@ -7224,73 +7277,12 @@ function syncBatchBar() {
       }
     }, sig);
   }
-  if (!batchBar.root.isConnected) document.body.append(batchBar.root);
-  batchBar.count.textContent = `${sel.length} selected`;
-  if (batchBar.mergeBtn) batchBar.mergeBtn.disabled = !canMerge(sel);
+  b.count.textContent = `${sel.length} selected`;
+  if (b.mergeBtn) b.mergeBtn.disabled = !canMerge(sel);
 }
 
-/* ── 2.5 Section-Level Actions on Markdown Headings ────────────────── */
-const secMenu = mountTpl('struct_sec_menu');
-document.body.append(secMenu);
-let secMenuCell = null;
-
-const closeSecMenu = () => { secMenu.classList.remove('open'); secMenuCell = null; };
-
-const getSectionFor = cell => window.craftContext?.getSectionCells?.(cell) || [cell];
-
-function openSecMenu(trigger, cell) {
-  if (secMenuCell === cell && secMenu.classList.contains('open')) return closeSecMenu();
-  secMenuCell = cell;
-  const sec = getSectionFor(cell);
-  const codeCells = sec.filter(c => cellMtype(c) === 'code');
-  const items = [
-    {label: `Run all code in section (${codeCells.length})`, disabled: !codeCells.length, fn: async () => {
-      for (const c of codeCells) await CORE.runCellCmd({id: normId(c.id), cmd: 'run', tag: 'craftStruct'});
-    }},
-    {label: `All-But this section (${sec.length})`, fn: () => window.craftContext?.lensHeadingSection?.(cell)},
-    {label: 'Omit section', fn: () => {
-      for (const c of allCells()) c.setAttribute('data-sm', 'unselected');
-      sec.forEach((c, i) => c.setAttribute('data-sm', i === 0 ? 'primary' : 'secondary'));
-      window.craftOmit?.toggle?.();
-    }},
-    {label: 'Partition section to new dialog…', fn: () => openPartitionModal(sec)},
-    {label: 'Copy section as Markdown', fn: async () => {
-      const md = sec.map(c => {
-        const t = cellMtype(c), txt = getCellInputText(c);
-        return t === 'code' ? '```python\n' + txt + '\n```' : txt;
-      }).join('\n\n');
-      try { await navigator.clipboard.writeText(md); notify('Copied section as Markdown.', 'success'); }
-      catch { prompt('Section Markdown:', md); }
-    }},
-  ];
-  secMenu.replaceChildren(...items.map(it => el('button', {
-    type: 'button', role: 'menuitem', disabled: !!it.disabled,
-    onClick: e => { e.stopPropagation(); closeSecMenu(); it.fn(); },
-  }, it.label)));
-  const r = trigger.getBoundingClientRect();
-  secMenu.classList.add('open');
-  secMenu.style.left = Math.max(8, Math.min(r.left, innerWidth - secMenu.offsetWidth - 8)) + 'px';
-  secMenu.style.top = Math.max(8, Math.min(r.bottom + 4, innerHeight - secMenu.offsetHeight - 8)) + 'px';
-}
-
-function syncHeadingTriggers() {
-  for (const cell of allCells()) {
-    const isHdr = cell.hasAttribute('data-sm-header') || !!cell.querySelector(':scope > .card-in[data-mtype="note"] .msg-content :is(h1,h2,h3,h4,h5,h6)');
-    const existing = cell.querySelector(':scope > .craft-sec-trigger');
-    if (!isHdr) { existing?.remove(); continue; }
-    if (existing) continue;
-    const btn = el('button', {
-      type: 'button', cls: 'craft-sec-trigger',
-      'aria-label': 'Section actions', title: 'Section actions',
-      onClick: e => { e.preventDefault(); e.stopPropagation(); openSecMenu(btn, cell); },
-    }, '§ ▾');
-    cell.append(btn);
-  }
-}
-
-on(document, 'pointerdown', e => {
-  if (secMenu.classList.contains('open') && !secMenu.contains(e.target) && !e.target.closest?.('.craft-sec-trigger')) closeSecMenu();
-}, cap);
+/* Heading section actions (§) are hidden — to re-explore: planned for redesign and rebuild. */
+qsa('.craft-sec-trigger').forEach(b => b.remove());
 
 /* ── Action Menu & Hotkeys ─────────────────────────────────────────── */
 const offMenu = window.craftActionMenus?.registerProvider?.(ctx => {
@@ -7319,18 +7311,17 @@ reg({id: 'cell-drag-mod', label: 'Toggle drag-reorder modifier (Alt vs Hyper)', 
   return true;
 }});
 
-const offDom = onDomChange(() => { syncBatchBar(); syncHeadingTriggers(); }, {attrs: ['data-sm', 'class', 'data-sm-header'], delay: 'raf', inDialog: true});
+const offCells = onCells(() => syncBatchBar(), {attrs: ['data-sm', 'class']});
 on(document, 'focusin focusout', () => setTimeout(syncBatchBar, 30), sig);
 
 syncBatchBar();
-syncHeadingTriggers();
 
 window.craftStruct = {
   canMerge, mergeSelectedCells, openPartitionModal, openSendModal, moveCells, syncBatchBar,
   disable() {
-    ac.abort(); offDom?.(); offMenu?.();
-    batchBar?.root?.remove(); partModal?.destroy?.(); sendModal?.destroy?.();
-    secMenu.remove(); dropLine.remove();
+    ac.abort(); offCells?.(); offMenu?.();
+    batchBar.destroy(); partModal?.destroy?.(); sendModal?.destroy?.();
+    dropLine.remove();
     qsa('.craft-sec-trigger').forEach(b => b.remove());
     delete window.craftStruct;
   },
@@ -7347,7 +7338,8 @@ window.craftNavRef?.disable?.();
 if (!document.getElementById('dialog-container')) return;
 
 const CORE = window.__craftCMCore;
-const {el, qsa, on, store, mountTpl, onDomChange, notify, notifyErr, normId, getCellEl, allCells, primaryCell, cellMtype, dlgKey, deleteCellEl} = CORE;
+if (!CORE || !CORE.features.init('nav-reference', 'Navigation & Reference', 'Minimap rail, Sticky Reference Pane, Stale-Output badges, Scratchpad flags')) return;
+const {el, qsa, on, store, mountTpl, onCells, SOLVEIT, notify, notifyErr, normId, getCellEl, allCells, primaryCell, cellMtype, dlgKey, deleteCellEl, headingLevel, onCellHtmx} = CORE;
 const ac = new AbortController(), sig = {signal: ac.signal};
 
 const MAP_OPEN_KEY = 'craft-minimap-open';
@@ -7370,13 +7362,13 @@ function renderMinimap() {
   const rows = cells.map((c, idx) => {
     const cellId = normId(c.id);
     const mtype = cellMtype(c);
-    const h = c.querySelector(':scope > .card-in[data-mtype="note"] .msg-content :is(h1,h2,h3,h4,h5,h6)');
-    const isErr = !!c.querySelector(':scope > .card-out.craft-c2-traceback');
+    const lvl = headingLevel(c);
+    const h = lvl ? c.querySelector(`:scope > ${SOLVEIT.sel.noteCard} ${SOLVEIT.sel.msgContent} :is(h1,h2,h3,h4,h5,h6)`) : null;
+    const isErr = !!c.querySelector(`${SOLVEIT.sel.cardOut}:has(${SOLVEIT.sel.ansiRed}, .ansi-red-intense-fg)`);
     const isHid = !!window.craftContext?.isHiddenFromAI?.(c);
     const isOmit = c.classList.contains('craft-omitted');
     const isSel = c.dataset.sm === 'primary' || c.dataset.sm === 'secondary';
-    const label = h ? h.textContent.trim() : ((c.querySelector(':scope > .card-in .msg-content')?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 36) || `${mtype} #${idx + 1}`);
-    const lvl = h ? +h.tagName.slice(1) : 0;
+    const label = h ? h.textContent.trim() : ((c.querySelector(`${SOLVEIT.sel.cardIn} ${SOLVEIT.sel.msgContent}`)?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 36) || `${mtype} #${idx + 1}`);
     return el('button', {
       type: 'button',
       cls: `craft-map-item type-${mtype}${lvl ? ` is-h is-h${lvl}` : ''}${isErr ? ' is-err' : ''}${isHid ? ' is-hid' : ''}${isOmit ? ' is-omit' : ''}${isSel ? ' is-sel' : ''}`,
@@ -7455,7 +7447,7 @@ function renderRefPane() {
   refPane.list.replaceChildren(...pinnedRefIds.map(id => {
     const src = getCellEl(id);
     const body = el('div', {cls: 'craft-ref-clone'});
-    for (const part of qsa(':scope > .msg-card .msg-content', src)) body.append(sanitizeRefClone(part));
+    for (const part of qsa(`:scope > .msg-card ${SOLVEIT.sel.msgContent}`, src)) body.append(sanitizeRefClone(part));
     return el('div', {cls: 'craft-ref-item'},
       el('div', {cls: 'craft-ref-item-head'},
         el('span', {cls: 'craft-ref-type'}, `${cellMtype(src)} #${id.slice(0, 6)}`),
@@ -7488,62 +7480,30 @@ function unpinRef(id) {
 const lastEditTs = new Map();
 const lastRunTs = new Map();
 
-const extractRequestIds = (params, includeContents = false) => {
-  const out = new Set();
-  const add = raw => {
-    if (!raw) return;
-    for (const part of (Array.isArray(raw) ? raw : String(raw).split(','))) {
-      const cid = normId(part.trim());
-      if (cid) out.add(cid);
-    }
-  };
-  add(params?.id_);
-  add(params?.ids);
-  if (includeContents && params?.contents) {
-    try {
-      const map = typeof params.contents === 'string' ? JSON.parse(params.contents) : params.contents;
-      if (map && typeof map === 'object' && !Array.isArray(map)) {
-        for (const k of Object.keys(map)) add(k);
-      }
-    } catch {}
-  }
-  return [...out];
-};
-
-on(document, 'htmx:configRequest', e => {
-  const path = String(e.detail?.path || '');
-  const params = e.detail?.parameters;
-  if (path.includes('/set_contents_')) {
-    const now = Date.now();
+onCellHtmx([SOLVEIT.api.setContents, SOLVEIT.api.addRunq], ({path, ids, contents}) => {
+  const now = Date.now();
+  if (path.startsWith(SOLVEIT.api.setContents)) {
+    const touched = new Set(ids);
+    if (contents && typeof contents === 'object') Object.keys(contents).forEach(k => touched.add(normId(k)));
     let changed = false;
-    for (const id of extractRequestIds(params, true)) {
+    for (const id of touched) {
       const cell = getCellEl(id);
-      if (cell && cellMtype(cell) === 'code') {
-        lastEditTs.set(id, now);
-        changed = true;
-      }
+      if (cell && cellMtype(cell) === 'code') { lastEditTs.set(id, now); changed = true; }
     }
     if (changed) syncStaleBadges();
-  } else if (path.includes('/add_runq_')) {
-    const ids = extractRequestIds(params, false);
-    if (!ids.length) return;
-    const now = Date.now();
+  } else if (ids.length) {
     for (const id of ids) lastRunTs.set(id, now);
     syncStaleBadges();
   }
 }, sig);
 
-function syncStaleBadges() {
-  for (const c of allCells()) {
+function syncStaleBadges(cells = allCells()) {
+  for (const c of cells) {
     const id = normId(c.id);
     const isCode = cellMtype(c) === 'code';
-    const hasOut = !!c.querySelector(':scope > .card-out .msg-content')?.textContent?.trim();
+    const hasOut = !!c.querySelector(`${SOLVEIT.sel.cardOut} ${SOLVEIT.sel.msgContent}`)?.textContent?.trim();
     const stale = isCode && hasOut && (lastEditTs.get(id) || 0) > (lastRunTs.get(id) || 0);
     c.classList.toggle('craft-is-stale', stale);
-    const hdr = c.querySelector(':scope > .card-in > .uk-card-header nav > div.grow');
-    const existing = c.querySelector(':scope > .card-in .craft-stale-badge');
-    if (stale && hdr && !existing) hdr.append(el('span', {cls: 'craft-stale-badge', title: 'Code edited since last run in this session'}, 'stale'));
-    else if (!stale && existing) existing.remove();
   }
 }
 
@@ -7577,15 +7537,11 @@ async function clearAllScratch() {
   notify(`Cleared ${targets.length} scratch cell(s).`, 'success');
 }
 
-function syncScratchBadges() {
+function syncScratchBadges(cells = allCells()) {
   const set = loadScratch();
-  for (const c of allCells()) {
+  for (const c of cells) {
     const isScr = set.has(normId(c.id));
     c.classList.toggle('craft-scratch-cell', isScr);
-    const hdr = c.querySelector(':scope > .card-in > .uk-card-header nav > div.grow');
-    const existing = c.querySelector(':scope > .card-in .craft-scratch-badge');
-    if (isScr && hdr && !existing) hdr.append(el('span', {cls: 'craft-scratch-badge', title: 'Scratchpad cell (hidden from AI)'}, 'scratch'));
-    else if (!isScr && existing) existing.remove();
   }
 }
 
@@ -7616,12 +7572,12 @@ reg({id: 'craft-scratch-toggle', label: 'Toggle scratchpad flag on selected cell
 }});
 reg({id: 'craft-scratch-clear', label: 'Clear all scratch cells', group: 'CRAFT · Navigation', combo: '', handler: () => { clearAllScratch(); return true; }});
 
-const offDom = onDomChange(() => {
+const offCells = onCells(cells => {
   if (mapOpen) renderMinimap();
   if (pinnedRefIds.length) renderRefPane();
-  syncStaleBadges();
-  syncScratchBadges();
-}, {delay: 200, inDialog: true});
+  syncStaleBadges(cells);
+  syncScratchBadges(cells);
+}, {attrs: ['data-sm', 'class']});
 
 if (mapOpen) setMinimapOpen(true);
 syncStaleBadges();
@@ -7631,784 +7587,136 @@ window.craftNavRef = {
   setMinimapOpen, toggleMinimap: () => setMinimapOpen(!mapOpen),
   pinRef, unpinRef, toggleScratch, clearAllScratch,
   disable() {
-    ac.abort(); offDom?.(); offMenu?.();
+    ac.abort(); offCells?.(); offMenu?.();
     document.documentElement.classList.remove('craft-minimap-open', 'craft-ref-open');
     mapEl?.root?.remove(); refPane?.root?.remove();
-    qsa('.craft-stale-badge, .craft-scratch-badge').forEach(b => b.remove());
     qsa('.craft-is-stale, .craft-scratch-cell').forEach(c => c.classList.remove('craft-is-stale', 'craft-scratch-cell'));
     delete window.craftNavRef;
   },
 };
 })();
 
-/* %% nbs/craft/17_cell_history.ipynb #b2c07f30 */
-window.__craftTpl = Object.assign(window.__craftTpl || {}, {"hist_modal": "<div class=\"craft-overlay\" id=\"craft-history-modal\" role=\"dialog\" aria-modal=\"true\" aria-label=\"Cell Version History\"><div class=\"uk-card craft-card craft-hist-card\"><div class=\"craft-modal-head\"><strong>Cell History (Session)</strong><span class=\"craft-ctx-prev-total\" data-ref=\"cellLabel\"></span><button type=\"button\" class=\"craft-modal-x\" aria-label=\"Close\" data-ref=\"close\">×</button></div><div class=\"craft-hist-list\" data-ref=\"list\"></div><div class=\"craft-modal-foot\"><button class=\"uk-btn uk-btn-primary uk-btn-xs\" data-ref=\"done\" type=\"button\">Close</button></div></div></div>"});
-
-/* %% nbs/craft/17_cell_history.ipynb #4625dbf6 */
-(() => { /* iife:craftHistory */
-/* #4625dbf6 */
-window.craftHistory?.disable?.();
-if (!document.getElementById('dialog-container')) return;
-
-const CORE = window.__craftCMCore;
-const {el, qsa, on, store, mountModal, htmxPost, onDomChange, notify, notifyErr, kid, normId, getCellEl, allCells, primaryCell, cellMtype} = CORE;
-const ac = new AbortController(), sig = {signal: ac.signal};
-
-const HIST_KEY = () => `craft-cell-hist:${kid() || location.pathname}`;
-const MAX_PER_CELL = 25;
-
-function readCellText(cell) {
-  if (!cell) return null;
-  const id = normId(cell.id);
-  const inp = cell.querySelector(`textarea[name="content"], input[name="content"], textarea#_${id}_content`);
-  if (inp && typeof inp.value === 'string') return inp.value;
-  const mtype = cellMtype(cell);
-  if (mtype === 'code' || mtype === 'raw') {
-    const pre = cell.querySelector(':scope > .card-in .msg-content pre code, :scope > .card-in .msg-content pre');
-    if (pre) return pre.textContent || '';
-  }
-  return null;
-}
-
-const historyMap = new Map(Object.entries(store.json(HIST_KEY(), {}, sessionStorage) || {}));
-const persistHistory = () => {
-  for (const limit of [MAX_PER_CELL, 12, 6, 3, 1]) {
-    const obj = {};
-    for (const [k, v] of historyMap) obj[k] = v.slice(-limit);
-    try {
-      sessionStorage.setItem(HIST_KEY(), JSON.stringify(obj));
-      return;
-    } catch {}
-  }
-};
-
-function recordSnapshot(id, text, source = 'save') {
-  const k = normId(id);
-  if (!k || typeof text !== 'string') return;
-  const list = historyMap.get(k) || [];
-  if (list.length && list.at(-1).text === text) return;
-  list.push({ts: Date.now(), source, text});
-  if (list.length > MAX_PER_CELL) list.splice(0, list.length - MAX_PER_CELL);
-  historyMap.set(k, list);
-  persistHistory();
-}
-
-function snapshotAll(source = 'baseline') {
-  for (const c of allCells()) {
-    const txt = readCellText(c);
-    if (typeof txt === 'string') recordSnapshot(c.id, txt, source);
-  }
-}
-
-/* Pure line-level diff for inline AI Edit Review */
-function renderLineDiff(oldText, newText) {
-  const a = String(oldText || '').split('\n');
-  const b = String(newText || '').split('\n');
-  const ops = [];
-  if (a.length * b.length <= 160000) {
-    const m = a.length, n = b.length;
-    const dp = Array.from({length: m + 1}, () => new Uint32Array(n + 1));
-    for (let i = m - 1; i >= 0; i--) {
-      for (let j = n - 1; j >= 0; j--) {
-        dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
-      }
-    }
-    let i = 0, j = 0;
-    while (i < m && j < n) {
-      if (a[i] === b[j]) { ops.push(['eq', a[i++]]); j++; }
-      else if (dp[i + 1][j] >= dp[i][j + 1]) ops.push(['del', a[i++]]);
-      else ops.push(['add', b[j++]]);
-    }
-    while (i < m) ops.push(['del', a[i++]]);
-    while (j < n) ops.push(['add', b[j++]]);
-  } else {
-    let p = 0;
-    while (p < a.length && p < b.length && a[p] === b[p]) ops.push(['eq', a[p++]]);
-    let ea = a.length - 1, eb = b.length - 1;
-    const tail = [];
-    while (ea >= p && eb >= p && a[ea] === b[eb]) { tail.push(['eq', a[ea--]]); eb--; }
-    for (let i = p; i <= ea; i++) ops.push(['del', a[i]]);
-    for (let j = p; j <= eb; j++) ops.push(['add', b[j]]);
-    ops.push(...tail.reverse());
-  }
-  const prefix = {eq: '  ', del: '- ', add: '+ '};
-  return el('pre', {cls: 'craft-diff-pre'}, ...ops.map(([k, line]) => el('div', {cls: `craft-diff-${k}`}, prefix[k] + line)));
-}
-
-async function restoreText(id, text) {
-  const k = normId(id);
-  try {
-    await htmxPost('/set_contents_', {id_: '_' + k, ids: k, contents: JSON.stringify({[k]: text})});
-    recordSnapshot(k, text, 'restore');
-    const c = getCellEl(k);
-    if (c) c.removeAttribute('data-diff');
-    notify('Cell content restored.', 'success');
-    return true;
-  } catch (err) {
-    notifyErr('Could not restore cell snapshot.', 'craftHistory');
-    return false;
-  }
-}
-
-/* #d292a245 */
-/* Hook /set_contents_ and /add_runq_ to capture snapshots */
-on(document, 'htmx:configRequest', e => {
-  const path = String(e.detail?.path || '');
-  if (path.includes('/set_contents_')) {
-    const raw = e.detail?.parameters?.contents;
-    if (raw) {
-      try {
-        const map = JSON.parse(raw);
-        for (const [id, txt] of Object.entries(map)) recordSnapshot(id, String(txt ?? ''), 'save');
-      } catch {}
-    }
-  } else if (path.includes('/add_runq_')) {
-    snapshotAll('pre-run');
-  }
-}, sig);
-
-/* Inline AI Edit Review bars for data-diff="changed" | "deleted" */
-const diffBaselines = new Map();
-
-function syncDiffBars() {
-  for (const c of allCells()) {
-    const id = normId(c.id);
-    const diff = c.getAttribute('data-diff');
-    const isReview = diff === 'changed' || diff === 'deleted';
-    const existing = c.querySelector(':scope > .craft-diff-bar');
-    if (!isReview) {
-      existing?.remove();
-      diffBaselines.delete(id);
-      continue;
-    }
-    if (existing) continue;
-    const snaps = historyMap.get(id) || [];
-    if (!diffBaselines.has(id)) {
-      const preAi = [...snaps].reverse().find(s => s.source !== 'current' && s.source !== 'accept-ai') || snaps.at(-1);
-      if (preAi) diffBaselines.set(id, preAi.text);
-    }
-    const hasBaseline = diffBaselines.has(id);
-    const prevText = hasBaseline ? diffBaselines.get(id) : '';
-    const diffBox = el('div', {cls: 'craft-diff-box', hidden: true});
-    const bar = el('div', {cls: 'craft-diff-bar'},
-      el('span', {cls: 'craft-diff-tag'}, diff === 'deleted' ? 'AI deleted cell' : 'AI modified cell'),
-      el('button', {
-        type: 'button', cls: 'uk-btn uk-btn-default uk-btn-xs',
-        onClick: () => {
-          diffBox.hidden = !diffBox.hidden;
-          if (!diffBox.hidden) {
-            const curRaw = readCellText(c);
-            diffBox.replaceChildren(
-              typeof curRaw === 'string'
-                ? renderLineDiff(prevText, curRaw)
-                : el('div', {cls: 'craft-empty-state'}, 'Open this cell to diff raw source.')
-            );
-          }
-        },
-      }, 'Toggle diff'),
-      el('button', {
-        type: 'button', cls: 'uk-btn uk-btn-primary uk-btn-xs',
-        onClick: () => {
-          const curRaw = readCellText(c);
-          if (typeof curRaw === 'string') recordSnapshot(id, curRaw, 'accept-ai');
-          diffBaselines.delete(id);
-          c.removeAttribute('data-diff');
-          bar.remove();
-        },
-      }, 'Accept'),
-      hasBaseline ? el('button', {
-        type: 'button', cls: 'uk-btn uk-btn-default uk-btn-xs craft-btn-danger',
-        onClick: async () => { if (await restoreText(id, prevText)) diffBaselines.delete(id); },
-      }, 'Revert') : null,
-      diffBox,
-    );
-    c.prepend(bar);
-  }
-}
-
-/* #36a1b637 */
-/* Cell History Modal, Menu, Hotkey & Lifecycle */
-let modal = null;
-
-function openHistory(cell) {
-  const target = cell || primaryCell();
-  if (!target) return notifyErr('Select a cell first to view its history.', 'craftHistory');
-  const id = normId(target.id);
-  const curTxt = readCellText(target);
-  if (typeof curTxt === 'string') recordSnapshot(id, curTxt, 'current');
-  const snaps = [...(historyMap.get(id) || [])].reverse();
-  if (!modal) {
-    modal = mountModal('hist_modal', {signal: ac.signal});
-    on(modal.done, 'click', modal.close, sig);
-  }
-  modal.cellLabel.textContent = `#${id.slice(0, 8)} · ${snaps.length} snapshot(s)`;
-  modal.list.replaceChildren(...(snaps.length ? snaps.map((s, i) => {
-    const tStr = new Date(s.ts).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'});
-    return el('div', {cls: 'craft-hist-entry'},
-      el('div', {cls: 'craft-hist-meta'},
-        el('span', {cls: 'craft-hist-time'}, `${tStr} · ${s.source}`),
-        i > 0 ? el('button', {
-          type: 'button', cls: 'uk-btn uk-btn-default uk-btn-xs',
-          onClick: async () => { if (await restoreText(id, s.text)) modal.close(); },
-        }, 'Restore') : el('span', {cls: 'craft-hist-cur'}, 'latest'),
-      ),
-      el('pre', {cls: 'craft-hist-snip'}, s.text.slice(0, 400) || '(empty)'),
-    );
-  }) : [el('div', {cls: 'craft-empty-state'}, 'No snapshots recorded yet in this session.')]));
-  modal.open();
-}
-
-const offMenu = window.craftActionMenus?.registerProvider?.(ctx => {
-  if (ctx.isOutput || !ctx.cell) return [];
-  return [{label: 'Cell history…', onClick: () => openHistory(ctx.cell)}];
-});
-
-window.__hotkeyRegister?.({id: 'craft-cell-history', label: 'Cell version history (session)', group: 'CRAFT · History', combo: '', handler: () => { openHistory(); return true; }});
-
-const offDom = onDomChange(() => syncDiffBars(), {attrs: ['data-diff'], delay: 120, inDialog: true});
-snapshotAll('initial');
-syncDiffBars();
-
-window.craftHistory = {
-  open: openHistory,
-  snapshots: id => [...(historyMap.get(normId(id)) || [])],
-  recordSnapshot,
-  restoreText,
-  disable() {
-    ac.abort(); offDom?.(); offMenu?.();
-    modal?.destroy();
-    qsa('.craft-diff-bar').forEach(b => b.remove());
-    delete window.craftHistory;
-  },
-};
-})();
-
-/* %% nbs/craft/18_tts_reader.ipynb #eaf85955 */
-window.__craftTpl = Object.assign(window.__craftTpl || {}, {"tts_bar": "<div id=\"craft-tts-bar\" role=\"region\" aria-label=\"Text-to-speech player\"><button type=\"button\" class=\"craft-tts-btn\" aria-label=\"Previous cell\" title=\"Previous cell\" data-ref=\"prev\">⏮</button><button type=\"button\" class=\"craft-tts-btn\" aria-label=\"Play or pause\" title=\"Play / Pause\" data-ref=\"play\">⏸</button><button type=\"button\" class=\"craft-tts-btn\" aria-label=\"Next cell\" title=\"Next cell\" data-ref=\"next\">⏭</button><select class=\"uk-select craft-tts-rate\" aria-label=\"Reading speed\" data-ref=\"rate\"><option value=\"1\">1.0×</option><option value=\"1.25\">1.25×</option><option value=\"1.5\">1.5×</option><option value=\"1.75\">1.75×</option><option value=\"2\">2.0×</option></select><span class=\"craft-tts-status\" data-ref=\"status\"></span><button type=\"button\" class=\"craft-tts-btn\" aria-label=\"Stop reading\" title=\"Stop\" data-ref=\"stop\">×</button></div>"});
-
-/* %% nbs/craft/18_tts_reader.ipynb #ffd7c180 */
-(() => { /* iife:craftTTS */
-/* #ffd7c180 */
-window.craftTTS?.disable?.();
-if (!document.getElementById('dialog-container')) return;
-
-const CORE = window.__craftCMCore;
-const {qsa, on, store, mountTpl, notifyErr, normId, getCellEl, allCells, primaryCell, cellMtype} = CORE;
-const ac = new AbortController(), sig = {signal: ac.signal};
-const RATE_KEY = 'craft-tts-rate';
-
-/* Clean rendered DOM or text into speakable prose */
-function extractSpeakableText(cell, preferOutput = false) {
-  if (!cell) return '';
-  const mtype = cellMtype(cell);
-  if (mtype === 'code' && !preferOutput) {
-    const code = cell.querySelector(':scope > .card-in .msg-content pre')?.textContent || '';
-    const lines = code.trim() ? code.trim().split('\n').length : 0;
-    return lines ? `Python code block, ${lines} ${lines === 1 ? 'line' : 'lines'}.` : '';
-  }
-  const targetCard = (preferOutput && cell.querySelector(':scope > .card-out .msg-content')) ||
-                     (mtype === 'prompt' && cell.querySelector(':scope > .card-out .msg-content')) ||
-                     cell.querySelector(':scope > .card-in .msg-content');
-  if (!targetCard) return '';
-  const clone = targetCard.cloneNode(true);
-  for (const pre of qsa('pre', clone)) {
-    const cls = pre.querySelector('code')?.className || '';
-    const langM = cls.match(/language-(\w+)/);
-    const lang = langM ? langM[1] : 'Code';
-    const lines = (pre.textContent || '').trim().split('\n').length;
-    pre.replaceWith(document.createTextNode(` ${lang} code block, ${lines} ${lines === 1 ? 'line' : 'lines'}. `));
-  }
-  for (const tbl of qsa('table', clone)) {
-    const cols = tbl.querySelector('tr')?.children?.length || 0;
-    tbl.replaceWith(document.createTextNode(` Table, ${cols} ${cols === 1 ? 'column' : 'columns'}. `));
-  }
-  let text = (clone.textContent || '').replace(/\s+/g, ' ').trim();
-  // Strip bare URLs, inline hex hashes, and long filesystem paths
-  text = text
-    .replace(/https?:\/\/\S+/g, 'link')
-    .replace(/\b0x[0-9a-f]{6,}\b/gi, '')
-    .replace(/(?:\/[\w.-]+){3,}/g, 'file path')
-    .replace(/[#*_`~>\[\]]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return text;
-}
-
-/* Chunk long text by sentence to avoid Chrome's ~15s speechSynthesis stall bug */
-function splitLongSegment(seg, maxLen) {
-  const s = seg.trim();
-  if (!s) return [];
-  if (s.length <= maxLen) return [s];
-  const out = [];
-  let cur = '';
-  for (const part of s.split(/(?<=[,;:])\s+|\s+/)) {
-    if (!part) continue;
-    if (part.length > maxLen) {
-      if (cur) { out.push(cur); cur = ''; }
-      for (let i = 0; i < part.length; i += maxLen) out.push(part.slice(i, i + maxLen));
-    } else if (cur && cur.length + 1 + part.length > maxLen) {
-      out.push(cur);
-      cur = part;
-    } else {
-      cur = cur ? `${cur} ${part}` : part;
-    }
-  }
-  if (cur) out.push(cur);
-  return out;
-}
-
-const ABBREV_RE = /\b(?:e\.g|i\.e|dr|mr|mrs|ms|prof|sr|jr|vs|etc|fig|no|st)\.$/i;
-
-function chunkSentences(text, maxLen = 220) {
-  const raw = String(text || '').replace(/\s+/g, ' ').trim();
-  if (!raw) return [];
-  const sentences = [];
-  let buf = '';
-  for (const tok of raw.split(' ')) {
-    buf = buf ? `${buf} ${tok}` : tok;
-    if (/[.!?]+['")\]]*$/.test(tok) && !ABBREV_RE.test(tok) && !/\d+\.\d+/.test(tok)) {
-      sentences.push(buf);
-      buf = '';
-    }
-  }
-  if (buf) sentences.push(buf);
-  const chunks = [];
-  let cur = '';
-  for (const sent of sentences) {
-    for (const piece of splitLongSegment(sent, maxLen)) {
-      if (cur && cur.length + 1 + piece.length > maxLen) {
-        chunks.push(cur);
-        cur = piece;
-      } else {
-        cur = cur ? `${cur} ${piece}` : piece;
-      }
-    }
-  }
-  if (cur) chunks.push(cur);
-  return chunks;
-}
-
-/* #e1492c9d */
-/* Speech Queue, Player Bar & Playback Controls */
-let bar = null, queue = [], cellIdx = 0, chunkIdx = 0, chunks = [], playing = false, paused = false;
-let activeCellId = null;
-let rate = parseFloat(store.get(RATE_KEY, '1')) || 1;
-
-function clearHighlight() {
-  if (activeCellId) getCellEl(activeCellId)?.classList.remove('craft-tts-active');
-  qsa('#dialog-container > .editable.craft-tts-active').forEach(c => c.classList.remove('craft-tts-active'));
-  activeCellId = null;
-}
-
-function syncBar() {
-  if (!playing && !paused) { bar?.root?.remove(); clearHighlight(); return; }
-  if (!bar) {
-    bar = mountTpl('tts_bar', {refs: true});
-    bar.rate.value = String(rate);
-    on(bar.play, 'click', () => togglePause(), sig);
-    on(bar.prev, 'click', () => jumpCell(-1), sig);
-    on(bar.next, 'click', () => jumpCell(1), sig);
-    on(bar.stop, 'click', () => stop(), sig);
-    on(bar.rate, 'change', () => {
-      rate = parseFloat(bar.rate.value) || 1;
-      store.set(RATE_KEY, String(rate));
-      if (playing && !paused) speakCurrentChunk();
-    }, sig);
-  }
-  if (!bar.root.isConnected) document.body.append(bar.root);
-  bar.play.textContent = paused ? '▶' : '⏸';
-  bar.status.textContent = `Cell ${cellIdx + 1}/${queue.length}`;
-}
-
-function speakCurrentChunk() {
-  const synth = window.speechSynthesis;
-  if (!synth) return notifyErr('Web Speech API is not supported in this browser.', 'craftTTS');
-  synth.cancel();
-  while (cellIdx < queue.length && !getCellEl(queue[cellIdx].id)) {
-    cellIdx++; chunks = []; chunkIdx = 0;
-  }
-  if (cellIdx >= queue.length) { stop(); return; }
-  const {id, preferOutput} = queue[cellIdx];
-  const cell = getCellEl(id);
-  clearHighlight();
-  activeCellId = id;
-  cell.classList.add('craft-tts-active');
-  cell.scrollIntoView({behavior: 'smooth', block: 'nearest'});
-  if (!chunks.length) {
-    chunks = chunkSentences(extractSpeakableText(cell, preferOutput));
-    chunkIdx = 0;
-  }
-  if (chunkIdx >= chunks.length) {
-    cellIdx++; chunks = []; chunkIdx = 0;
-    if (cellIdx < queue.length) speakCurrentChunk();
-    else stop();
-    return;
-  }
-  const utt = new SpeechSynthesisUtterance(chunks[chunkIdx]);
-  utt.rate = rate;
-  utt.onend = () => {
-    if (!playing || paused) return;
-    chunkIdx++;
-    speakCurrentChunk();
+/* %% nbs/craft/17_cell_history.ipynb #d8270fe6 */
+(() => {
+  window.craftHistory?.disable?.();
+  const CORE = window.__craftCMCore;
+  if (!CORE || !CORE.qs(CORE.SOLVEIT.sel.dialog) || !CORE.features.init('cell-history', 'Cell History', 'Session cell version snapshots and AI edit diff review')) return;
+  const {SOLVEIT, qs} = CORE;
+  let loading = null;
+  const load = () => {
+    if (window.craftHistory?.__loaded) return Promise.resolve(window.craftHistory);
+    if (loading) return loading;
+    loading = new Promise((resolve, reject) => {
+      document.querySelector('script[data-craft-asset="craft_history.js"]')?.remove();
+      const s = document.createElement('script');
+      s.src = '/static/.craft-assets/craft_history.js';
+      s.dataset.craftAsset = 'craft_history.js';
+      s.onload = () => { loading = null; resolve(window.craftHistory); };
+      s.onerror = err => { loading = null; reject(err); };
+      document.head.append(s);
+    });
+    return loading;
   };
-  utt.onerror = e => {
-    if (e.error === 'interrupted' || e.error === 'canceled') return;
-    console.warn('craftTTS utterance error', e.error);
-    chunkIdx++;
-    if (playing && !paused) speakCurrentChunk();
-  };
-  syncBar();
-  synth.speak(utt);
-}
-
-function readCells(cells, preferOutput = false) {
-  if (!window.speechSynthesis) return notifyErr('Text-to-speech is not available in this browser.', 'craftTTS');
-  const list = cells.filter(Boolean).map(c => ({id: normId(c.id), preferOutput})).filter(item => item.id);
-  if (!list.length) return notifyErr('No readable cell selected.', 'craftTTS');
-  queue = list; cellIdx = 0; chunks = []; chunkIdx = 0; playing = true; paused = false;
-  // Initiate speech synchronously inside the user-gesture handler (required for mobile Safari)
-  speakCurrentChunk();
-}
-
-function readCell(cell = primaryCell(), preferOutput = false) {
-  if (cell) readCells([cell], preferOutput);
-}
-
-function readFromHere(cell = primaryCell()) {
-  const all = allCells({visible: true});
-  const idx = cell ? all.indexOf(cell) : -1;
-  if (idx < 0) return notifyErr('Select a cell first to read from here.', 'craftTTS');
-  readCells(all.slice(idx), false);
-}
-
-function togglePause() {
-  const synth = window.speechSynthesis;
-  if (!synth || !playing) return;
-  if (paused) { paused = false; synth.resume(); }
-  else { paused = true; synth.pause(); }
-  syncBar();
-}
-
-function jumpCell(delta) {
-  if (!playing) return;
-  cellIdx = Math.max(0, Math.min(queue.length - 1, cellIdx + delta));
-  chunks = []; chunkIdx = 0; paused = false;
-  speakCurrentChunk();
-}
-
-function stop() {
-  playing = false; paused = false; queue = []; chunks = [];
-  try { window.speechSynthesis?.cancel(); } catch {}
-  syncBar();
-}
-
-/* #a422a2d9 */
-/* Lifecycle, Action Menu & Hotkeys */
-on(window, 'beforeunload', stop, sig);
-on(window, 'pagehide', stop, sig);
-
-const offMenu = window.craftActionMenus?.registerProvider?.(ctx => {
-  if (!ctx.cell) return [];
-  return [
-    {header: 'Read Aloud'},
-    {label: 'Read aloud', onClick: () => readCell(ctx.cell, ctx.isOutput)},
-    {label: 'Read from here', onClick: () => readFromHere(ctx.cell)},
-  ];
-});
-
-const reg = spec => window.__hotkeyRegister?.(spec);
-reg({id: 'craft-tts-cell', label: 'Read selected cell aloud (TTS)', group: 'CRAFT · Reading', combo: '', handler: () => { readCell(); return true; }});
-reg({id: 'craft-tts-from', label: 'Read dialog from selected cell (TTS)', group: 'CRAFT · Reading', combo: '', handler: () => { readFromHere(); return true; }});
-reg({id: 'craft-tts-stop', label: 'Stop text-to-speech reader', group: 'CRAFT · Reading', combo: '', handler: () => { stop(); return true; }});
-
-window.craftTTS = {
-  readCell, readFromHere, togglePause, stop, extractSpeakableText, chunkSentences,
-  disable() {
-    stop();
-    ac.abort(); offMenu?.();
-    bar?.root?.remove();
-    delete window.craftTTS;
-  },
-};
-})();
-
-/* %% nbs/craft/19_bug_capture.ipynb #b19a0003 */
-window.__craftTpl = Object.assign(window.__craftTpl || {}, {"bug_help_btn": "<button type=\"button\" id=\"craft-bug-help-btn\" class=\"craft-bug-help-btn\" title=\"Report a bug (solveitcrafts support)\" aria-label=\"Report a bug\"><svg aria-hidden=\"true\" viewbox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0Z\"></path></svg></button>", "bug_modal": "<div class=\"craft-overlay\" id=\"craft-bug-overlay\" role=\"dialog\" aria-modal=\"true\" aria-label=\"Report a bug\"><div class=\"uk-card craft-card craft-bug-card\"><div class=\"craft-bug-hdr\"><span class=\"craft-bug-title\">Report a Bug</span><button type=\"button\" class=\"craft-bug-close\" aria-label=\"Close\" data-ref=\"close\">×</button></div><form data-ref=\"form\"><label>Title<input class=\"uk-input\" name=\"title\" placeholder=\"Short summary of the issue\" required data-ref=\"title\" type=\"text\"></label><label>Description<textarea name=\"description\" rows=\"4\" class=\"uk-textarea craft-bug-ta\" placeholder=\"What happened? What did you expect?\" required data-ref=\"description\"></textarea></label><label>Reporter notes (optional)<textarea name=\"reporter_notes\" rows=\"2\" class=\"uk-textarea craft-bug-ta\" placeholder=\"Steps to reproduce or extra context\" data-ref=\"notes\"></textarea></label><label>Ingestion endpoint<input class=\"uk-input\" name=\"endpoint\" placeholder=\"http://127.0.0.1:8791/api/tickets\" data-ref=\"endpoint\" type=\"text\"></label><div class=\"craft-bug-opts\"><label class=\"craft-bug-chk\"><input type=\"checkbox\" checked data-ref=\"inc_dom\"> Include sanitized DOM snapshot</label><label class=\"craft-bug-chk\"><input type=\"checkbox\" checked data-ref=\"inc_shot\"> Include best-effort screenshot</label></div><div class=\"craft-bug-meta\" data-ref=\"meta\"></div><div class=\"craft-bug-status\" data-ref=\"status\"></div><div class=\"craft-bug-actions\"><button class=\"uk-btn uk-btn-default uk-btn-sm\" data-ref=\"cancel\" type=\"button\">Cancel</button><button class=\"uk-btn uk-btn-primary uk-btn-sm\" type=\"submit\" data-ref=\"submit\">Send Report</button></div></form></div></div>"});
-
-/* %% nbs/craft/19_bug_capture.ipynb #b19a0007 */
-(() => { /* iife:craftBugCapture */
-/* #b19a0007 */
-window.craftBugCapture?.disable?.();
-
-const CORE = window.__craftCMCore;
-if (!CORE) return;
-const {on, store, mountTpl, mountModal, notify, kid, onDomChange} = CORE;
-const ac = new AbortController(), sig = {signal: ac.signal};
-
-const ENABLED_KEY = 'craft-bug-capture:enabled';
-const ENDPOINT_KEY = 'craft-bug-capture:endpoint';
-const DEFAULT_ENDPOINT = window.CRAFT_SUPPORT_ENDPOINT || 'http://127.0.0.1:8791/api/tickets';
-const MAX_ERRORS = 50;
-
-const recentErrors = [];
-const pushErr = (msg) => {
-  const text = String(msg || '').slice(0, 600);
-  if (!text) return;
-  recentErrors.push(`[${new Date().toISOString()}] ${text}`);
-  if (recentErrors.length > MAX_ERRORS) recentErrors.shift();
-};
-
-const isEnabled = () => store.get(ENABLED_KEY) === '1';
-const getEndpoint = () => store.get(ENDPOINT_KEY) || DEFAULT_ENDPOINT;
-
-let origConsoleError = null;
-let wrappedConsoleError = null;
-let errAc = null;
-
-function uninstallErrorCapture() {
-  errAc?.abort();
-  errAc = null;
-  if (wrappedConsoleError && console.error === wrappedConsoleError && origConsoleError) {
-    console.error = origConsoleError;
-  }
-  wrappedConsoleError = null;
-  origConsoleError = null;
-}
-
-function syncErrorCapture() {
-  if (!isEnabled()) { uninstallErrorCapture(); return; }
-  if (wrappedConsoleError) return;
-  origConsoleError = console.error;
-  const boundOrig = origConsoleError.bind(console);
-  wrappedConsoleError = (...args) => {
-    try {
-      pushErr(args.map(a => (a instanceof Error ? (a.stack || a.message) : typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' '));
-    } catch (_) {}
-    return boundOrig(...args);
-  };
-  console.error = wrappedConsoleError;
-  errAc = new AbortController();
-  const esig = {signal: errAc.signal};
-  on(window, 'error', (e) => pushErr(e?.error?.stack || e?.message || 'Window error'), esig);
-  on(window, 'unhandledrejection', (e) => pushErr(e?.reason?.stack || e?.reason?.message || String(e?.reason || 'Unhandled rejection')), esig);
-}
-
-const helpBtn = mountTpl('bug_help_btn');
-document.body.appendChild(helpBtn);
-const syncVisibility = () => { helpBtn.hidden = !isEnabled(); };
-syncVisibility();
-syncErrorCapture();
-
-/* #0060e99c */
-/* Client-Side DOM Sanitization & Best-Effort Screenshot */
-const SECRET_TEXT_RE = /\b(?:Bearer\s+[A-Za-z0-9._~+/=-]{12,}|(?:sk|pk|rk)_(?:live|test)?_[A-Za-z0-9]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{30,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})\b/g;
-const SENSITIVE_ATTR_RE = /token|secret|pass|auth|cookie|session|csrf|jwt|api[_-]?key|bearer/i;
-const URL_ATTR_RE = /^(?:href|src|action|formaction|xlink:href|srcset|ping|background)$/;
-
-function redactSecretText(text) {
-  const s = String(text ?? '');
-  SECRET_TEXT_RE.lastIndex = 0;
-  return s.replace(SECRET_TEXT_RE, '[REDACTED]');
-}
-
-function isDangerousUrl(val) {
-  return /^(?:javascript|vbscript):/i.test(String(val || '').replace(/[\u0000-\u0020]+/g, ''));
-}
-
-function serializeCleanDom(maxChars = 500000) {
-  const clone = document.documentElement.cloneNode(true);
-  clone.querySelectorAll('#craft-bug-overlay, #craft-bug-help-btn, script, noscript, iframe[srcdoc], meta[name*="csrf" i], meta[name*="token" i]').forEach(n => n.remove());
-  for (const elNode of clone.querySelectorAll('*')) {
-    const tag = elNode.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
-      const type = (elNode.getAttribute('type') || '').toLowerCase();
-      const ident = `${elNode.getAttribute('name') || ''} ${elNode.getAttribute('id') || ''}`;
-      const redact = type === 'password' || type === 'hidden' || type === 'email' || SENSITIVE_ATTR_RE.test(ident);
-      if ('value' in elNode) elNode.value = '';
-      if (elNode.hasAttribute('value')) elNode.setAttribute('value', redact ? '[REDACTED]' : '');
-      if (tag === 'TEXTAREA') elNode.textContent = redact ? '[REDACTED]' : '';
-    }
-    for (const attr of [...elNode.attributes]) {
-      const an = attr.name.toLowerCase();
-      const av = attr.value || '';
-      if (an.startsWith('on')) { elNode.removeAttribute(attr.name); continue; }
-      if (URL_ATTR_RE.test(an) && isDangerousUrl(av)) { elNode.removeAttribute(attr.name); continue; }
-      SECRET_TEXT_RE.lastIndex = 0;
-      if (SENSITIVE_ATTR_RE.test(an) || SECRET_TEXT_RE.test(av)) {
-        elNode.setAttribute(attr.name, '[REDACTED]');
-      }
-    }
-  }
-  const walker = document.createTreeWalker(clone, NodeFilter.SHOW_TEXT);
-  let node;
-  while ((node = walker.nextNode())) {
-    if (node.nodeValue) {
-      const cleaned = redactSecretText(node.nodeValue);
-      if (cleaned !== node.nodeValue) node.nodeValue = cleaned;
-    }
-  }
-  const html = '<!doctype html>\n' + clone.outerHTML;
-  return html.length > maxChars ? html.slice(0, maxChars) + '\n<!-- truncated -->' : html;
-}
-
-async function captureBestEffortScreenshot() {
-  try {
-    if (typeof window.html2canvas === 'function') {
-      const canvas = await window.html2canvas(document.body, {logging: false, useCORS: true, scale: 1});
-      return canvas.toDataURL('image/png');
-    }
-    const w = Math.min(window.innerWidth || 1280, 1440);
-    const h = Math.min(window.innerHeight || 800, 900);
-    const xhtml = new XMLSerializer().serializeToString(document.body);
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><foreignObject width="100%" height="100%">${xhtml}</foreignObject></svg>`;
-    const img = new Image();
-    const url = URL.createObjectURL(new Blob([svg], {type: 'image/svg+xml;charset=utf-8'}));
-    try {
-      await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
-      const canvas = document.createElement('canvas');
-      canvas.width = w; canvas.height = h;
-      canvas.getContext('2d').drawImage(img, 0, 0);
-      return canvas.toDataURL('image/png');
-    } finally {
-      URL.revokeObjectURL(url);
-    }
-  } catch (_) {
-    return null;
-  }
-}
-
-/* #428fc2b7 */
-/* Bug Report Modal & Submission */
-let modal = null;
-function closeModal() { modal?.close(); }
-
-function ensureModal() {
-  if (modal) return modal;
-  modal = mountModal('bug_modal', {signal: ac.signal});
-  on(modal.cancel, 'click', closeModal, sig);
-  on(modal.form, 'submit', async (e) => {
-    e.preventDefault();
-    const statusEl = modal.status;
-    const submitBtn = modal.submit;
-    const endpoint = (modal.endpoint.value || '').trim() || DEFAULT_ENDPOINT;
-    store.set(ENDPOINT_KEY, endpoint);
-    submitBtn.disabled = true;
-    statusEl.className = 'craft-bug-status';
-    statusEl.textContent = 'Capturing context and uploading ticket...';
-    try {
-      const payload = {
-        title: modal.title.value.trim(),
-        description: modal.description.value.trim(),
-        reporter_notes: modal.notes.value.trim(),
-        url: location.href,
-        viewport: {width: window.innerWidth, height: window.innerHeight},
-        user_agent: navigator.userAgent,
-        dialog_id: typeof kid === 'function' ? kid() : null,
-        console_errors: recentErrors.slice(),
-        dom_html: modal.inc_dom.checked ? serializeCleanDom() : '',
-        screenshot_data_url: modal.inc_shot.checked ? await captureBestEffortScreenshot() : null,
-      };
-      const resp = await fetch(endpoint, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(payload),
-      });
-      const data = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
-      statusEl.className = 'craft-bug-status ok';
-      statusEl.textContent = `Saved ticket ${data.id}` + (data.folder_url ? ` (${data.folder_url})` : '');
-      modal.title.value = '';
-      modal.description.value = '';
-      modal.notes.value = '';
-    } catch (err) {
-      statusEl.className = 'craft-bug-status err';
-      statusEl.textContent = `Failed to submit: ${err?.message || err}`;
-    } finally {
-      submitBtn.disabled = false;
-    }
-  }, sig);
-  return modal;
-}
-
-function openModal() {
-  const m = ensureModal();
-  m.endpoint.value = getEndpoint();
-  m.meta.textContent = `${location.pathname} · ${window.innerWidth}×${window.innerHeight} · ${recentErrors.length} recent console error(s)`;
-  m.status.className = 'craft-bug-status';
-  m.status.textContent = '';
-  m.open();
-  m.title.focus();
-}
-
-on(helpBtn, 'click', openModal, sig);
-
-/* #d590a7a5 */
-/* Menu Toggle, Hotkeys & Lifecycle */
-function setEnabled(val) {
-  store.set(ENABLED_KEY, val ? '1' : '0');
-  syncVisibility();
-  syncErrorCapture();
-  syncMenuToggle();
-  notify(isEnabled() ? 'Bug-report help icon enabled.' : 'Bug-report help icon hidden.', 'primary');
-  return isEnabled();
-}
-
-function syncMenuToggle() {
-  document.querySelectorAll('.craft-bug-menu-toggle input[type="checkbox"]').forEach(chk => {
-    chk.checked = isEnabled();
+  const offMenu = window.craftActionMenus?.registerProvider?.(ctx => {
+    if (ctx.isOutput || !ctx.cell) return [];
+    return [{label: 'Cell history…', onClick: () => load().then(api => api?.open?.(ctx.cell))}];
   });
-}
+  window.__hotkeyRegister?.({id: 'craft-cell-history', label: 'Cell version history (session)', group: 'CRAFT · History', combo: '', handler: () => { load().then(api => api?.open?.()); return true; }});
+  window.craftHistory = {
+    open: cell => load().then(api => api?.open?.(cell)),
+    snapshots: () => [],
+    recordSnapshot: (...args) => load().then(api => api?.recordSnapshot?.(...args)),
+    restoreText: (...args) => load().then(api => api?.restoreText?.(...args)),
+    disable() { offMenu?.(); delete window.craftHistory; },
+  };
+  if (qs(`${SOLVEIT.sel.cell}[data-diff]`)) load();
+})();
 
-function injectMenuToggle() {
-  const lists = document.querySelectorAll('.uk-container > nav.monster-navbar .uk-dropdown ul, .uk-container > nav.monster-navbar .uk-drop ul, .uk-navbar-dropdown ul');
-  for (const ul of lists) {
-    if (ul.querySelector('.craft-bug-menu-toggle')) continue;
-    const li = document.createElement('li');
-    li.className = 'craft-bug-menu-toggle';
-    const lbl = document.createElement('label');
-    lbl.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;font-size:12px;';
-    const chk = document.createElement('input');
-    chk.type = 'checkbox';
-    chk.checked = isEnabled();
-    on(chk, 'change', () => setEnabled(chk.checked), sig);
-    lbl.append(chk, document.createTextNode('Show bug-report help icon'));
-    li.appendChild(lbl);
-    ul.appendChild(li);
-  }
-}
-injectMenuToggle();
-const stopMenuObs = onDomChange?.(injectMenuToggle);
+/* %% nbs/craft/18_tts_reader.ipynb #cc0d8e58 */
+(() => {
+  window.craftTTS?.disable?.();
+  const CORE = window.__craftCMCore;
+  if (!CORE || !CORE.qs(CORE.SOLVEIT.sel.dialog) || !CORE.features.init('tts-reader', 'TTS Reader', 'Read notes and AI responses aloud with Web Speech API')) return;
+  let loading = null;
+  const load = () => {
+    if (window.craftTTS?.__loaded) return Promise.resolve(window.craftTTS);
+    if (loading) return loading;
+    loading = new Promise((resolve, reject) => {
+      document.querySelector('script[data-craft-asset="craft_tts.js"]')?.remove();
+      const s = document.createElement('script');
+      s.src = '/static/.craft-assets/craft_tts.js';
+      s.dataset.craftAsset = 'craft_tts.js';
+      s.onload = () => { loading = null; resolve(window.craftTTS); };
+      s.onerror = err => { loading = null; reject(err); };
+      document.head.append(s);
+    });
+    return loading;
+  };
+  const offMenu = window.craftActionMenus?.registerProvider?.(ctx => {
+    if (!ctx.cell) return [];
+    return [
+      {header: 'Read Aloud'},
+      {label: 'Read aloud', onClick: () => load().then(api => api?.readCell?.(ctx.cell, ctx.isOutput))},
+      {label: 'Read from here', onClick: () => load().then(api => api?.readFromHere?.(ctx.cell))},
+    ];
+  });
+  const reg = spec => window.__hotkeyRegister?.(spec);
+  reg({id: 'craft-tts-cell', label: 'Read selected cell aloud (TTS)', group: 'CRAFT · Reading', combo: '', handler: () => { load().then(api => api?.readCell?.()); return true; }});
+  reg({id: 'craft-tts-from', label: 'Read dialog from selected cell (TTS)', group: 'CRAFT · Reading', combo: '', handler: () => { load().then(api => api?.readFromHere?.()); return true; }});
+  reg({id: 'craft-tts-stop', label: 'Stop text-to-speech reader', group: 'CRAFT · Reading', combo: '', handler: () => { if (window.craftTTS?.__loaded) window.craftTTS.stop(); return true; }});
+  window.craftTTS = {
+    readCell: (...args) => load().then(api => api?.readCell?.(...args)),
+    readFromHere: (...args) => load().then(api => api?.readFromHere?.(...args)),
+    togglePause: () => { if (window.craftTTS?.__loaded) window.craftTTS.togglePause(); },
+    stop: () => { if (window.craftTTS?.__loaded) window.craftTTS.stop(); },
+    disable() { offMenu?.(); delete window.craftTTS; },
+  };
+})();
 
-window.__hotkeyRegister?.({
-  id: 'craft-bug-toggle-icon',
-  label: 'Toggle bug-report help icon',
-  group: 'CRAFT · Support',
-  combo: '',
-  handler: () => { setEnabled(!isEnabled()); return true; },
-});
-window.__hotkeyRegister?.({
-  id: 'craft-bug-open-form',
-  label: 'Report a bug (open support form)',
-  group: 'CRAFT · Support',
-  combo: '',
-  handler: () => { openModal(); return true; },
-});
-
-window.craftBugCapture = {
-  isEnabled,
-  setEnabled,
-  open: openModal,
-  close: closeModal,
-  getRecentErrors: () => recentErrors.slice(),
-  disable: () => {
-    ac.abort();
-    stopMenuObs?.();
-    uninstallErrorCapture();
-    modal?.destroy();
-    modal = null;
-    helpBtn.remove();
-    document.querySelectorAll('.craft-bug-menu-toggle').forEach(el => el.remove());
-    delete window.craftBugCapture;
-  },
-};
+/* %% nbs/craft/19_bug_capture.ipynb #35f3f088 */
+(() => {
+  window.craftBugCapture?.disable?.();
+  const CORE = window.__craftCMCore;
+  if (!CORE || !CORE.features.init('bug-capture', 'Bug Capture', 'In-app bug-report modal with sanitized DOM and console capture')) return;
+  const {store} = CORE;
+  const ENABLED_KEY = 'craft-bug-capture:enabled';
+  const isEnabled = () => store.get(ENABLED_KEY) === '1';
+  let loading = null;
+  const load = () => {
+    if (window.craftBugCapture?.__loaded) return Promise.resolve(window.craftBugCapture);
+    if (loading) return loading;
+    loading = new Promise((resolve, reject) => {
+      document.querySelector('script[data-craft-asset="craft_bug_capture.js"]')?.remove();
+      const s = document.createElement('script');
+      s.src = '/static/.craft-assets/craft_bug_capture.js';
+      s.dataset.craftAsset = 'craft_bug_capture.js';
+      s.onload = () => { loading = null; resolve(window.craftBugCapture); };
+      s.onerror = err => { loading = null; reject(err); };
+      document.head.append(s);
+    });
+    return loading;
+  };
+  window.__hotkeyRegister?.({
+    id: 'craft-bug-toggle-icon',
+    label: 'Toggle bug-report help icon',
+    group: 'CRAFT · Support',
+    combo: '',
+    handler: () => { load().then(api => api?.setEnabled?.(!api.isEnabled())); return true; },
+  });
+  window.__hotkeyRegister?.({
+    id: 'craft-bug-open-form',
+    label: 'Report a bug (open support form)',
+    group: 'CRAFT · Support',
+    combo: '',
+    handler: () => { load().then(api => api?.open?.()); return true; },
+  });
+  window.craftBugCapture = {
+    isEnabled,
+    setEnabled: val => load().then(api => api?.setEnabled?.(val)),
+    open: () => load().then(api => api?.open?.()),
+    close: () => { if (window.craftBugCapture?.__loaded) window.craftBugCapture.close(); },
+    getRecentErrors: () => [],
+    disable() { delete window.craftBugCapture; },
+  };
+  if (isEnabled()) load();
 })();

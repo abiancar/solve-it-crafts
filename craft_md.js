@@ -4,16 +4,16 @@
 window.craftInlineNote?.disable?.();
   window.craftInlineText?.disable?.();
   window.craftMd?.disable?.();
-  if (!document.getElementById('dialog-container')) return;
-
-    const CORE = window.__craftCMCore;
-  const {LOCAL_CM_BASE, CM_DEPS, isMac, isDark, normId, getCellEl, normalizeText} = CORE;
-  const CARD_IN_SEL = ':scope > .card-in:is([data-mtype="note"],[data-mtype="prompt"],[data-mtype="raw"])';
-  const CARD_OUT_SEL = ':scope > .card-out[data-mtype="prompt"]';
+  const CORE = window.__craftCMCore;
+  if (!CORE?.features?.isEnabled?.('markdown-editor')) return;
+  const {SOLVEIT, LOCAL_CM_BASE, CM_DEPS, isMac, isDark, normId, getCellEl, normalizeText} = CORE;
+  if (!document.querySelector(SOLVEIT.sel.dialog)) return;
+  const CARD_IN_SEL = `${SOLVEIT.sel.cardIn}:is([data-mtype="note"],[data-mtype="prompt"],[data-mtype="raw"])`;
+  const CARD_OUT_SEL = `${SOLVEIT.sel.cardOut}[data-mtype="prompt"]`;
   const TEXT_TYPES = new Set(['note', 'prompt', 'raw']);
   const SURROUND_PAIRS = {'(': ')', '[': ']', '{': '}', '"': '"', "'": "'", '`': '`', '*': '*', '_': '_', '~': '~'};
 
-  let cmCache = null, mdCache = null, pendingPointer = null;
+  let cmCache = null, mdCache = null;
 
   const partOf = p => p === 'out' ? 'out' : 'in';
   const makeKey = (id, part = 'in') => `${normId(id)}:${partOf(part)}`;
@@ -67,17 +67,13 @@ window.craftInlineNote?.disable?.();
     persistSave: async (key, content, waitersMap) => {
       const {id, part} = parseKey(key);
       if (part !== 'out') return CORE.saveInputContents({id, content, waitersMap, key, tag: 'craftMd'});
-      const ctrl = new AbortController(), timer = setTimeout(() => ctrl.abort(), 8000);
       try {
-        const resp = await fetch('/upsert_msg_', {
-          method: 'POST', headers: {'HX-Request': 'true'}, signal: ctrl.signal,
-          body: new URLSearchParams({kid: CORE.kid(), id_: id, msg_type: 'prompt', is_input: '0', content, cancel: 'true'}),
-        });
-        return resp.ok;
+        await CORE.htmxPost(SOLVEIT.api.upsertMsg, {id_: id, msg_type: 'prompt', is_input: '0', content, cancel: 'true'});
+        return true;
       } catch (err) {
         console.error('craftMd: output save failed', err);
         return false;
-      } finally { clearTimeout(timer); }
+      }
     },
     saveFailMsg: key => parseKey(key).part === 'out'
       ? 'Could not save assistant response — changes kept in editor.'
@@ -85,7 +81,7 @@ window.craftInlineNote?.disable?.();
     beforeUnmount: (_key, rec) => {
       if (!rec || rec.part !== 'in' || rec.kind !== 'raw') return;
       const docText = rec.view.state.doc.toString();
-      const codeEl = getCard(getCellEl(rec.id), 'in')?.querySelector('.msg-body .msg-content pre code');
+      const codeEl = getCard(getCellEl(rec.id), 'in')?.querySelector(`${SOLVEIT.sel.msgBody} ${SOLVEIT.sel.msgContent} pre code`);
       if (codeEl && codeEl.textContent !== docText) codeEl.textContent = docText;
     },
     isViewValid: (_key, rec, el, card) => {
@@ -93,16 +89,17 @@ window.craftInlineNote?.disable?.();
       return Boolean(kind && kind === rec.kind && !hasDiff(el) && !(rec.part === 'out' && isWaiting(card)));
     },
     onViewSynced: key => syncSaveState(key),
+    onRekey: (_oldKey, newKey, rec) => { rec.id = parseKey(newKey).id; },
     typingBlockedExtra: '.cm-editor,#craft-insert-preview-menu',
     openPrimaryOnEnter: (el, run) => {
       if (!managesPart(el, 'in')) return false;
       if (run) openCell(normId(el.id), null, 'in');
       return true;
     },
-    editClickSel: '.card-in:is([data-mtype="note"],[data-mtype="prompt"],[data-mtype="raw"]) [hx-post="/editor_"], .card-out[data-mtype="prompt"] [hx-post="/editor_"]',
+    editClickSel: `.card-in:is([data-mtype="note"],[data-mtype="prompt"],[data-mtype="raw"]) [hx-post="${SOLVEIT.api.editor}"], .card-out[data-mtype="prompt"] [hx-post="${SOLVEIT.api.editor}"]`,
     onEditClick: (edit, e) => {
       const card = edit.closest('.msg-card'), part = card?.classList.contains('card-out') ? 'out' : 'in';
-      const el = edit.closest('#dialog-container > .editable[id]'), id = normId(el?.id);
+      const el = edit.closest(SOLVEIT.sel.cellWithId), id = normId(el?.id);
       if (!id || !managesPart(el, part)) return false;
       e.preventDefault(); e.stopImmediatePropagation();
       openCell(id, null, part);
@@ -112,6 +109,26 @@ window.craftInlineNote?.disable?.();
     runFailMsg: 'Prompt saved, but could not start the run.',
     domAttrs: ['data-diff', 'data-mtype', 'data-wait'],
     inDialog: true,
+    pointerEdit: {
+      ignoreMods: true,
+      ignoreSel: 'a, button, summary, input, select, textarea, label, [role="button"], .craft-md-host, .craft-c2-host, .copy-wrap > button',
+      resolveTarget: e => {
+        const body = e.target.closest?.(`${SOLVEIT.sel.cell} > .card-in:is([data-mtype="note"],[data-mtype="prompt"],[data-mtype="raw"]) > ${SOLVEIT.sel.msgBody}`);
+        const content = body?.querySelector(SOLVEIT.sel.msgContent);
+        if (!content) return null;
+        const el = body.closest(SOLVEIT.sel.cell);
+        if (!managesPart(el, 'in')) return null;
+        const kind = getKind(el, 'in');
+        return {
+          id: normId(el.id),
+          kind,
+          dragSelectGuard: kind !== 'raw',
+          codeEl: kind === 'raw' ? content.querySelector('pre code') : null,
+          caretHint: kind !== 'raw' ? captureCaretHint(content, e.clientX, e.clientY) : null,
+        };
+      },
+      onOpen: (p, selSpec) => openCell(p.id, selSpec, 'in'),
+    },
   });
   const {states, views, pendingSaves, dirtyIds, failedSaves, syncSaveState, saveCell, unmountCell, exitCell, sync, schedule} = ed;
 
@@ -477,6 +494,7 @@ window.craftInlineNote?.disable?.();
       /* Secondary pass on visible non-code lines for Solveit #_msgid refs and LaTeX math */
       const inCode = (a, b) => codeRanges.some(([cf, ct]) => a < ct && b > cf);
       const tokenRe = /(#_[0-9a-f]{6,12})\b|(\$\$[^$\n]+\$\$|\\\[[^\n]+\\\]|\\\([^\n]+\\\))/g;
+      const multiSpaceRe = /(?<=\S) {2,}(?=\S)/g;
       for (const {from: vFrom, to: vTo} of edView.visibleRanges) {
         const l1 = doc.lineAt(vFrom).number, l2 = doc.lineAt(vTo).number;
         for (let l = l1; l <= l2; l++) {
@@ -491,6 +509,13 @@ window.craftInlineNote?.disable?.();
               addMark(mf, mt, Decoration.mark({class: 'craft-md-msgref', attributes: {'data-href': m[1], title: `Jump to ${m[1]} (${isMac ? '⌘' : 'Ctrl'}+Click)`}}));
             } else if (m[2]) {
               addMark(mf, mt, mathDeco);
+            }
+          }
+          if (!tableLines.has(l)) {
+            multiSpaceRe.lastIndex = 0;
+            while ((m = multiSpaceRe.exec(line.text))) {
+              const sf = line.from + m.index, st = sf + m[0].length;
+              if (!inCode(sf, st) && !selOverlaps(sf, st)) addReplace(sf + 1, st, hideDeco);
             }
           }
         }
@@ -591,7 +616,8 @@ window.craftInlineNote?.disable?.();
     ];
   }
 
-  function buildExtensions(bundle, key, id, part, kind, comps) {
+  function buildExtensions(bundle, keyOrRef, id, part, kind, comps) {
+    const ref = typeof keyOrRef === 'string' ? {key: keyOrRef, id} : keyOrRef;
     const {cm, lm, mdLangExt, livePreviewExt} = bundle;
     const {state, view, lang, cmds, search} = cm;
     const {themeComp} = comps;
@@ -618,41 +644,41 @@ window.craftInlineNote?.disable?.();
     const jumpLastKey = isMac ? 'Ctrl-Shift-ArrowUp' : 'Mod-Shift-ArrowUp';
     const solveitKeys = state.Prec.high(view.keymap.of([
       {key: 'Shift-Enter', run: () => {
-        if (isOut) exitCell(key);
-        else if (kind === 'prompt') saveAndRun(id, 'shift-run');
-        else saveAndAdvance(key);
+        if (isOut) exitCell(ref.key);
+        else if (kind === 'prompt') saveAndRun(ref.id, 'shift-run');
+        else saveAndAdvance(ref.key);
         return true;
       }},
       {key: 'Mod-Enter', run: () => {
-        if (!isOut && kind === 'prompt') saveAndRun(id, 'run');
-        else exitCell(key);
+        if (!isOut && kind === 'prompt') saveAndRun(ref.id, 'run');
+        else exitCell(ref.key);
         return true;
       }},
       {key: 'Alt-Enter', run: () => {
         if (isOut) return false;
-        if (kind === 'prompt') saveAndRun(id, 'alt-run');
-        else saveAndInsertBelow(key);
+        if (kind === 'prompt') saveAndRun(ref.id, 'alt-run');
+        else saveAndInsertBelow(ref.key);
         return true;
       }},
       {key: 'Mod-Shift-Enter', run: () => {
-        if (!isOut && kind === 'prompt') { saveAndRun(id, 'continue'); return true; }
+        if (!isOut && kind === 'prompt') { saveAndRun(ref.id, 'continue'); return true; }
         return false;
       }},
-      {key: 'ArrowUp', run: v => !isOut && stepBoundary(id, v, true)},
-      {key: 'ArrowDown', run: v => !isOut && stepBoundary(id, v, false)},
-      {key: 'Ctrl-Shift--', run: v => { if (!isOut) splitCell(id, v, kind); return true; }},
-      {key: 'Ctrl-Shift-_', run: v => { if (!isOut) splitCell(id, v, kind); return true; }},
-      {key: 'Mod-Shift-j', run: v => { if (!isOut) switchCellType(id, v, 'code'); return true; }},
-      {key: 'Mod-Shift-k', run: v => { if (!isOut && kind !== 'note') switchCellType(id, v, 'note'); return true; }},
-      {key: 'Mod-Shift-l', run: v => { if (!isOut && kind !== 'prompt') switchCellType(id, v, 'prompt'); return true; }},
-      {key: 'Mod-Shift-;', run: v => { if (!isOut && kind !== 'raw') switchCellType(id, v, 'raw'); return true; }},
+      {key: 'ArrowUp', run: v => !isOut && stepBoundary(ref.id, v, true)},
+      {key: 'ArrowDown', run: v => !isOut && stepBoundary(ref.id, v, false)},
+      {key: 'Ctrl-Shift--', run: v => { if (!isOut) splitCell(ref.id, v, kind); return true; }},
+      {key: 'Ctrl-Shift-_', run: v => { if (!isOut) splitCell(ref.id, v, kind); return true; }},
+      {key: 'Mod-Shift-j', run: v => { if (!isOut) switchCellType(ref.id, v, 'code'); return true; }},
+      {key: 'Mod-Shift-k', run: v => { if (!isOut && kind !== 'note') switchCellType(ref.id, v, 'note'); return true; }},
+      {key: 'Mod-Shift-l', run: v => { if (!isOut && kind !== 'prompt') switchCellType(ref.id, v, 'prompt'); return true; }},
+      {key: 'Mod-Shift-;', run: v => { if (!isOut && kind !== 'raw') switchCellType(ref.id, v, 'raw'); return true; }},
       {key: 'Mod-Shift-d', run: () => { document.getElementById('brain-btn')?.click(); return true; }},
-      {key: jumpLastKey, run: () => { jumpToLastCell(key); return true; }},
-      {key: 'Shift-Escape', run: () => { exitCell(key); return true; }},
+      {key: jumpLastKey, run: () => { jumpToLastCell(ref.key); return true; }},
+      {key: 'Shift-Escape', run: () => { exitCell(ref.key); return true; }},
       {key: 'Escape', run: v => {
         if (search.searchPanelOpen(v.state)) return search.closeSearchPanel(v);
         if (v.state.selection.ranges.length > 1) return cmds.simplifySelection(v);
-        exitCell(key);
+        exitCell(ref.key);
         return true;
       }},
       ...(isMd ? [
@@ -698,17 +724,22 @@ window.craftInlineNote?.disable?.();
       imageInsert = v.state.selection.main.head;
       const upload = async () => {
         try {
+          let uploadId = ref.id;
+          if (CORE.optimistic?.isOptimistic?.(uploadId)) {
+            uploadId = await CORE.optimistic.waitForReal(uploadId);
+            if (!uploadId) return;
+          }
           const imageId = crypto.randomUUID();
           const ext = file.name.match(/\.([a-z0-9]+)$/i)?.[1] || (file.type === 'image/jpeg' ? 'jpg' : file.type.split('/')[1].split('+')[0]);
           const form = new FormData();
-          form.append('id_', id);
+          form.append('id_', uploadId);
           form.append('msg_type', kind);
           form.append('kid', document.getElementById('kid')?.value || '');
           form.append('file', file, `pasted_file_${imageId}.${ext}`);
           const response = await fetch('/upload_attachment_', {method: 'POST', body: form});
           if (!response.ok) throw new Error(`Attachment upload returned ${response.status}`);
           const data = await response.json();
-          if (views.get(key)?.view !== v) return;
+          if (views.get(ref.key)?.view !== v) return;
           const url = data.saved_file || `attachment:${imageId}`;
           const text = `\n![Pasted image](${url})\n`;
           v.dispatch({changes: {from: imageInsert, insert: text}, userEvent: 'input.paste'});
@@ -724,11 +755,12 @@ window.craftInlineNote?.disable?.();
     const updateWatcher = view.EditorView.updateListener.of(u => {
       if (!u.docChanged) return;
       if (imageInsert !== null) imageInsert = u.changes.mapPos(imageInsert, 1);
-      const el = getCellEl(id);
+      const curId = ref.id, curKey = ref.key;
+      const el = getCellEl(curId);
       const savedText = getCellText(el, part);
-      if (u.state.doc.toString() !== savedText) dirtyIds.add(key);
-      else dirtyIds.delete(key);
-      syncSaveState(key);
+      if (u.state.doc.toString() !== savedText) dirtyIds.add(curKey);
+      else dirtyIds.delete(curKey);
+      syncSaveState(curKey);
     });
 
     const exts = [
@@ -763,17 +795,19 @@ window.craftInlineNote?.disable?.();
 /* ── Save, unmount, blur, run, split, type-switch ─────────────────────── */
 
   async function saveAndAdvance(key) {
-    const {id} = parseKey(key);
+    const ref = views.get(key)?.ref;
+    await exitCell(key);
+    const {id} = parseKey(ref?.key || key);
     const el = getCellEl(id);
     const next = el ? window.adjacentMsg?.(window.$(el), false) : null;
-    await exitCell(key);
     if (next?.length) window.selectMsg?.(next);
   }
 
   async function saveAndInsertBelow(key) {
-    const {id} = parseKey(key);
-    const el = getCellEl(id);
+    const ref = views.get(key)?.ref;
     await exitCell(key);
+    const {id} = parseKey(ref?.key || key);
+    const el = getCellEl(id);
     if (el) {
       window.selectMsg?.(window.$(el), {scroll: false});
       window.solveitHotkeys?.run?.('si-b');
@@ -865,11 +899,11 @@ window.craftInlineNote?.disable?.();
       hostClass: `craft-cm-host craft-md-host craft-md-${kind} ${kind === 'raw' ? 'craft-md-mono' : 'craft-md-prose'}`,
       extraRec: {id, part, kind},
       themeExts: themeExtensions(bundle, kind),
-      prepareState: () => {
+      prepareState: ref => {
         const comps = {themeComp: new bundle.cm.state.Compartment()};
         const prev = states.get(key);
         const reusePrev = Boolean(prev && prev.kind === kind && prev.state.doc.toString() === text && prev.state._mdComps);
-        const edState = reusePrev ? prev.state : bundle.cm.state.EditorState.create({doc: text, extensions: buildExtensions(bundle, key, id, part, kind, comps)});
+        const edState = reusePrev ? prev.state : bundle.cm.state.EditorState.create({doc: text, extensions: buildExtensions(bundle, ref, id, part, kind, comps)});
         const activeComps = reusePrev ? prev.state._mdComps : comps;
         edState._mdComps = activeComps;
         return {edState, activeComps, reusePrev};
@@ -877,47 +911,9 @@ window.craftInlineNote?.disable?.();
     });
   }
 
-/* #30d994ee */
-/* ── DOM event handlers ───────────────────────────────────────────────── */
-  const onMouseDown = e => {
-    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.altKey) return;
-    if (e.target.closest?.('a, button, summary, input, select, textarea, label, [role="button"], .craft-md-host, .craft-c2-host, .copy-wrap > button')) return;
-    const body = e.target.closest?.('#dialog-container > .editable > .card-in:is([data-mtype="note"],[data-mtype="prompt"],[data-mtype="raw"]) > .msg-body');
-    const content = body?.querySelector('.msg-content');
-    if (!content) return;
-    const el = body.closest('.editable');
-    if (!managesPart(el, 'in')) return;
-    const kind = getKind(el, 'in');
-    pendingPointer = {
-      id: normId(el.id),
-      kind,
-      x: e.clientX,
-      y: e.clientY,
-      codeEl: kind === 'raw' ? content.querySelector('pre code') : null,
-      caretHint: kind !== 'raw' ? captureCaretHint(content, e.clientX, e.clientY) : null,
-    };
-  };
-
-  const onMouseUp = e => {
-    if (!pendingPointer) return;
-    const p = pendingPointer;
-    pendingPointer = null;
-    const sel = window.getSelection();
-    if (p.kind === 'raw') {
-      const anchor = offsetIn(p.codeEl, sel?.anchorNode, sel?.anchorOffset);
-      const head = offsetIn(p.codeEl, sel?.focusNode, sel?.focusOffset);
-      if (anchor != null) sel?.removeAllRanges();
-      openCell(p.id, anchor != null ? {anchor, head: head ?? anchor} : {coords: {x: e.clientX, y: e.clientY}}, 'in');
-      return;
-    }
-    const moved = Math.hypot(e.clientX - p.x, e.clientY - p.y);
-    if (moved > 5 && sel && !sel.isCollapsed) return;
-    openCell(p.id, {caretHint: p.caretHint, coords: {x: e.clientX, y: e.clientY}}, 'in');
-  };
-
 /* #64e072f8 */
 /* ── Preserve single newlines in rendered markdown (notes & prompts) ──── */
-  const SOFT_BR_CARD_SEL = '#dialog-container > .editable > .card-in:is([data-mtype="note"],[data-mtype="prompt"])';
+  const SOFT_BR_CARD_IN = `${SOLVEIT.sel.cardIn}:is([data-mtype="note"],[data-mtype="prompt"])`;
   const BLOCK_TAGS = new Set(['P', 'UL', 'OL', 'BLOCKQUOTE', 'PRE', 'TABLE', 'DIV', 'HR', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'FIGURE', 'DETAILS']);
   const SKIP_TAGS = new Set(['PRE', 'SCRIPT', 'STYLE', 'SVG', 'MATH', 'TEXTAREA']);
 
@@ -1008,9 +1004,9 @@ window.craftInlineNote?.disable?.();
 
   function applySoftBreaksToCard(card) {
     if (!card || card.dataset.mdEditing === 'true') return;
-    const mc = card.querySelector(':scope > .msg-body > .msg-content');
+    const mc = card.querySelector(`:scope > ${SOLVEIT.sel.msgBody} > ${SOLVEIT.sel.msgContent}`);
     if (!mc || mc.dataset.craftBreaks === '1') return;
-    const el = card.closest('#dialog-container > .editable');
+    const el = card.closest(SOLVEIT.sel.cell);
     const raw = getCellText(el, 'in');
     if (!raw || !/[^\n]\n[^\n]/.test(raw)) { mc.dataset.craftBreaks = '1'; return; }
 
@@ -1122,15 +1118,13 @@ window.craftInlineNote?.disable?.();
     mc.dataset.craftBreaks = '1';
   }
 
-  const applyAllSoftBreaks = () => {
-    for (const card of document.querySelectorAll(SOFT_BR_CARD_SEL)) applySoftBreaksToCard(card);
+  const applySoftBreaksToCells = cells => {
+    for (const el of cells) {
+      const card = el.querySelector(SOFT_BR_CARD_IN);
+      if (card) applySoftBreaksToCard(card);
+    }
   };
-  const unsubSoftBreaks = CORE.onDomChange(applyAllSoftBreaks, {delay: 'raf', inDialog: true});
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', applyAllSoftBreaks, {once: true});
-  else applyAllSoftBreaks();
-
-  document.addEventListener('mousedown', onMouseDown);
-  document.addEventListener('mouseup', onMouseUp);
+  const unsubSoftBreaks = CORE.onCells(applySoftBreaksToCells, {attrs: ['data-mtype', 'data-md-editing'], initial: true});
 
   window.craftMd = {
     manages: (id, part = 'in') => managesPart(getCellEl(id), partOf(part)),
@@ -1141,11 +1135,11 @@ window.craftInlineNote?.disable?.();
     view: key => views.get(key ?? ed.activeKey)?.view || null,
     kind: key => views.get(key ?? ed.activeKey)?.kind || null,
     run: (id, cmd = 'run') => saveAndRun(normId(id), cmd),
+    rekey: (oldId, newId, opts) => ed.rekey(makeKey(oldId, 'in'), makeKey(newId, 'in'), opts),
+    abortOptimistic: id => { const k = makeKey(id, 'in'); dirtyIds.delete(k); failedSaves.delete(k); states.delete(k); unmountCell(k); },
     dirty: () => [...dirtyIds],
     source: () => cmCache?._source || 'pending',
     disable() {
-      document.removeEventListener('mousedown', onMouseDown);
-      document.removeEventListener('mouseup', onMouseUp);
       unsubSoftBreaks();
       ed.disable();
       delete window.craftMd;

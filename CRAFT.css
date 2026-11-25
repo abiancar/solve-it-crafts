@@ -8,8 +8,11 @@
    Pure in html.dark) so native overlays and CRAFT components share one theme.
    ──────────────────────────────────────────────────────────────────── */
 
+@layer craft-theme, craft-components, craft-mobile;
+
+@layer craft-theme {
 :root {
-  /* Type scale; CRAFT.js reads --craft-code for Monaco editors too. */
+  /* Type scale; CRAFT.js reads --craft-code for inline editors. */
   --craft-prose: 11px;
   --craft-prose-lh: 13px;
   --craft-code: 10px;
@@ -76,6 +79,8 @@
   --craft-shadow: 0 6px 18px #0002;
 }
 
+}
+
 html.dark,
 html.dark[class*="uk-theme-"] {
   /* Remap MonsterUI / FrankenUI / Tailwind semantic variables to Tokyo Night Pure */
@@ -101,6 +106,11 @@ html.dark[class*="uk-theme-"] {
   --input-alpha: 100%;
   --ring: 220.8 89.2% 72.4%;                /* #7aa2f7 */
 
+}
+
+@layer craft-theme {
+html.dark,
+html.dark[class*="uk-theme-"] {
   /* Semantic color tokens (Tokyo Night Pure) */
   --craft-bg: #1f2030;
   --craft-surface: #1a1b26;
@@ -136,6 +146,7 @@ html.dark[class*="uk-theme-"] {
   --craft-row-hover: rgba(122, 162, 247, 0.06);
   --craft-copy-bg: #16161ee6;
   --craft-shadow: 0 8px 24px #000a;
+}
 }
 
 /* ── 1. Canvas and scroller ─────────────────────────────────────────── */
@@ -305,11 +316,9 @@ button, input, select, textarea { font-family: inherit; }
 .msg-content .prose { font-family: var(--craft-prose-family) !important; font-weight: 360 !important; font-stretch: 75% !important; font-feature-settings: "onum" 1 !important; }
 .msg-content .prose :is(strong, b, th, h1, h2, h3, h4, h5, h6) { font-weight: 650 !important; }
 
-/* Iosevka: code only; remote font files, with a system monospace fallback. */
-@font-face { font-family: 'Craft Iosevka'; font-style: normal; font-weight: 400; font-display: swap; src: url('https://iosevka-webfonts.github.io/iosevka/WOFF2/Iosevka-Regular.woff2') format('woff2'); }
-@font-face { font-family: 'Craft Iosevka'; font-style: italic; font-weight: 400; font-display: swap; src: url('https://iosevka-webfonts.github.io/iosevka/WOFF2/Iosevka-Italic.woff2') format('woff2'); }
-@font-face { font-family: 'Craft Iosevka'; font-style: normal; font-weight: 700; font-display: swap; src: url('https://iosevka-webfonts.github.io/iosevka/WOFF2/Iosevka-Bold.woff2') format('woff2'); }
-@font-face { font-family: 'Craft Iosevka'; font-style: italic; font-weight: 700; font-display: swap; src: url('https://iosevka-webfonts.github.io/iosevka/WOFF2/Iosevka-BoldItalic.woff2') format('woff2'); }
+/* Iosevka: code only; prefer local install (0 MB webfont decode), else Regular/Bold WOFF2 fallback. */
+@font-face { font-family: 'Craft Iosevka'; font-style: normal; font-weight: 400; font-display: swap; src: local('Iosevka'), local('Iosevka Regular'), url('https://iosevka-webfonts.github.io/iosevka/WOFF2/Iosevka-Regular.woff2') format('woff2'); }
+@font-face { font-family: 'Craft Iosevka'; font-style: normal; font-weight: 700; font-display: swap; src: local('Iosevka Bold'), url('https://iosevka-webfonts.github.io/iosevka/WOFF2/Iosevka-Bold.woff2') format('woff2'); }
 .msg-content pre, .msg-content code { font-family: var(--craft-code-family) !important; font-weight: 400 !important; font-stretch: normal !important; font-feature-settings: normal !important; }
 
 /* Compact dialog headers only: preserve action-icon sizes and editor layout. */
@@ -318,7 +327,6 @@ button, input, select, textarea { font-family: inherit; }
   padding-block: 0 !important;
   min-height: 0 !important;
 }
-html[data-craft-inserting] #full_editor, #full_editor.craft-composer-idle { display: none !important; }
 .msg-card[data-mtype="note"] { background: transparent !important; }
 
 /* %% nbs/craft/01_theme_and_tokens.ipynb #8d5b9ad0 */
@@ -326,7 +334,7 @@ html[data-craft-inserting] #full_editor, #full_editor.craft-composer-idle { disp
    Base surfaces, borders, buttons, tabs, and inputs now inherit from the
    remapped FrankenUI/Tailwind theme tokens above; only structural/accent
    overrides remain here. */
-body:has(.uk-modal.uk-open, .craft-overlay.open, [data-craft-modal].open) :is(#craft-insert-preview, #craft-mobile-toggle) {
+body:has(.uk-modal.uk-open, dialog.craft-overlay[open], [data-craft-modal][open], .craft-overlay.open, [data-craft-modal].open) :is(#craft-insert-preview, #craft-mobile-toggle) {
   pointer-events: none;
   opacity: 0.2;
 }
@@ -358,18 +366,6 @@ aside#vars-sb {
 }
 aside#vars-sb .uk-card { background: transparent !important; }
 
-/* Minimalist empty-dialog cue (only when no cells exist) */
-#dialog-container:not(:has(> .editable)) { position: relative; }
-#dialog-container:not(:has(> .editable))::before {
-  content: "Empty dialog — type below or press Shift+I to compose";
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  color: rgba(207, 201, 194, 0.45);
-  font-size: 12px;
-  pointer-events: none;
-}
 
 /* ── 15. Markdown task lists & Raw cell polish ──────────────────────── */
 .msg-content ul.task-list {
@@ -450,6 +446,10 @@ html.dark .card-out pre span[style*="rgb(102, 102, 102)"] { color: var(--craft-m
 /* ── Shared CRAFT UI primitives (used by #| export_ft helpers) ─────── */
 .craft-overlay { position: fixed; inset: 0; z-index: 1200; display: none; justify-content: center; align-items: flex-start; padding-top: 12vh; background: rgba(0,0,0,.55); }
 .craft-overlay.open { display: flex; }
+dialog.craft-overlay { margin: 0; padding: 12vh 0 0; width: 100vw; max-width: none; height: 100vh; max-height: none; border: 0; background: transparent; color: inherit; overflow: auto; }
+dialog.craft-overlay[open] { display: flex; justify-content: center; align-items: flex-start; }
+dialog.craft-overlay:not([open]).open { display: flex; background: rgba(0,0,0,.55); }
+dialog.craft-overlay::backdrop { background: rgba(0,0,0,.55); }
 .craft-card { background: var(--craft-surface); color: var(--craft-fg); border: 1px solid var(--craft-border); border-radius: 10px; box-shadow: 0 18px 48px rgba(0,0,0,.55); }
 .craft-menu { position: fixed; inset: auto; margin: 0; z-index: 1100; padding: 5px; background: var(--craft-bg); color: var(--craft-fg); border: 1px solid var(--craft-border); border-radius: 6px; box-shadow: var(--craft-shadow); font-size: 12px; }
 .craft-menu button { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 6px 10px; border: 0; border-radius: 4px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
@@ -457,6 +457,23 @@ html.dark .card-out pre span[style*="rgb(102, 102, 102)"] { color: var(--craft-m
 .craft-menu button:disabled { opacity: .4; cursor: default; }
 .craft-menu button:is([data-danger], .danger) { color: var(--craft-red); }
 .craft-menu hr { margin: 4px 2px; border: 0; border-top: 1px solid var(--craft-border); }
+
+html.craft-mobile .craft-menu {
+  position: fixed;
+  left: 0 !important; right: 0; bottom: 0; top: auto !important;
+  width: 100%; min-width: 0; max-width: 100%; max-height: 70dvh; overflow-y: auto;
+  margin: 0;
+  padding: 10px 12px calc(14px + env(safe-area-inset-bottom, 0px));
+  border: 0; border-top: 1px solid #ffffff1c;
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -12px 36px #000b;
+  box-sizing: border-box;
+}
+html.craft-mobile .craft-menu::before {
+  content: ""; display: block; width: 36px; height: 4px; margin: 0 auto 10px;
+  border-radius: 999px; background: #ffffff30;
+}
+html.craft-mobile .craft-menu button { padding: 12px 14px; font-size: 15px; border-radius: 8px; }
 
 /* ── Per-cell-type typography bindings (Font Settings 4.1) ────────── */
 .msg-card.card-in[data-mtype="prompt"] :is(.msg-content, .msg-content .prose) {
@@ -507,7 +524,7 @@ html.dark .card-out pre span[style*="rgb(102, 102, 102)"] { color: var(--craft-m
 
 /* %% nbs/craft/03_hotkey_manager.ipynb #4ae55718 */
 /* ── Hotkey manager modal (overlay/card/header/body/footer/buttons via FrankenUI + primitives) ── */
-.hk-overlay { z-index: 10000; }
+/* Native <dialog> renders in the browser top layer; no z-index needed. */
 .hk-modal { width: min(560px, calc(100vw - 32px)); max-height: 74vh; display: flex; flex-direction: column; font-size: 13px; line-height: 1.4; }
 .hk-head { display: flex; align-items: baseline; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--craft-border); }
 .hk-sub { font-size: 11px; opacity: .6; }
@@ -524,6 +541,8 @@ html.dark .card-out pre span[style*="rgb(102, 102, 102)"] { color: var(--craft-m
 .hk-msg { color: var(--craft-red); font-size: 11.5px; max-width: 45%; }
 .hk-modal .uk-btn { height: auto; padding: 2px 10px; font-size: 12px; }
 .hk-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; border-top: 1px solid var(--craft-border); font-size: 11.5px; opacity: .85; }
+
+html.craft-mobile .hk-overlay { padding: 8px; }
 
 /* %% nbs/craft/04_cm_core.ipynb #cm6_shared_css */
 /* ── Shared CodeMirror 6 editor base (.craft-cm-host on C2 & Markdown/Raw) ── */
@@ -556,14 +575,25 @@ html.dark .card-out pre span[style*="rgb(102, 102, 102)"] { color: var(--craft-m
 .editable > .msg-card[data-md-save="error"]::after { background: var(--craft-amber); }
 @keyframes craft-c2-pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
 
+/* Soft-wrap long lines (CM6 reads white-space from the DOM, so this is a real wrap, not a clip). */
+html.craft-mobile .craft-cm-host .cm-content { white-space: pre-wrap !important; overflow-wrap: anywhere; word-break: normal; flex-shrink: 1 !important; min-width: 0; }
+html.craft-mobile .craft-cm-host .cm-search :is(input, button) { font-size: 14px; padding: 6px 8px; }
+
 /* %% nbs/craft/05_dialog_chrome.ipynb #e965a7e0 */
-/* Reserve top-right space inside desktop top nav so #craft-insert-preview and #craft-mobile-toggle never overlap navbar buttons. */
+/* Reserve top-right space inside desktop top nav so #craft-mobile-toggle never overlaps navbar buttons. */
 html:not(.craft-mobile) .uk-container > nav.monster-navbar {
-  padding-right: 78px !important;
+  padding-right: 44px !important;
   box-sizing: border-box;
 }
+html:not(.craft-mobile) .uk-container > nav.monster-navbar > div.ml-auto {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: center;
+  gap: 8px;
+  height: 100%;
+}
 
-/* ── 7. Top nav: auto-hiding overlay, floating controls ─────────────── */
+/* ── 7. Top nav: pure-CSS auto-hiding overlay, floating controls ────── */
 .uk-container > nav.monster-navbar {
   position: absolute !important;         /* out of flow: scroller keeps the 44px */
   top: 0; left: 0; right: 0;
@@ -575,15 +605,33 @@ html:not(.craft-mobile) .uk-container > nav.monster-navbar {
   background: transparent !important;
   border: 0 !important;
   opacity: 0;
-  pointer-events: none;                  /* hidden strip never eats clicks */
-  transition: opacity 0.18s ease;
+  pointer-events: none;
+  transition: opacity 0.18s ease 0.7s;   /* 700ms grace period before fading out */
 }
-.uk-container > nav.monster-navbar.nav-shown,
-.uk-container > nav.monster-navbar:focus-within { opacity: 1; pointer-events: auto; }
+html:not(.craft-mobile) .uk-container > nav.monster-navbar { pointer-events: auto; }
+html:not(.craft-mobile) .uk-container > nav.monster-navbar:is(:hover, :focus-within, .nav-shown),
+html:not(.craft-mobile) body:has(.uk-drop.uk-open, .uk-dropdown.uk-open) .uk-container > nav.monster-navbar,
+.uk-container > nav.monster-navbar:is(.nav-shown, :focus-within) {
+  opacity: 1;
+  pointer-events: auto;
+  transition-delay: 0s;
+}
 .uk-container > nav.monster-navbar > * { pointer-events: none; }
-.uk-container > nav.monster-navbar.nav-shown > *,
-.uk-container > nav.monster-navbar:focus-within > * { pointer-events: auto; }
+html:not(.craft-mobile) .uk-container > nav.monster-navbar:is(:hover, :focus-within, .nav-shown) > *,
+html:not(.craft-mobile) body:has(.uk-drop.uk-open, .uk-dropdown.uk-open) .uk-container > nav.monster-navbar > *,
+.uk-container > nav.monster-navbar:is(.nav-shown, :focus-within) > * { pointer-events: auto; }
+body:has(dialog.craft-overlay[open], .uk-modal.uk-open) .uk-container > nav.monster-navbar {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
 
+/* Bottom Monaco composer: always hidden before craftNoMonaco removes it from the DOM */
+#full_editor { display: none !important; }
+
+/* Desktop mobile-view toggle positioning and icon swap (pure CSS) */
+html:not(.craft-mobile) #craft-mobile-toggle { left: auto; right: 10px; top: 6px; }
+html.craft-mobile #craft-mobile-toggle .craft-icon-phone,
+html:not(.craft-mobile) #craft-mobile-toggle .craft-icon-desk { display: none !important; }
 .uk-container > nav.monster-navbar h2 { font-size: 1.05rem !important; line-height: 1.2 !important; }
 .uk-container > nav.monster-navbar span.rounded-full.size-4,
 .uk-container > nav.monster-navbar a:has(> h1),
@@ -609,6 +657,30 @@ html:not(.craft-mobile) .uk-container > nav.monster-navbar {
 .uk-container > nav.monster-navbar select option { background: var(--craft-recessed) !important; color: var(--craft-fg) !important; }
 .uk-container > nav.monster-navbar :is(svg, select, h2) { filter: drop-shadow(0 1px 2px var(--craft-recessed)) drop-shadow(0 0 4px var(--craft-recessed)); }
 
+/* ── Mobile top nav: hidden until Menu, then a solid wrapping bar housing the view toggle ── */
+html.craft-mobile .uk-container > nav.monster-navbar {
+  position: fixed !important; top: 0; left: 0; right: 0; z-index: 960;
+  height: auto !important; min-height: 48px !important;
+  display: flex !important; flex-wrap: wrap !important; align-items: center; gap: 6px 14px;
+  padding: calc(6px + env(safe-area-inset-top, 0px)) 54px 6px 12px !important;
+  background: var(--craft-recessed) !important; border-bottom: 1px solid #ffffff14 !important;
+  box-shadow: 0 8px 24px #0009;
+  opacity: 0; pointer-events: none; transform: translateY(-100%);
+  transition: opacity .16s ease, transform .16s ease;
+}
+html.craft-mobile.craft-nav-open .uk-container > nav.monster-navbar,
+html.craft-mobile .uk-container > nav.monster-navbar:focus-within { opacity: 1; pointer-events: auto; transform: none; }
+html.craft-mobile.craft-nav-open .uk-container > nav.monster-navbar > * { pointer-events: auto; }
+html.craft-mobile .uk-container > nav.monster-navbar > div.min-w-0,
+html.craft-mobile .uk-container > nav.monster-navbar > button { display: none !important; }
+html.craft-mobile .uk-container > nav.monster-navbar > div.ml-auto { display: flex !important; flex-wrap: wrap; align-items: center; gap: 6px 12px; width: 100%; margin: 0 !important; padding: 0 !important; }
+html.craft-mobile .uk-container > nav.monster-navbar > div.ml-auto > div { flex: 1 1 100%; min-width: 0; justify-content: flex-start !important; gap: 6px 8px !important; }
+html.craft-mobile .uk-container > nav.monster-navbar .uk-btn-group { flex-wrap: wrap !important; max-width: 100%; }
+html.craft-mobile .uk-container > nav.monster-navbar :is(.uk-btn, label, button, select) { min-height: 36px; min-width: 36px; font-size: 14px !important; }
+html.craft-mobile .uk-container > nav.monster-navbar svg,
+html.craft-mobile .uk-container > nav.monster-navbar select,
+html.craft-mobile .uk-container > nav.monster-navbar h2 { filter: none; }
+
 /* ── Launcher (⌘⇧P) ─────────────────────────────────────────────────── */
 #solveit-launcher .solveit-launcher-card { width: min(640px, 92vw); background: var(--craft-bg); border-radius: 8px; overflow: hidden; }
 #solveit-launcher input { box-sizing: border-box; width: 100%; padding: 10px 14px; border: 0; border-bottom: 1px solid #ffffff14; outline: 0; background: transparent; color: var(--craft-fg); font-size: 14px; }
@@ -628,11 +700,32 @@ html:not(.craft-mobile) .uk-container > nav.monster-navbar {
   cursor: pointer; transition: opacity .15s ease, color .15s ease;
 }
 .craft-nav-icon-btn:is(:hover, :focus-visible),
-body:has(nav.monster-navbar.nav-shown) .craft-nav-icon-btn { opacity: 1; color: #e0e0e8; }
+body:has(nav.monster-navbar:is(:hover, :focus-within, .nav-shown), .uk-drop.uk-open, .uk-dropdown.uk-open) .craft-nav-icon-btn { opacity: 1; color: #e0e0e8; }
 .craft-nav-icon-btn:focus-visible { outline: 1px solid var(--craft-accent); outline-offset: 2px; }
+
+/* Move the desktop/mobile toggle into the revealed top nav instead of floating over cells. */
+html.craft-mobile #craft-mobile-toggle {
+  top: calc(8px + env(safe-area-inset-top, 0px));
+  left: auto; right: 10px; z-index: 970;
+  width: 36px; height: 36px; border-radius: 8px;
+  background: #242638; border: 1px solid #ffffff28;
+  color: var(--craft-fg);
+  opacity: 0; pointer-events: none; transform: translateY(-100%);
+  transition: opacity .16s ease, transform .16s ease;
+}
+html.craft-mobile.craft-nav-open #craft-mobile-toggle {
+  opacity: 1; pointer-events: auto; transform: none;
+}
+html.craft-mobile #solveit-launcher { padding-top: calc(10px + env(safe-area-inset-top, 0px)); }
+html.craft-mobile #solveit-launcher .solveit-launcher-card { width: calc(100vw - 16px); }
+html.craft-mobile #solveit-launcher input { font-size: 16px; padding: 14px; }
+html.craft-mobile #solveit-launcher ul { max-height: 60dvh; }
+html.craft-mobile #solveit-launcher li { padding: 11px 12px; font-size: 14px; }
+html.craft-mobile #solveit-launcher li .hint { display: none; }
 
 /* %% nbs/craft/06_file_tree.ipynb #445de251 */
 /* ── Lightweight file tree prototype ─────────────────────────────────── */
+.solveit-tree-row-more { display: none; }
 .solveit-tree-workspace {
   display: flex;
   flex: 1 1 0%;
@@ -679,47 +772,51 @@ body:has(nav.monster-navbar.nav-shown) .craft-nav-icon-btn { opacity: 1; color: 
 }
 #solveit-file-tree-panel .solveit-tree-resizer:hover,
 #solveit-file-tree-panel.resizing .solveit-tree-resizer { background: #7aa2f788; }
-html.craft-mobile #solveit-file-tree-panel .solveit-tree-resizer { display: none; }
 #solveit-file-tree-panel > header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 #solveit-file-tree-panel .solveit-tree-brand { display: flex; align-items: baseline; gap: 6px; margin-bottom: 6px; min-width: 0; }
 #solveit-file-tree-panel .solveit-tree-appname { flex: 0 0 auto; font-weight: 700; font-size: 13px; letter-spacing: .02em; color: var(--craft-fg); }
 #solveit-file-tree-panel h2#dlg-name { flex: 1 1 0%; min-width: 0; font-size: 12.5px !important; line-height: 1.3 !important; font-weight: 400 !important; padding: 0 !important; color: #cfc9c2cc !important; }
-#solveit-file-tree-panel > header button { display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: inherit; font-size: 1.25rem; line-height: 1; padding: 2px; cursor: pointer; }
+#solveit-file-tree-panel > header :is(button, a) { display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: inherit; text-decoration: none; font-size: 1.25rem; line-height: 1; padding: 2px; cursor: pointer; }
 #solveit-file-tree-panel .solveit-tree-shortcut { margin-left: auto; color: #cfc9c288; font: 11px monospace; }
 #solveit-file-tree-panel .solveit-tree-refresh { margin-left: 6px; }
-#solveit-file-tree-panel .treeview-node-content:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--craft-accent); background: #30364d; }
+#solveit-file-tree-panel .solveit-tree-row:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--craft-accent); background: #30364d; }
 #solveit-file-tree-panel .solveit-tree-close { margin-left: 6px; }
 #solveit-file-tree-panel .solveit-tree-back { margin-left: auto; }
 #solveit-file-tree-panel .solveit-tree-back:disabled { opacity: .35; cursor: default; }
 #solveit-file-tree-panel .solveit-tree-up { margin-left: 6px; }
 .solveit-file-tree-path { color: #cfc9c299; font: 12px monospace; margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; }
-#solveit-file-tree-panel .custom-treeview-wrapper > ul { padding-left: 0; }
-#solveit-file-tree-panel .custom-treeview-wrapper ul ul {
+#solveit-file-tree ul.solveit-tree-list { list-style: none; margin: 0; padding-left: 0; }
+#solveit-file-tree ul.solveit-tree-list ul.solveit-tree-list {
   padding-left: 13px;
   margin-left: 7px;
   border-left: 1px solid #ffffff12;
 }
-#solveit-file-tree-panel .custom-treeview-wrapper li { margin: 2px 0; color: var(--craft-fg); }
-#solveit-file-tree-panel .custom-treeview-wrapper .treeview-node-content { padding: 4px; border-radius: 4px; }
-#solveit-file-tree-panel .custom-treeview-wrapper .treeview-node-content:hover { background: #222434; }
-#solveit-file-tree-panel .treeview-expander {
+#solveit-file-tree li.solveit-tree-item { margin: 2px 0; color: var(--craft-fg); }
+#solveit-file-tree .solveit-tree-row {
+  display: flex; align-items: center; padding: 4px; border-radius: 4px;
+  cursor: pointer; user-select: none; list-style: none;
+}
+#solveit-file-tree summary.solveit-tree-row::-webkit-details-marker { display: none; }
+#solveit-file-tree .solveit-tree-row:hover { background: #222434; }
+#solveit-file-tree .solveit-tree-label { flex: 1 1 0%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#solveit-file-tree .solveit-tree-caret,
+#solveit-file-tree .solveit-tree-caret-spacer {
   display: inline-flex; align-items: center; justify-content: center;
   width: 14px; flex: 0 0 14px; margin-right: 2px; padding: 0;
   color: #787c99; font-size: 10px; line-height: 1;
   transition: transform .12s ease, color .12s ease;
 }
-#solveit-file-tree-panel .treeview-expander::before { content: "▸"; }
-#solveit-file-tree-panel .treeview-expander > * { display: none; }
-#solveit-file-tree-panel li.expanded > .treeview-node-content > .treeview-expander { transform: rotate(90deg); color: #a9b1d6; }
-#solveit-file-tree-panel .treeview-expander-placeholder { width: 14px; flex: 0 0 14px; margin-right: 2px; padding: 0; }
+#solveit-file-tree details.solveit-tree-folder[open] > summary > .solveit-tree-caret { transform: rotate(90deg); color: #a9b1d6; }
 #solveit-file-tree-panel .solveit-tree-new { margin-left: 6px; font-weight: 600; color: var(--craft-accent); }
 #solveit-file-tree-panel .solveit-tree-new:hover { color: #c0caf5; }
-#solveit-file-tree-panel img.solveit-tree-icon { width: 16px !important; height: 16px !important; max-width: 16px !important; max-height: 16px !important; flex: 0 0 16px; object-fit: contain; margin-right: 7px; }
+#solveit-file-tree-panel .solveit-tree-icon { width: 16px; height: 16px; max-width: 16px; max-height: 16px; flex: 0 0 16px; object-fit: contain; margin-right: 7px; }
+#solveit-file-tree-panel .solveit-tree-folder-icon { display: inline-block; background: url('/static/.craft-assets/vscode-icons/default_folder.svg') center/contain no-repeat; }
+#solveit-file-tree details.solveit-tree-folder[open] > summary > .solveit-tree-folder-icon { background-image: url('/static/.craft-assets/vscode-icons/default_folder_opened.svg'); }
 
 #solveit-file-tree-panel .solveit-tree-filter { margin: 8px 0; height: auto; padding: 5px 8px; background: var(--craft-recessed); }
 #solveit-file-tree-panel .solveit-tree-status { color: #cfc9c299; font-size: 12px; }
 #solveit-temp-editor { z-index: 1000; padding-top: 0; flex-direction: column; align-items: stretch; justify-content: flex-start; background: var(--craft-recessed); color: var(--craft-fg); }
-body:has(#solveit-temp-editor.open) #solveit-file-tree-panel.open {
+body:has(#solveit-temp-editor[open]) #solveit-file-tree-panel.open {
   position: fixed;
   inset-block: 0;
   left: 0;
@@ -743,11 +840,11 @@ body:has(#solveit-temp-editor.open) #solveit-file-tree-panel.open {
 #solveit-file-tree-panel .solveit-tree-rootbar:hover { background: #222434; color: var(--craft-fg); }
 #solveit-file-tree-panel .solveit-tree-rootbar-hint { margin-left: auto; font-size: 10px; color: #cfc9c255; }
 #solveit-file-tree-panel .solveit-tree-row-upload { opacity: 0; pointer-events: none; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin-left: 4px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: #cfc9c299; cursor: pointer; }
-#solveit-file-tree-panel .treeview-node-content:is(:hover, :focus-within) .solveit-tree-row-upload,
+#solveit-file-tree-panel .solveit-tree-row:is(:hover, :focus-within) .solveit-tree-row-upload,
 #solveit-file-tree-panel .solveit-tree-rootbar:is(:hover, :focus-within) .solveit-tree-row-upload { opacity: 1; pointer-events: auto; }
 #solveit-file-tree-panel .solveit-tree-row-upload:is(:hover, :focus-visible) { background: #30364d; color: var(--craft-accent); outline: none; }
 @media (hover: none) { #solveit-file-tree-panel .solveit-tree-row-upload { opacity: 1; pointer-events: auto; } }
-.solveit-tree-upload-pop { position: fixed; z-index: 1100; width: 230px; padding: 8px; border-radius: 6px; font-size: 12px; }
+.solveit-tree-upload-pop { position: fixed; z-index: 1100; width: 230px; margin: 0; padding: 8px; border-radius: 6px; font-size: 12px; }
 .solveit-tree-upload-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
 .solveit-tree-upload-dest { flex: 1 1 0%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px monospace; color: #cfc9c2cc; }
 .solveit-tree-upload-x { flex: 0 0 auto; border: 0; background: transparent; color: #cfc9c299; font-size: 15px; line-height: 1; cursor: pointer; padding: 0 2px; }
@@ -757,14 +854,69 @@ body:has(#solveit-temp-editor.open) #solveit-file-tree-panel.open {
 .solveit-tree-upload-actions { display: flex; gap: 6px; }
 .solveit-tree-upload-actions button { flex: 1 1 0%; height: auto; padding: 5px 8px; font-size: 12px; }
 #solveit-file-tree { flex: 1 1 0%; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 40px; }
-#solveit-file-tree .treeview-node-content.solveit-tree-current { background: #7aa2f71c; box-shadow: inset 2px 0 0 var(--craft-accent); }
+#solveit-file-tree .solveit-tree-row.solveit-tree-current { background: #7aa2f71c; box-shadow: inset 2px 0 0 var(--craft-accent); }
 #solveit-file-tree li.solveit-tree-dragging { opacity: .4; }
 #solveit-file-tree-panel .solveit-tree-drop-target { background: #7aa2f728 !important; box-shadow: inset 0 0 0 1.5px var(--craft-accent) !important; color: var(--craft-fg) !important; }
 #solveit-file-tree .solveit-tree-create { margin: 3px 4px 5px; }
-#solveit-file-tree li > .solveit-tree-create { margin-left: 14px; }
+#solveit-file-tree details.solveit-tree-folder > .solveit-tree-create { margin-left: 14px; }
 #solveit-file-tree .solveit-tree-create input { height: auto; padding: 4px 6px; border-color: var(--craft-accent); background: var(--craft-recessed); font: inherit; }
 #solveit-file-tree .solveit-tree-create input[aria-invalid="true"] { border-color: var(--craft-red); }
 #solveit-tree-create-error:not(:empty) { margin-top: 4px; color: var(--craft-red); font-size: 11px; overflow-wrap: anywhere; }
+
+/* ── File tree as a drawer & temp editor ── */
+html.craft-mobile #solveit-file-tree-panel {
+  position: fixed; top: 0; left: 0; bottom: 0;
+  z-index: 980;
+  flex: none; height: auto;
+  width: min(86vw, 380px); min-width: 0; max-width: none;
+  padding: calc(12px + env(safe-area-inset-top, 0px)) 10px calc(72px + env(safe-area-inset-bottom, 0px)) 10px;
+  resize: none; overflow-y: auto; overscroll-behavior: contain;
+  transform: translateX(-105%); transition: transform .2s ease, visibility .2s;
+  box-shadow: none;
+}
+html.craft-mobile #solveit-file-tree-panel.open { transform: none; box-shadow: 8px 0 32px #000a; }
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-resizer { display: none; }
+html.craft-mobile #solveit-file-tree-panel > header { flex-wrap: wrap; gap: 2px; }
+html.craft-mobile #solveit-file-tree-panel > header strong { font-size: 15px; margin-right: auto; }
+html.craft-mobile #solveit-file-tree-panel > header :is(button, a) { min-width: 40px; min-height: 40px; margin-left: 0; font-size: 1.35rem; border-radius: 6px; }
+html.craft-mobile #solveit-file-tree-panel > header :is(button, a):active { background: var(--craft-hover); }
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-shortcut,
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-rootbar-hint { display: none; }
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-appname { font-size: 15px; }
+html.craft-mobile #solveit-file-tree-panel h2#dlg-name { font-size: 14px !important; }
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-filter { font-size: 16px; padding: 10px 12px; }
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-status { font-size: 13px; }
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-rootbar { min-height: 40px; padding: 4px 4px 4px 10px; font-size: 14px; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+html.craft-mobile #solveit-file-tree li.solveit-tree-item { margin: 0; font-size: 15px; }
+html.craft-mobile #solveit-file-tree ul.solveit-tree-list ul.solveit-tree-list { padding-left: 16px; }
+html.craft-mobile #solveit-file-tree .solveit-tree-row {
+  min-height: 42px; padding: 2px 2px 2px 6px; box-sizing: border-box;
+  -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent;
+}
+html.craft-mobile #solveit-file-tree .solveit-tree-row:hover { background: transparent; }
+html.craft-mobile #solveit-file-tree .solveit-tree-row:active { background: #222434; }
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-icon { width: 20px; height: 20px; max-width: 20px; max-height: 20px; flex-basis: 20px; margin-right: 10px; }
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-row-upload { width: 36px; height: 36px; opacity: 1; pointer-events: auto; }
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-row-more {
+  display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center;
+  width: 40px; height: 36px; margin-left: 2px; padding: 0; border: 0; border-radius: 6px;
+  background: transparent; color: #cfc9c2aa; font-size: 20px; line-height: 1; cursor: pointer;
+}
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-rootbar .solveit-tree-row-upload { margin-left: auto; }
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-row-more:active,
+html.craft-mobile #solveit-file-tree-panel .solveit-tree-row-upload:active { background: #30364d; color: var(--craft-accent); }
+html.craft-mobile #solveit-file-tree { padding-bottom: 24px; }
+html.craft-mobile #solveit-file-tree .solveit-tree-create input { font-size: 16px; padding: 8px 10px; }
+html.craft-mobile #solveit-tree-create-error:not(:empty) { font-size: 13px; }
+html.craft-mobile .solveit-tree-upload-pop { width: min(320px, calc(100vw - 24px)); padding: 12px; font-size: 14px; }
+html.craft-mobile .solveit-tree-upload-dest { font-size: 13px; }
+html.craft-mobile .solveit-tree-upload-x { font-size: 22px; padding: 4px 8px; }
+html.craft-mobile .solveit-tree-upload-drop { padding: 16px 10px; font-size: 13px; }
+html.craft-mobile .solveit-tree-upload-actions button { padding: 11px 8px; font-size: 14px; }
+html.craft-mobile #solveit-temp-editor { padding-top: env(safe-area-inset-top, 0px); }
+html.craft-mobile #solveit-temp-editor .solveit-temp-editor-bar { flex-basis: 48px; }
+html.craft-mobile #solveit-temp-editor .solveit-temp-editor-bar strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+html.craft-mobile #solveit-temp-editor .solveit-temp-editor-bar button { min-width: 44px; min-height: 44px; font-size: 1.8rem; }
 
 /* %% nbs/craft/07_cell_presentation.ipynb #86a51619 */
 .editable.craft-chain-next { margin-bottom: 0 !important; padding-bottom: 0 !important; border-bottom-left-radius: 0 !important; border-bottom-right-radius: 0 !important; }
@@ -781,10 +933,11 @@ body:has(#solveit-temp-editor.open) #solveit-file-tree-panel.open {
 .editable.craft-chain-next:has(> .card-in[data-mtype="code"]) { margin-bottom: 12px !important; }
 .editable.craft-chain-prev > .card-in[data-mtype="code"] { border-top: 0 !important; }
 
-.msg-card[data-mtype="code"] > .uk-card-header nav > div.grow > p { opacity: 0; }
-.editable:is(:hover, :focus-within) > .msg-card[data-mtype="code"] > .uk-card-header nav > div.grow > p { opacity: 1; }
+.msg-card > .uk-card-header nav > div.grow > p { font-size: 11px !important; line-height: 16px !important; margin: 0 !important; }
+.msg-card:is([data-mtype="code"], [data-mtype="note"], [data-mtype="raw"]) > .uk-card-header nav > div.grow > p { opacity: 0; }
+.editable:is(:hover, :focus-within) > .msg-card:is([data-mtype="code"], [data-mtype="note"], [data-mtype="raw"]) > .uk-card-header nav > div.grow > p { opacity: 1; }
 @media (hover: none) {
-  .msg-card[data-mtype="code"] > .uk-card-header nav > div.grow > p { opacity: 1; }
+  .msg-card:is([data-mtype="code"], [data-mtype="note"], [data-mtype="raw"]) > .uk-card-header nav > div.grow > p { opacity: 1; }
 }
 
 .msg-card[data-mtype="prompt"] > .uk-card-header nav > div.grow > p::before { content: "You"; color: #a9b1d6 !important; font-size: 11px; }
@@ -816,9 +969,10 @@ html.craft-mobile #dialog-container > .editable[data-sm]:not([data-sm="unselecte
 .craft-action-menu { width: 260px; max-width: calc(100vw - 16px); max-height: min(70vh, 540px); overflow: auto; }
 @media (hover: none) { .msg-card .craft-action-trigger { opacity: 1; pointer-events: auto; } }
 
-/* Code-cell header floats as a hover chip over the top-right corner, beside the copy button, so hovering never changes layout. */
+/* Code, note, and raw headers float as compact hover chips over the top-right corner so hovering never shifts layout. */
+.editable > .card-in[data-mtype="note"] { border: 0 !important; }
 @media (hover: hover) {
-  .editable > .card-in[data-mtype="code"] > .uk-card-header {
+  .editable > .card-in:is([data-mtype="code"], [data-mtype="note"], [data-mtype="raw"]) > .uk-card-header {
     position: absolute !important;
     top: 0;
     right: 30px;
@@ -833,10 +987,11 @@ html.craft-mobile #dialog-container > .editable[data-sm]:not([data-sm="unselecte
     pointer-events: none;
     transition: opacity .12s ease;
   }
-  .editable:is(:hover, [data-editing="true"]) > .card-in[data-mtype="code"] > .uk-card-header,
-  .editable > .card-in[data-mtype="code"] > .uk-card-header:is(:focus-within, :has(.craft-action-trigger[aria-expanded="true"])) { opacity: 1; pointer-events: auto; }
-  .editable > .card-in[data-mtype="code"] > .uk-card-header nav { width: auto !important; flex-wrap: nowrap !important; }
-  .editable > .card-in[data-mtype="code"] > .uk-card-header nav > div.grow { flex: none; }
+  .editable > .card-in:is([data-mtype="note"], [data-mtype="raw"]) > .uk-card-header { right: 4px; }
+  .editable:is(:hover, [data-editing="true"]) > .card-in:is([data-mtype="code"], [data-mtype="note"], [data-mtype="raw"]) > .uk-card-header,
+  .editable > .card-in:is([data-mtype="code"], [data-mtype="note"], [data-mtype="raw"]) > .uk-card-header:is(:focus-within, :has(.craft-action-trigger[aria-expanded="true"])) { opacity: 1; pointer-events: auto; }
+  .editable > .card-in:is([data-mtype="code"], [data-mtype="note"], [data-mtype="raw"]) > .uk-card-header nav { width: auto !important; flex-wrap: nowrap !important; }
+  .editable > .card-in:is([data-mtype="code"], [data-mtype="note"], [data-mtype="raw"]) > .uk-card-header nav > div.grow { flex: none; }
 }
 #dialog-container .editable > .msg-card:not(.collapsed),
 #dialog-container .editable > .msg-card:not(.collapsed) > .msg-body {
@@ -850,6 +1005,10 @@ html.craft-mobile #dialog-container > .editable[data-sm]:not([data-sm="unselecte
 }
 #dialog-container .editable > .msg-card:not(.collapsed) .msg-content pre { white-space: pre-wrap; }
 .editable > .card-in[data-mtype="code"]:not(.collapsed) .copy-wrap > button { top: 0; max-height: 100%; }
+@media (hover: hover) {
+  .editable > .card-in[data-mtype="code"] .copy-wrap > button { opacity: 0; transition: opacity .12s ease; }
+  .editable:is(:hover, :focus-within) > .card-in[data-mtype="code"] .copy-wrap > button { opacity: 1; }
+}
 
 
 .editable.craft-omitted { display: none !important; }
@@ -892,11 +1051,23 @@ html.craft-mobile #dialog-container > .editable[data-sm]:not([data-sm="unselecte
 @media (hover: hover) {
   html:not(.craft-mobile) #dialog-container > .editable {
     border-radius: 6px !important;
-    outline: 1px solid transparent;
-    transition: outline-color .12s ease;
+    transition: box-shadow .12s ease, background-color .12s ease;
+  }
+  html:not(.craft-mobile) #dialog-container > .editable.craft-chain-next {
+    border-bottom-left-radius: 0 !important;
+    border-bottom-right-radius: 0 !important;
+  }
+  html:not(.craft-mobile) #dialog-container > .editable.craft-chain-prev {
+    border-top-left-radius: 0 !important;
+    border-top-right-radius: 0 !important;
   }
   html:not(.craft-mobile) #dialog-container > .editable[data-sm="unselected"]:hover {
-    outline-color: #ffffff14;
+    box-shadow: inset 0 0 0 1px #ffffff16;
+  }
+  html:not(.craft-mobile) #dialog-container > .editable[data-sm]:not([data-sm="unselected"]) + .editable[data-sm="unselected"]:hover,
+  html:not(.craft-mobile) #dialog-container > .editable[data-sm="unselected"]:hover:has(+ .editable[data-sm]:not([data-sm="unselected"])) {
+    box-shadow: none;
+    background-color: rgba(255, 255, 255, 0.025);
   }
 }
 html:not(.craft-mobile) #dialog-container > .editable[data-sm]:not([data-sm="unselected"])::after {
@@ -930,6 +1101,18 @@ html:not(.craft-mobile) #dialog-container > .editable:is([data-c2-editing="true"
   color: var(--craft-meta-fg, var(--craft-muted));
   pointer-events: none;
 }
+
+/* Cell controls: quiet until selected, larger touch targets on mobile */
+html.craft-mobile .msg-card .craft-action-trigger {
+  opacity: .32; pointer-events: auto; width: 40px; height: 30px; flex-basis: 40px; font-size: 22px;
+  transition: opacity .15s ease;
+}
+html.craft-mobile .editable:is([data-sm="primary"], [data-sm="secondary"], :focus-within) .craft-action-trigger,
+html.craft-mobile .msg-card .craft-action-trigger[aria-expanded="true"] { opacity: 1; }
+html.craft-mobile .craft-action-menu::backdrop { background: #0009; }
+html.craft-mobile .msg-card > .uk-card-header nav > div.grow > p,
+html.craft-mobile .msg-card[data-mtype="prompt"] > .uk-card-header nav > div.grow > p > span { opacity: 1; }
+html.craft-mobile .craft-omit-marker, html.craft-mobile .craft-part-restore { padding: 6px 10px; font-size: 13px; }
 
 /* %% nbs/craft/08_tables.ipynb #e0f93c6f */
 /* ── 16. Cohesive Tabular Output (FrankenUI .uk-table* + CRAFT sticky/sort/TSV) ── */
@@ -983,12 +1166,30 @@ html:not(.craft-mobile) #dialog-container > .editable:is([data-c2-editing="true"
 .craft-table-copy:is(:hover, :focus-visible) { opacity: 1; color: var(--craft-fg-strong); border-color: var(--craft-accent); outline: 2px solid var(--craft-accent); outline-offset: 1px; }
 .craft-table-copy.is-copied { color: var(--craft-green); border-color: var(--craft-green); }
 
+/* Mobile table scrolling & copy button */
+html.craft-mobile #dialog-container .editable > .msg-card:not(.collapsed) .msg-content table { display: block; max-width: 100%; overflow-x: auto !important; }
+html.craft-mobile #dialog-container .editable > .msg-card:not(.collapsed) .msg-content .craft-table-wrap > table { display: table !important; max-width: none !important; overflow: visible !important; }
+html.craft-mobile .msg-content table { font-size: 12.5px !important; }
+html.craft-mobile .craft-table-wrap {
+  width: fit-content; max-width: 100%; max-height: 60dvh;
+  background-image:
+    linear-gradient(to right, var(--craft-bg) 30%, #1f203000),
+    linear-gradient(to left, var(--craft-bg) 30%, #1f203000),
+    radial-gradient(farthest-side at 0 50%, #0008, #0000),
+    radial-gradient(farthest-side at 100% 50%, #0008, #0000);
+  background-position: left center, right center, left center, right center;
+  background-repeat: no-repeat;
+  background-size: 20px 100%, 20px 100%, 12px 100%, 12px 100%;
+  background-attachment: local, local, scroll, scroll;
+}
+html.craft-mobile .craft-table-copy { padding: 2px 7px; font-size: 10.5px; }
+
 /* %% nbs/craft/09_cell_insertion.ipynb #fc377b4a */
 html:not(.craft-mobile) #dialog-container > .editable.craft-desk-host {
   position: relative;
   overflow: visible !important; content-visibility: visible !important; contain: none !important;
 }
-html:not(.craft-mobile) #dialog-container > .editable.craft-desk-host:has(> .craft-desk-edge:is([data-near], :hover, :focus-visible, [data-active="true"]))::after {
+html:not(.craft-mobile) #dialog-container > .editable.craft-desk-host:has(> .craft-desk-edge:is(:hover, :focus-visible, [data-active="true"]))::after {
   mask-image: linear-gradient(#000, #000), linear-gradient(#000, #000);
   mask-position: 0 0, center bottom;
   mask-size: 100% 100%, 48px 6px;
@@ -1004,20 +1205,21 @@ html:not(.craft-mobile) #dialog-container > .editable.craft-desk-host:has(> .cra
 html:not(.craft-mobile) .craft-desk-edge {
   display: flex; align-items: center; justify-content: center;
   position: absolute; left: 50%; z-index: 110;
-  width: 64px; height: 22px; padding: 0; border: 0; background: transparent;
+  width: 160px; height: 18px; padding: 0; border: 0; background: transparent;
   transform: translateX(-50%);
-  opacity: 0; pointer-events: none; transition: opacity .12s ease;
+  pointer-events: auto;
   user-select: none; cursor: grab;
 }
-html:not(.craft-mobile) .craft-desk-edge[data-edge="below"] { bottom: -11px; }
-html:not(.craft-mobile) .craft-desk-edge:is([data-near], :hover, :focus-visible, [data-active="true"]) { opacity: 1; pointer-events: auto; }
+html:not(.craft-mobile) .craft-desk-edge[data-edge="below"] { bottom: -9px; }
 html:not(.craft-mobile) .craft-desk-edge-pill {
-  display: inline-flex; align-items: center; gap: 3px;
-  height: 18px; padding: 0 7px; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 20px; padding: 0 9px; border-radius: 999px;
   background: var(--craft-surface); border: 1px solid var(--craft-accent-border); color: var(--craft-accent);
   box-shadow: 0 2px 8px #0008;
-  transition: transform .1s ease, background .1s ease, border-color .1s ease, color .1s ease;
+  opacity: 0;
+  transition: opacity .12s ease, transform .1s ease, background .1s ease, border-color .1s ease, color .1s ease;
 }
+html:not(.craft-mobile) .craft-desk-edge:is(:hover, :focus-visible, [data-active="true"]) .craft-desk-edge-pill { opacity: 1; }
 html:not(.craft-mobile) .craft-desk-edge-kind { display: inline-flex; align-items: center; opacity: .75; }
 html:not(.craft-mobile) .craft-desk-edge:hover .craft-desk-edge-pill,
 html:not(.craft-mobile) .craft-desk-edge[data-active="true"] .craft-desk-edge-pill {
@@ -1026,13 +1228,13 @@ html:not(.craft-mobile) .craft-desk-edge[data-active="true"] .craft-desk-edge-pi
 
 /* Shared desktop (#craft-desk-picker) & mobile (#craft-edge-picker) blurred type-picker shell */
 .craft-type-picker {
-  display: none; position: fixed; z-index: 1250;
+  position: fixed; z-index: 1250; margin: 0;
   padding: 6px 8px 8px;
   background: #16161ef2; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
   border: 1px solid #7aa2f755; border-radius: 10px;
   box-shadow: 0 12px 32px #000c; user-select: none; -webkit-user-select: none;
 }
-.craft-type-picker.open { display: block; }
+.craft-type-picker:popover-open { display: block; }
 .craft-type-picker-head {
   font: 500 10px/1 var(--craft-prose-family); color: var(--craft-muted);
   text-align: center; margin-bottom: 6px; letter-spacing: .03em; text-transform: uppercase;
@@ -1053,20 +1255,44 @@ html:not(.craft-mobile) .craft-desk-edge[data-active="true"] .craft-desk-edge-pi
 }
 
 #dialog-container.craft-insert-preview { box-sizing: border-box; margin-right: 0 !important; min-width: 0; }
+#craft-insert-preview { left: auto; right: 10px; top: 36px; }
 #craft-insert-preview[hidden] { display: none; }
-.craft-insert-placeholder { height: 3px; margin: 4px 0; border-radius: 999px; background: linear-gradient(90deg, #7aa2f722, var(--craft-accent), var(--craft-cyan), #7aa2f722); background-size: 200% 100%; animation: craft-ins-shimmer 1s linear infinite; pointer-events: none; }
-@keyframes craft-ins-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.editable.craft-opt-hidden { display: none !important; }
 
+/* Empty-dialog starter card (desktop & mobile; hidden once any visible cell exists) */
+#dialog-container:has(> .editable:not([hidden]):not(.craft-opt-hidden)) #craft-empty-add { display: none; }
+#craft-empty-add {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  margin: 48px auto; padding: 18px 20px; max-width: 380px;
+  background: #16161e99; border: 1px dashed #ffffff24; border-radius: 12px;
+}
+#craft-empty-add .craft-empty-add-label { font-size: 12.5px; color: var(--craft-muted); text-align: center; }
+#craft-empty-add .craft-empty-add-btns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+#craft-empty-add button { gap: 5px; height: auto; padding: 8px 12px; font-size: 13px; }
+#craft-empty-add button svg { color: var(--craft-accent); }
+html.craft-mobile #craft-empty-add { margin: 32px auto; padding: 14px; max-width: 340px; }
+
+#craft-insert-preview-menu { left: auto; right: 10px; top: 66px; margin: 0; }
 #craft-insert-preview-menu small { display: block; padding: 4px 10px; color: #9b9cab; }
+
+/* Insert picker on the right edge: replaced by cell-edge bulges, so give the width back. */
+html.craft-mobile #craft-insert-preview { display: none; }
+html.craft-mobile #dialog-container.craft-insert-preview { margin-right: 0 !important; padding-right: 0 !important; }
+/* Mobile geometry overrides for shared #craft-edge-picker */
+html.craft-mobile #craft-edge-picker { z-index: 1050; border-radius: 14px; margin: 0; }
+html.craft-mobile #craft-edge-picker .craft-edge-picker-head { font-size: 10.5px; }
+html.craft-mobile #craft-edge-picker .craft-edge-picker-opts { align-items: stretch; gap: 6px; }
+html.craft-mobile #craft-edge-picker button { flex-direction: column; justify-content: center; gap: 3px; min-width: 60px; padding: 8px 6px; border-radius: 10px; }
+html.craft-mobile #craft-edge-picker button:is([data-hot], :active) { transform: scale(1.06); }
 
 /* %% nbs/craft/10_code_editor_c2.ipynb #95488b8b */
 /* ── C2 inline CodeMirror 6 cells (base .cm-* & save-dot in 04_cm_core) ── */
-.editable.craft-c2 .card-in[data-mtype="code"] .msg-content pre {
+.editable:has(> .card-in[data-mtype="code"]):not([data-diff]):not(:has([data-diff])) .card-in[data-mtype="code"] .msg-content pre {
   padding: 4px 15px 4px 4px !important;
   min-height: 18px;
   cursor: text;
 }
-.editable.craft-c2 .card-in[data-mtype="code"].craft-c2-mounted .msg-content { display: none !important; }
+.editable:has(> .card-in[data-mtype="code"]):not([data-diff]):not(:has([data-diff])) .card-in[data-mtype="code"].craft-c2-mounted .msg-content { display: none !important; }
 .craft-c2-host .cm-editor {
   color: var(--craft-fg);
   font-family: var(--craft-code-family) !important;
@@ -1075,7 +1301,7 @@ html:not(.craft-mobile) .craft-desk-edge[data-active="true"] .craft-desk-edge-pi
   font-weight: 400 !important;
 }
 .craft-c2-host .cm-scroller { line-height: var(--craft-code-lh) !important; }
-.craft-c2-host .cm-content { padding: 4px 15px 4px 0 !important; caret-color: var(--craft-fg); tab-size: 4; min-height: 18px; }
+.craft-c2-host .cm-content { padding: var(--craft-cm-pad-y, 4px) 15px var(--craft-cm-pad-y, 4px) 0 !important; caret-color: var(--craft-fg); tab-size: 4; min-height: 18px; }
 .craft-c2-host .cm-line { padding: 0 0 0 4px !important; line-height: var(--craft-code-lh) !important; }
 .craft-c2-host .cm-activeLine, .craft-c2-host .cm-activeLineGutter { background: transparent !important; }
 .craft-c2-host .cm-editor.cm-focused .cm-activeLine { background: var(--craft-accent-soft) !important; }
@@ -1112,25 +1338,24 @@ html:not(.craft-mobile) .craft-desk-edge[data-active="true"] .craft-desk-edge-pi
 .craft-c2-spinner { position: absolute; top: 3px; left: 3px; z-index: 20; pointer-events: none; }
 
 .craft-action-sep { margin: 4px 0; border: 0; border-top: 1px solid #ffffff1a; }
-.craft-c2-host .cm-gutters { background: transparent !important; border: 0 !important; color: var(--craft-muted-soft) !important; padding: 4px 4px 4px 2px; }
-.craft-c2-host .cm-lineNumbers .cm-gutterElement { min-width: 22px; padding: 0 4px 0 2px; font-size: var(--craft-code); line-height: var(--craft-code-lh); text-align: right; }
-.craft-c2-host:not(.craft-c2-has-ln) .cm-gutters { position: absolute !important; left: -6px; top: 0; bottom: 0; width: 10px; padding: 4px 0 !important; z-index: 4; pointer-events: none; }
-.craft-c2-host .cm-foldGutter { width: 10px; min-width: 10px; }
-.craft-c2-host .cm-foldGutter .cm-gutterElement { padding: 0 !important; display: flex; align-items: center; justify-content: center; }
-.craft-c2-fold { opacity: 0; pointer-events: auto; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; width: 10px; font-size: 9px; line-height: var(--craft-code-lh); color: var(--craft-accent-muted); transition: opacity .12s ease, color .12s ease; user-select: none; }
-.craft-c2-host:hover .craft-c2-fold, .craft-c2-fold.is-closed, .craft-c2-fold:hover { opacity: 1; }
-.craft-c2-fold:hover { color: var(--craft-accent); }
+.craft-c2-host .cm-gutters { display: none !important; }
 .craft-c2-host .cm-foldPlaceholder { display: inline-block; padding: 0 4px; margin: 0 2px; border: 1px solid var(--craft-accent-border) !important; border-radius: 3px; background: var(--craft-kbd-bg) !important; color: var(--craft-accent) !important; font-size: 9px; line-height: 1; cursor: pointer; }
 .craft-c2-host .cm-foldPlaceholder:hover { background: var(--craft-hover) !important; border-color: var(--craft-accent) !important; }
 
 /* Traceback accent, indent guides, rainbow brackets */
-.editable.craft-c2 > .card-in[data-mtype="code"] { position: relative; }
-.card-out.craft-c2-traceback { box-shadow: inset 2px 0 0 var(--craft-red) !important; }
+.editable:has(> .card-in[data-mtype="code"]):not([data-diff]):not(:has([data-diff])) > .card-in[data-mtype="code"] { position: relative; }
+.editable:has(> .card-in[data-mtype="code"]) > .card-out:has(.ansi-red-fg, .ansi-red-intense-fg) { box-shadow: inset 2px 0 0 var(--craft-red) !important; }
 .craft-c2-ig { box-shadow: inset 1px 0 0 var(--craft-ig); }
 .craft-c2-br-0 { color: var(--craft-amber) !important; }
 .craft-c2-br-1 { color: var(--craft-purple) !important; }
 .craft-c2-br-2 { color: var(--craft-cyan) !important; }
 .craft-c2-br-err { color: var(--craft-red) !important; text-decoration: underline wavy var(--craft-red); }
+
+html.craft-mobile .craft-c2-host { --craft-cm-pad-y: 6px; }
+html.craft-mobile :is(.craft-c2-host, .craft-c2-tooltips) .cm-tooltip { font-size: 13px; }
+html.craft-mobile :is(.craft-c2-host, .craft-c2-tooltips) .cm-tooltip-autocomplete > ul > li { padding: 6px 10px; }
+html.craft-mobile :is(.craft-c2-host, .craft-c2-tooltips) .cm-completionDetail { max-width: 40vw; }
+html.craft-mobile .craft-c2-ai-input { font-size: 16px; padding: 8px; }
 
 /* %% nbs/craft/11_markdown_editor.ipynb #4bbf1253 */
 /* ── Inline Markdown & Raw CM6 cells (base .cm-* & save-dot in 04_cm_core) ── */
@@ -1150,11 +1375,11 @@ html:not(.craft-mobile) .craft-desk-edge[data-active="true"] .craft-desk-edge-pi
   color: var(--craft-fg);
   font-family: var(--craft-code-family) !important;
   font-size: var(--craft-code) !important;
-  line-height: 1 !important;
+  line-height: var(--craft-mono-lh, 1) !important;
   font-weight: 400 !important;
 }
-.craft-md-host.craft-md-mono .cm-content { padding: 4px 15px 4px 0 !important; caret-color: var(--craft-fg); tab-size: 4; min-height: 18px; }
-.craft-md-host.craft-md-mono .cm-line { padding: 0 0 0 4px !important; line-height: 1 !important; }
+.craft-md-host.craft-md-mono .cm-content { padding: var(--craft-cm-pad-y, 4px) 15px var(--craft-cm-pad-y, 4px) 0 !important; caret-color: var(--craft-fg); tab-size: 4; min-height: 18px; }
+.craft-md-host.craft-md-mono .cm-line { padding: 0 0 0 4px !important; line-height: var(--craft-mono-lh, 1) !important; }
 .craft-md-host.craft-md-mono .cm-activeLine { background: transparent !important; }
 .craft-md-host.craft-md-mono .cm-editor.cm-focused .cm-activeLine { background: var(--craft-accent-soft) !important; }
 
@@ -1235,6 +1460,8 @@ html:not(.craft-mobile) .craft-desk-edge[data-active="true"] .craft-desk-edge-pi
 .craft-md-table-head { font-weight: 650; color: var(--craft-fg-strong); }
 .craft-md-table-delim { color: var(--craft-accent-border); }
 
+html.craft-mobile .craft-md-host.craft-md-mono { --craft-mono-lh: 1.4; --craft-cm-pad-y: 6px; }
+
 /* %% nbs/craft/12_mobile.ipynb #bc5b5037 */
 /* ══ Mobile ══════════════════════════════════════════════════════════════
    Everything below is scoped to `html.craft-mobile`, which CRAFT.js sets for
@@ -1243,17 +1470,23 @@ html:not(.craft-mobile) .craft-desk-edge[data-active="true"] .craft-desk-edge-pi
    top/bottom cell-edge drag-to-insert bulges, bottom-sheet menus, slide-in file
    drawer, tap-to-open top nav (housing the view toggle), and reading ergonomics.
    ──────────────────────────────────────────────────────────────────────── */
-#craft-mbar, #craft-scroll-bottom, #craft-empty-add,
-.craft-edge-bulge, .solveit-tree-row-more { display: none; }
+#craft-mbar, #craft-scroll-bottom,
+.craft-edge-bulge { display: none; }
+.craft-mobile-backdrop { display: none; position: fixed; inset: 0; }
 
-html.craft-mobile {
-  --craft-prose: 14px;
-  --craft-prose-lh: 1.45;
-  --craft-code: 12.5px;
-  --craft-mbar-h: 50px;
-  --craft-mbar-space: calc(var(--craft-mbar-h) + env(safe-area-inset-bottom, 0px));
-  -webkit-text-size-adjust: 100%;
+@layer craft-mobile {
+  html.craft-mobile {
+    --craft-prose: 14px;
+    --craft-prose-lh: 1.45;
+    --craft-code: 12.5px;
+    --craft-code-lh: 1.4;
+    --craft-mbar-h: 50px;
+    --craft-mbar-space: calc(var(--craft-mbar-h) + env(safe-area-inset-bottom, 0px));
+    -webkit-text-size-adjust: 100%;
+  }
 }
+html.craft-mobile body:has(#solveit-file-tree-panel.open) #craft-mobile-backdrop { display: block; z-index: 970; background: #0009; }
+
 /* Nothing may widen the layout viewport (Android would zoom the whole page out to fit it). */
 html.craft-mobile, html.craft-mobile body { overflow-x: clip; max-width: 100%; }
 html.craft-mobile .h-screen { height: 100dvh !important; }
@@ -1261,7 +1494,7 @@ html.craft-mobile .h-screen { height: 100dvh !important; }
 html.craft-mobile .uk-container { padding-bottom: env(safe-area-inset-bottom, 0px) !important; box-sizing: border-box; }
 html.craft-mobile.craft-mobile-editing .uk-container { padding-bottom: var(--craft-mbar-space) !important; }
 
-/* ── Type & spacing ── */
+/* ── Type, spacing & media overflow shell ── */
 html.craft-mobile .msg-content pre, html.craft-mobile .msg-content code { line-height: 1.4 !important; }
 html.craft-mobile .msg-body { padding: 4px 8px !important; }
 html.craft-mobile .card-out .msg-body { padding-left: 12px !important; }
@@ -1269,69 +1502,20 @@ html.craft-mobile #dialog-container { padding-top: 12px !important; padding-bott
 html.craft-mobile .editable:not(.craft-chain-next) { margin-bottom: 18px !important; }
 html.craft-mobile .msg-card[data-mtype="prompt"] > .uk-card-header nav > div.grow > p::before,
 html.craft-mobile .msg-card[data-mtype="prompt"] > .uk-card-header [data-tokens]::after { font-size: 12px; }
-/* Wide content scrolls inside its cell instead of widening the page. */
-html.craft-mobile #dialog-container .editable > .msg-card:not(.collapsed) .msg-content table { display: block; max-width: 100%; overflow-x: auto !important; }
-html.craft-mobile #dialog-container .editable > .msg-card:not(.collapsed) .msg-content .craft-table-wrap > table { display: table !important; max-width: none !important; overflow: visible !important; }
-html.craft-mobile .craft-table-wrap {
-  width: fit-content; max-width: 100%; max-height: 60dvh;
-  background-image:
-    linear-gradient(to right, var(--craft-bg) 30%, #1f203000),
-    linear-gradient(to left, var(--craft-bg) 30%, #1f203000),
-    radial-gradient(farthest-side at 0 50%, #0008, #0000),
-    radial-gradient(farthest-side at 100% 50%, #0008, #0000);
-  background-position: left center, right center, left center, right center;
-  background-repeat: no-repeat;
-  background-size: 20px 100%, 20px 100%, 12px 100%, 12px 100%;
-  background-attachment: local, local, scroll, scroll;
-}
-html.craft-mobile .msg-content table { font-size: 12.5px !important; }
-html.craft-mobile .craft-table-copy { padding: 2px 7px; font-size: 10.5px; }
 html.craft-mobile #dialog-container .msg-content :is(img, video, canvas, svg:not([width])) { max-width: 100%; height: auto; }
 html.craft-mobile #dialog-container .msg-content :is(iframe, .jp-OutputArea, .output_html) { max-width: 100%; }
 html.craft-mobile #dialog-container .editable { min-width: 0; max-width: 100%; }
-
-/* Insert picker on the right edge: replaced by cell-edge bulges, so give the width back. */
-html.craft-mobile #craft-insert-preview { display: none !important; }
-html.craft-mobile #dialog-container.craft-insert-preview { margin-right: 0 !important; padding-right: 0 !important; }
-
-/* ── Cell controls: quiet until selected, finger-sized bottom-sheet menu ── */
-html.craft-mobile .msg-card .craft-action-trigger {
-  opacity: .32; pointer-events: auto; width: 40px; height: 30px; flex-basis: 40px; font-size: 22px;
-  transition: opacity .15s ease;
-}
-html.craft-mobile .editable:is([data-sm="primary"], [data-sm="secondary"], :focus-within) .craft-action-trigger,
-html.craft-mobile .msg-card .craft-action-trigger[aria-expanded="true"] { opacity: 1; }
-html.craft-mobile .craft-menu {
-  position: fixed !important;
-  left: 0 !important; right: 0 !important; bottom: 0 !important; top: auto !important;
-  width: 100% !important; min-width: 0 !important; max-width: 100% !important; max-height: 70dvh; overflow-y: auto;
-  margin: 0 !important;
-  padding: 10px 12px calc(14px + env(safe-area-inset-bottom, 0px)) !important;
-  border: 0 !important; border-top: 1px solid #ffffff1c !important;
-  border-radius: 16px 16px 0 0 !important;
-  box-shadow: 0 -12px 36px #000b !important;
-  box-sizing: border-box;
-}
-html.craft-mobile .craft-menu::before {
-  content: ""; display: block; width: 36px; height: 4px; margin: 0 auto 10px;
-  border-radius: 999px; background: #ffffff30;
-}
-html.craft-mobile .craft-action-menu::backdrop { background: #0009; }
-html.craft-mobile .craft-menu button { padding: 12px 14px; font-size: 15px; border-radius: 8px; }
-html.craft-mobile .msg-card > .uk-card-header nav > div.grow > p,
-html.craft-mobile .msg-card[data-mtype="prompt"] > .uk-card-header nav > div.grow > p > span { opacity: 1; }
-html.craft-mobile .craft-omit-marker, html.craft-mobile .craft-part-restore { padding: 6px 10px; font-size: 13px; }
 html.craft-mobile .msg-card .uk-card-header :is(button, .uk-btn, a) { min-height: 28px; }
 
 /* %% nbs/craft/12_mobile.ipynb #dcf12f8d */
 /* ── Top/bottom brace-style cell-edge bulges & drag-to-insert picker ── */
-html.craft-mobile #dialog-container > .editable.craft-bulge-host {
+html.craft-mobile #dialog-container > .editable:has(> .craft-edge-bulge) {
   position: relative; z-index: 2;
   overflow: visible !important; content-visibility: visible !important; contain: none !important;
 }
 /* Ensure editing cells also carry the selection border, and punch 34px gaps at
    top-center and bottom-center so the SVG brace curves become part of the border. */
-html.craft-mobile #dialog-container > .editable.craft-bulge-host::after {
+html.craft-mobile #dialog-container > .editable:has(> .craft-edge-bulge)::after {
   content: ""; position: absolute; inset: 0;
   border: 2px solid oklch(62.3% 0.214 259.815); border-radius: 0 !important;
   pointer-events: none; z-index: 100;
@@ -1362,40 +1546,6 @@ html.craft-mobile .craft-edge-bulge .craft-edge-stroke {
   fill: none; stroke: oklch(62.3% 0.214 259.815); stroke-width: 2; stroke-linecap: round;
 }
 html.craft-mobile .craft-edge-bulge[data-active="true"] .craft-edge-stroke { stroke: var(--craft-green); stroke-width: 2.5; }
-
-/* Mobile geometry overrides for shared #craft-edge-picker (base in 09_cell_insertion) */
-html.craft-mobile #craft-edge-picker { z-index: 1050; border-radius: 14px; }
-html.craft-mobile #craft-edge-picker .craft-edge-picker-head { font-size: 10.5px; }
-html.craft-mobile #craft-edge-picker .craft-edge-picker-opts { align-items: stretch; gap: 6px; }
-html.craft-mobile #craft-edge-picker button { flex-direction: column; justify-content: center; gap: 3px; min-width: 60px; padding: 8px 6px; border-radius: 10px; }
-html.craft-mobile #craft-edge-picker button:is([data-hot], :active) { transform: scale(1.06); }
-
-/* Empty dialog starter row */
-html.craft-mobile #craft-empty-add {
-  display: flex; flex-direction: column; align-items: center; gap: 10px;
-  margin: 32px auto; padding: 14px; max-width: 340px;
-  background: #16161e99; border: 1px dashed #ffffff24; border-radius: 12px;
-}
-html.craft-mobile #craft-empty-add .craft-empty-add-label { font-size: 12px; color: var(--craft-muted); }
-html.craft-mobile #craft-empty-add .craft-empty-add-btns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
-html.craft-mobile #craft-empty-add button { gap: 5px; height: auto; padding: 8px 12px; font-size: 13px; }
-html.craft-mobile #craft-empty-add button svg { color: var(--craft-accent); }
-
-/* ── Inline editors (C2 code, notes, prompts, raw) ── */
-html.craft-mobile .craft-c2-host .cm-editor,
-html.craft-mobile .craft-c2-host .cm-scroller,
-html.craft-mobile .craft-c2-host .cm-line,
-html.craft-mobile .craft-c2-host .cm-lineNumbers .cm-gutterElement,
-html.craft-mobile .craft-md-host.craft-md-mono .cm-editor,
-html.craft-mobile .craft-md-host.craft-md-mono .cm-line { line-height: 1.4 !important; }
-/* Soft-wrap long lines (CM6 reads white-space from the DOM, so this is a real wrap, not a clip). */
-html.craft-mobile .craft-cm-host .cm-content { white-space: pre-wrap !important; overflow-wrap: anywhere; word-break: normal; flex-shrink: 1 !important; min-width: 0; }
-html.craft-mobile .craft-c2-host .cm-content, html.craft-mobile .craft-md-host.craft-md-mono .cm-content { padding-block: 6px !important; }
-html.craft-mobile :is(.craft-c2-host, .craft-c2-tooltips) .cm-tooltip { font-size: 13px; }
-html.craft-mobile :is(.craft-c2-host, .craft-c2-tooltips) .cm-tooltip-autocomplete > ul > li { padding: 6px 10px; }
-html.craft-mobile :is(.craft-c2-host, .craft-c2-tooltips) .cm-completionDetail { max-width: 40vw; }
-html.craft-mobile .craft-cm-host .cm-search :is(input, button) { font-size: 14px; padding: 6px 8px; }
-html.craft-mobile .craft-c2-ai-input { font-size: 16px; padding: 8px; }
 
 /* %% nbs/craft/12_mobile.ipynb #9d851ab8 */
 /* ── Bottom toolbar: floating scroll-hiding pill when idle, full-width bar when editing ── */
@@ -1465,112 +1615,9 @@ html.craft-mobile #craft-scroll-bottom {
 html.craft-mobile #craft-scroll-bottom.visible { opacity: 1; pointer-events: auto; transform: none; }
 html.craft-mobile #craft-scroll-bottom:active { background: var(--craft-hover); color: var(--craft-accent); }
 
-/* ── Top nav: hidden until Menu, then a solid wrapping bar housing the view toggle ── */
-html.craft-mobile .uk-container > nav.monster-navbar {
-  position: fixed !important; top: 0; left: 0; right: 0; z-index: 960;
-  height: auto !important; min-height: 48px !important;
-  display: flex !important; flex-wrap: wrap !important; align-items: center; gap: 6px 14px;
-  padding: calc(6px + env(safe-area-inset-top, 0px)) 54px 6px 12px !important;
-  background: var(--craft-recessed) !important; border-bottom: 1px solid #ffffff14 !important;
-  box-shadow: 0 8px 24px #0009;
-  opacity: 0; pointer-events: none; transform: translateY(-100%);
-  transition: opacity .16s ease, transform .16s ease;
-}
-html.craft-mobile.craft-nav-open .uk-container > nav.monster-navbar,
-html.craft-mobile .uk-container > nav.monster-navbar:focus-within { opacity: 1; pointer-events: auto; transform: none; }
-html.craft-mobile.craft-nav-open .uk-container > nav.monster-navbar > * { pointer-events: auto; }
-/* The title block is already hidden and Solveit's own ☰ duplicates ours: drop both so the controls start on row one. */
-html.craft-mobile .uk-container > nav.monster-navbar > div.min-w-0,
-html.craft-mobile .uk-container > nav.monster-navbar > button { display: none !important; }
-html.craft-mobile .uk-container > nav.monster-navbar > div.ml-auto { display: flex !important; flex-wrap: wrap; align-items: center; gap: 6px 12px; width: 100%; margin: 0 !important; padding: 0 !important; }
-html.craft-mobile .uk-container > nav.monster-navbar > div.ml-auto > div { flex: 1 1 100%; min-width: 0; justify-content: flex-start !important; gap: 6px 8px !important; }
-html.craft-mobile .uk-container > nav.monster-navbar .uk-btn-group { flex-wrap: wrap !important; max-width: 100%; }
-html.craft-mobile .uk-container > nav.monster-navbar :is(.uk-btn, label, button, select) { min-height: 36px; min-width: 36px; font-size: 14px !important; }
-html.craft-mobile .uk-container > nav.monster-navbar svg,
-html.craft-mobile .uk-container > nav.monster-navbar select,
-html.craft-mobile .uk-container > nav.monster-navbar h2 { filter: none; }
-
-/* Move the desktop/mobile toggle into the revealed top nav instead of floating over cells. */
-html.craft-mobile #craft-mobile-toggle {
-  top: calc(8px + env(safe-area-inset-top, 0px)) !important;
-  left: auto !important; right: 10px !important; z-index: 970 !important;
-  width: 36px !important; height: 36px !important; border-radius: 8px !important;
-  background: #242638 !important; border: 1px solid #ffffff28 !important;
-  color: var(--craft-fg) !important;
-  opacity: 0 !important; pointer-events: none !important; transform: translateY(-100%);
-  transition: opacity .16s ease, transform .16s ease;
-}
-html.craft-mobile.craft-nav-open #craft-mobile-toggle {
-  opacity: 1 !important; pointer-events: auto !important; transform: none;
-}
-
-/* ── File tree as a drawer ── */
-html.craft-mobile #solveit-file-tree-panel {
-  position: fixed !important; top: 0; left: 0; bottom: 0;
-  z-index: 980;
-  flex: none !important; height: auto !important;
-  width: min(86vw, 380px) !important; min-width: 0 !important; max-width: none !important;
-  padding: calc(12px + env(safe-area-inset-top, 0px)) 10px calc(72px + env(safe-area-inset-bottom, 0px)) 10px !important;
-  resize: none; overflow-y: auto; overscroll-behavior: contain;
-  transform: translateX(-105%); transition: transform .2s ease, visibility .2s;
-  box-shadow: none;
-}
-html.craft-mobile #solveit-file-tree-panel.open { transform: none; box-shadow: 8px 0 32px #000a; }
-html.craft-mobile body:has(#solveit-file-tree-panel.open) #craft-mobile-backdrop { display: block; z-index: 970; background: #0009; }
-html.craft-mobile #solveit-file-tree-panel > header { flex-wrap: wrap; gap: 2px; }
-html.craft-mobile #solveit-file-tree-panel > header strong { font-size: 15px; margin-right: auto; }
-html.craft-mobile #solveit-file-tree-panel > header button { min-width: 40px; min-height: 40px; margin-left: 0; font-size: 1.35rem; border-radius: 6px; }
-html.craft-mobile #solveit-file-tree-panel > header button:active { background: var(--craft-hover); }
-html.craft-mobile #solveit-file-tree-panel .solveit-tree-shortcut,
-html.craft-mobile #solveit-file-tree-panel .solveit-tree-rootbar-hint { display: none; }
-html.craft-mobile #solveit-file-tree-panel .solveit-tree-appname { font-size: 15px; }
-html.craft-mobile #solveit-file-tree-panel h2#dlg-name { font-size: 14px !important; }
-html.craft-mobile #solveit-file-tree-panel .solveit-tree-filter { font-size: 16px; padding: 10px 12px; }
-html.craft-mobile #solveit-file-tree-panel .solveit-tree-status { font-size: 13px; }
-html.craft-mobile #solveit-file-tree-panel .solveit-tree-rootbar { min-height: 40px; padding: 4px 4px 4px 10px; font-size: 14px; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
-html.craft-mobile #solveit-file-tree-panel .custom-treeview-wrapper li { margin: 0; font-size: 15px; }
-html.craft-mobile #solveit-file-tree-panel .custom-treeview-wrapper ul ul { padding-left: 16px; }
-html.craft-mobile #solveit-file-tree-panel .custom-treeview-wrapper .treeview-node-content {
-  min-height: 42px; padding: 2px 2px 2px 6px; box-sizing: border-box;
-  -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent;
-}
-html.craft-mobile #solveit-file-tree-panel .custom-treeview-wrapper .treeview-node-content:hover { background: transparent; }
-html.craft-mobile #solveit-file-tree-panel .custom-treeview-wrapper .treeview-node-content:active { background: #222434; }
-html.craft-mobile #solveit-file-tree-panel img.solveit-tree-icon { width: 20px !important; height: 20px !important; max-width: 20px !important; max-height: 20px !important; flex-basis: 20px; margin-right: 10px; }
-html.craft-mobile #solveit-file-tree-panel .solveit-tree-row-upload { width: 36px; height: 36px; opacity: 1; pointer-events: auto; }
-html.craft-mobile #solveit-file-tree-panel .solveit-tree-row-more {
-  display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center;
-  width: 40px; height: 36px; margin-left: 2px; padding: 0; border: 0; border-radius: 6px;
-  background: transparent; color: #cfc9c2aa; font-size: 20px; line-height: 1; cursor: pointer;
-}
-html.craft-mobile #solveit-file-tree-panel .solveit-tree-rootbar .solveit-tree-row-upload { margin-left: auto; }
-html.craft-mobile #solveit-file-tree-panel .solveit-tree-row-more:active,
-html.craft-mobile #solveit-file-tree-panel .solveit-tree-row-upload:active { background: #30364d; color: var(--craft-accent); }
-html.craft-mobile #solveit-file-tree { padding-bottom: 24px; }
-html.craft-mobile #solveit-file-tree .solveit-tree-create input { font-size: 16px; padding: 8px 10px; }
-html.craft-mobile #solveit-tree-create-error:not(:empty) { font-size: 13px; }
-html.craft-mobile .solveit-tree-upload-pop { width: min(320px, calc(100vw - 24px)); padding: 12px; font-size: 14px; }
-html.craft-mobile .solveit-tree-upload-dest { font-size: 13px; }
-html.craft-mobile .solveit-tree-upload-x { font-size: 22px; padding: 4px 8px; }
-html.craft-mobile .solveit-tree-upload-drop { padding: 16px 10px; font-size: 13px; }
-html.craft-mobile .solveit-tree-upload-actions button { padding: 11px 8px; font-size: 14px; }
-
-/* ── Overlays: file editor, launcher, shortcuts ── */
-html.craft-mobile #solveit-temp-editor { padding-top: env(safe-area-inset-top, 0px); }
-html.craft-mobile #solveit-temp-editor .solveit-temp-editor-bar { flex-basis: 48px; }
-html.craft-mobile #solveit-temp-editor .solveit-temp-editor-bar strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
-html.craft-mobile #solveit-temp-editor .solveit-temp-editor-bar button { min-width: 44px; min-height: 44px; font-size: 1.8rem; }
-html.craft-mobile #solveit-launcher { padding-top: calc(10px + env(safe-area-inset-top, 0px)); }
-html.craft-mobile #solveit-launcher .solveit-launcher-card { width: calc(100vw - 16px); }
-html.craft-mobile #solveit-launcher input { font-size: 16px; padding: 14px; }
-html.craft-mobile #solveit-launcher ul { max-height: 60dvh; }
-html.craft-mobile #solveit-launcher li { padding: 11px 12px; font-size: 14px; }
-html.craft-mobile #solveit-launcher li .hint { display: none; }
-html.craft-mobile .hk-overlay { padding: 8px; }
-
 /* %% nbs/craft/13_context_control.ipynb #bdde4402 */
 /* ── Context Control, All-But, Budget Meter & Preview (13_context_control) ── */
-html.craft-ab-staging #dialog-container > .editable.craft-ab-excluded {
+html.craft-ab-staging #dialog-container > .editable:not(.craft-ab-included) {
   opacity: 0.28 !important;
   filter: grayscale(0.45);
   transition: opacity .15s ease;
@@ -1599,6 +1646,7 @@ html.craft-ab-staging #dialog-container > .editable.craft-ab-included {
   color: var(--craft-fg);
   font-size: 11.5px;
 }
+#craft-ab-bar[hidden], #craft-ab-recover[hidden] { display: none; }
 html.craft-mobile #craft-ab-bar, html.craft-mobile #craft-ab-recover {
   bottom: calc(64px + env(safe-area-inset-bottom, 0px));
   border-radius: 12px;
@@ -1609,21 +1657,29 @@ html.craft-mobile #craft-ab-bar, html.craft-mobile #craft-ab-recover {
 
 /* Context Budget Meter */
 .craft-ctx-meter {
-  display: inline-flex;
+  display: inline-flex !important;
   align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
   gap: 4px;
-  height: 22px;
-  padding: 0 8px;
-  margin-right: 6px;
+  width: auto !important;
+  min-width: max-content;
+  height: 22px !important;
+  line-height: 1 !important;
+  padding: 0 9px !important;
+  margin: 0 4px 0 0 !important;
+  box-sizing: border-box;
+  white-space: nowrap !important;
   border-radius: 999px;
   border: 1px solid var(--craft-border);
   background: var(--craft-surface-alt);
   color: var(--craft-muted);
   font-family: var(--craft-code-family);
-  font-size: 10.5px;
+  font-size: 11px !important;
   cursor: pointer;
   transition: border-color .12s ease, color .12s ease;
 }
+.craft-ctx-meter-val { white-space: nowrap !important; line-height: 1 !important; }
 .craft-ctx-meter:hover { border-color: var(--craft-accent); color: var(--craft-fg-strong); }
 .craft-ctx-meter[data-level="warn"] { color: var(--craft-amber); border-color: var(--craft-amber); }
 .craft-ctx-meter[data-level="high"] { color: var(--craft-red); border-color: var(--craft-red); }
@@ -1732,10 +1788,14 @@ html.craft-ctx-heat-on #dialog-container > .editable.craft-ctx-heat-cell > .card
 .craft-font-prev-wrap { padding: 10px 12px; border-radius: 6px; background: var(--craft-bg); border: 1px solid var(--craft-border); }
 .craft-font-prev-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--craft-meta-fg, var(--craft-muted)); margin-bottom: 6px; }
 .craft-font-preview { color: var(--craft-fg); white-space: pre-wrap; }
-.craft-font-preview.is-code, .craft-font-preview.is-raw { background: var(--craft-recessed); padding: 8px 10px; border-radius: 4px; }
+.craft-font-preview.is-prompt   { font-family: var(--craft-font-prompt-family);   font-size: var(--craft-font-prompt-size);   line-height: var(--craft-font-prompt-lh);   font-weight: var(--craft-font-prompt-weight); }
+.craft-font-preview.is-response { font-family: var(--craft-font-response-family); font-size: var(--craft-font-response-size); line-height: var(--craft-font-response-lh); font-weight: var(--craft-font-response-weight); }
+.craft-font-preview.is-note     { font-family: var(--craft-font-note-family);     font-size: var(--craft-font-note-size);     line-height: var(--craft-font-note-lh);     font-weight: var(--craft-font-note-weight); }
+.craft-font-preview.is-code     { font-family: var(--craft-font-code-family);     font-size: var(--craft-font-code-size);     line-height: var(--craft-font-code-lh);     font-weight: var(--craft-font-code-weight);     background: var(--craft-recessed); padding: 8px 10px; border-radius: 4px; }
+.craft-font-preview.is-raw      { font-family: var(--craft-font-raw-family);      font-size: var(--craft-font-raw-size);      line-height: var(--craft-font-raw-lh);      font-weight: var(--craft-font-raw-weight);      background: var(--craft-recessed); padding: 8px 10px; border-radius: 4px; }
 
 /* %% nbs/craft/15_structural_ops.ipynb #60d73213 */
-/* ── Structural Ops: Batch Bar, Partition, Send, Reorder, Section Menu (15_structural_ops) ── */
+/* ── Structural Ops: Batch Bar, Partition, Send, Reorder (15_structural_ops) ── */
 #craft-batch-bar {
   position: fixed;
   left: 50%;
@@ -1754,6 +1814,7 @@ html.craft-ctx-heat-on #dialog-container > .editable.craft-ctx-heat-cell > .card
   box-shadow: 0 12px 32px rgba(0,0,0,.55);
   font-size: 11px;
 }
+#craft-batch-bar[hidden] { display: none; }
 html.craft-mobile #craft-batch-bar {
   bottom: calc(64px + env(safe-area-inset-bottom, 0px));
   border-radius: 12px;
@@ -1763,6 +1824,7 @@ html.craft-mobile #craft-batch-bar {
 .craft-part-card { width: min(520px, 92vw); display: flex; flex-direction: column; overflow: hidden; }
 .craft-part-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; font-size: 12px; }
 .craft-part-modes, .craft-part-extra { display: flex; flex-direction: column; gap: 6px; }
+#craft-partition-modal:not(:has(input[value="extract"]:checked)) .craft-part-extra { display: none; }
 .craft-part-opt { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 .craft-part-field { display: flex; flex-direction: column; gap: 4px; }
 .craft-part-lbl { font-size: 11px; color: var(--craft-muted); }
@@ -1781,21 +1843,6 @@ html.craft-mobile #craft-batch-bar {
   position: fixed; height: 2px; z-index: 1300; pointer-events: none;
   background: var(--craft-accent); box-shadow: 0 0 8px var(--craft-accent);
 }
-
-/* Section heading menu trigger */
-#dialog-container > .editable:has(> .craft-sec-trigger) { position: relative; }
-.craft-sec-trigger {
-  position: absolute; top: 2px; right: 34px; z-index: 6;
-  padding: 1px 6px; border-radius: 4px; border: 1px solid var(--craft-border);
-  background: var(--craft-surface); color: var(--craft-muted); font-size: 10px;
-  cursor: pointer; opacity: 0; transition: opacity .12s ease;
-}
-#dialog-container > .editable:is(:hover, :focus-within) > .craft-sec-trigger,
-.craft-sec-trigger:focus-visible,
-html.craft-mobile .craft-sec-trigger { opacity: 1; }
-.craft-sec-trigger:hover { color: var(--craft-accent); border-color: var(--craft-accent); }
-#craft-sec-menu { display: none; }
-#craft-sec-menu.open { display: block; }
 
 /* %% nbs/craft/16_navigation_reference.ipynb #db5fc237 */
 /* ── Minimap, Sticky Reference Pane, Stale & Scratch Badges (16_navigation_reference) ── */
@@ -1853,20 +1900,28 @@ html.craft-mobile #craft-ref-pane { width: min(90vw, 360px) !important; z-index:
 .craft-ref-type { margin-right: auto; font-family: var(--craft-code-family); color: var(--craft-muted); }
 .craft-ref-clone { padding: 8px; max-height: 36vh; overflow: auto; font-size: 11px; }
 
-/* Stale & Scratchpad Badges */
-.craft-stale-badge, .craft-scratch-badge {
+/* Stale & Scratchpad Badges (rendered via ::after for zero DOM churn) */
+.editable:is(.craft-is-stale, .craft-scratch-cell) > .card-in > .uk-card-header nav > div.grow::after {
   display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 3px;
   font-size: 9.5px; font-weight: 600; line-height: 15px; vertical-align: middle; text-transform: uppercase;
 }
-.craft-stale-badge {
+.editable.craft-is-stale > .card-in > .uk-card-header nav > div.grow::after {
+  content: 'stale';
   color: var(--craft-amber);
   border: 1px solid color-mix(in srgb, var(--craft-amber) 55%, transparent);
   background: color-mix(in srgb, var(--craft-amber) 14%, transparent);
 }
-.craft-scratch-badge {
+.editable.craft-scratch-cell > .card-in > .uk-card-header nav > div.grow::after {
+  content: 'scratch';
   color: var(--craft-muted);
   border: 1px dashed var(--craft-border);
   background: var(--craft-recessed);
+}
+.editable.craft-is-stale.craft-scratch-cell > .card-in > .uk-card-header nav > div.grow::after {
+  content: 'stale · scratch';
+  color: var(--craft-amber);
+  border: 1px dashed color-mix(in srgb, var(--craft-amber) 55%, transparent);
+  background: color-mix(in srgb, var(--craft-amber) 14%, transparent);
 }
 .editable.craft-scratch-cell > .card-in {
   border: 1px dashed var(--craft-border) !important;
@@ -1881,6 +1936,9 @@ html.craft-mobile #craft-ref-pane { width: min(90vw, 360px) !important; z-index:
   background: var(--craft-recessed); border: 1px solid var(--craft-amber); font-size: 11px;
 }
 .craft-diff-tag { font-weight: 600; color: var(--craft-amber); margin-right: auto; }
+.craft-diff-details { display: contents; }
+.craft-diff-sum { list-style: none; cursor: pointer; }
+.craft-diff-sum::-webkit-details-marker { display: none; }
 .craft-diff-box { width: 100%; margin-top: 6px; }
 .craft-diff-pre {
   margin: 0; padding: 6px 8px; max-height: 240px; overflow: auto;
@@ -1927,6 +1985,7 @@ html.craft-mobile #craft-ref-pane { width: min(90vw, 360px) !important; z-index:
   color: var(--craft-fg);
   font-size: 11.5px;
 }
+#craft-tts-bar[hidden] { display: none; }
 html.craft-mobile #craft-tts-bar {
   left: 50%; right: auto; transform: translateX(-50%);
   bottom: calc(64px + env(safe-area-inset-bottom, 0px));
@@ -1962,17 +2021,18 @@ html.craft-mobile #craft-tts-bar {
 .craft-bug-help-btn:hover { opacity: 1; transform: translateY(-1px); color: var(--craft-accent, #7aa2f7); }
 .craft-bug-help-btn[hidden] { display: none !important; }
 #craft-bug-overlay { align-items: center; justify-content: center; z-index: 1100; }
-#craft-bug-overlay.open { display: flex; }
-.craft-bug-card { width: min(520px, 92vw); max-height: 88vh; overflow-y: auto; padding: 14px 16px; }
+.craft-bug-card { width: min(520px, 92vw); max-height: 88vh; overflow-y: auto; padding: 16px 18px !important; border-radius: 10px !important; }
 .craft-bug-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .craft-bug-title { font-weight: 600; font-size: 13px; }
 .craft-bug-close { background: none; border: none; color: inherit; font-size: 18px; cursor: pointer; line-height: 1; }
 .craft-bug-card label { display: block; font-size: 11px; margin-bottom: 8px; color: var(--craft-muted, #9aa5ce); }
-.craft-bug-card input[type="text"], .craft-bug-ta { width: 100%; margin-top: 3px; font-size: 12px; }
+.craft-bug-card input[type="text"], .craft-bug-ta { width: 100%; margin-top: 4px; padding: 7px 10px !important; border: 1px solid var(--craft-border) !important; border-radius: 6px !important; background: var(--craft-recessed) !important; color: var(--craft-fg) !important; font-size: 12.5px !important; line-height: 1.4 !important; height: auto !important; box-sizing: border-box; }
 .craft-bug-opts { display: flex; gap: 14px; flex-wrap: wrap; margin: 6px 0 8px; }
 .craft-bug-chk { display: inline-flex !important; align-items: center; gap: 5px; margin: 0 !important; cursor: pointer; }
 .craft-bug-meta { font-size: 11px; color: var(--craft-muted, #9aa5ce); margin-bottom: 6px; }
 .craft-bug-status { font-size: 11px; min-height: 16px; margin-bottom: 8px; word-break: break-word; }
 .craft-bug-status.ok { color: var(--craft-green, #9ece6a); }
 .craft-bug-status.err { color: var(--craft-red, #f7768e); }
-.craft-bug-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.craft-bug-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.craft-bug-actions button { padding: 6px 14px !important; font-size: 12.5px !important; height: auto !important; border-radius: 6px !important; }
+.craft-bug-menu-lbl { display: flex; align-items: center; gap: 8px; padding: 6px 10px; cursor: pointer; font-size: 12px; }

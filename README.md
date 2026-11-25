@@ -9,9 +9,9 @@ git clone https://github.com/abiancar/solve-it-crafts.git ~/.craft
 bash ~/.craft/setup.sh
 ```
 
-Reload the browser page. `setup.sh` installs only the runtime UI assets: it places `CRAFT.css` and `CRAFT.js` at the data root and all supporting scripts, styles, and icons inside `.craft-assets/` to keep the root directory uncluttered (none of the development notebooks or debugging tools in `nbs/`, `craft_dev/`, or `dev/` are copied into Solveit). Solveit loads CRAFT CSS/JS at page load and discovers them by walking up from the dialog's folder. Installing at the data root (`$HOME`, normally `/app/data`) applies the customizations to dialogs below it; folder-specific CRAFTs can layer on top.
+Reload the browser page. `setup.sh` installs only the runtime UI assets: it places `CRAFT.css` and `CRAFT.js` at the data root and supporting scripts and icons inside `.craft-assets/` to keep the root directory uncluttered (none of the development notebooks or debugging tools in `nbs/`, `craft_dev/`, or `dev/` are copied into Solveit). Solveit loads CRAFT CSS/JS at page load and discovers them by walking up from the dialog's folder. Installing at the data root (`$HOME`, normally `/app/data`) applies the customizations to dialogs below it; folder-specific CRAFTs can layer on top.
 
-For the optional shell installer, see [Optional terminal setup](#optional-terminal-setup).
+For optional add-ons, see [Optional Chrome/Vivaldi extension (block Monaco)](#optional-chrome-vivaldi-extension-block-monaco) and [Optional terminal setup](#optional-terminal-setup).
 
 ## Update an existing installation
 
@@ -31,11 +31,11 @@ Use `--dest DIR` to install into a different data root or a disposable test dire
 | File | Purpose |
 |---|---|
 | `CRAFT.css` | Theme, dialog layout, desktop/mobile responsive styles, tables, and styles for both inline editors |
-| `CRAFT.js` | Shared `__craftCMCore` helpers, C2 code editor, insertion picker, desktop/mobile controls, progressive tables, file tree, launcher, navigation and composer controls, cell presentation, and image drop |
+| `CRAFT.js` | Shared `__craftCMCore` helpers, C2 code editor, Monaco removal (`craftNoMonaco`), insertion picker, desktop/mobile controls, progressive tables, file tree, launcher, navigation controls, cell presentation, and image drop |
 | `craft_md.js` | Inline note, prompt, prompt-response, and raw editors |
+| `craft_fonts.js`, `craft_history.js`, `craft_tts.js`, `craft_bug_capture.js` | Lazy-loaded sub-assets for Font Settings, Cell History, TTS Reader, and Bug Capture (loaded on first trigger) |
 | `hotkey_manager.js` | Rebindable action registry, shortcut dispatcher, and settings menu; overrides stored per browser |
 | `hotkey_builtins.js` | Snapshot of Solveit's built-in shortcuts; update it when upstream bindings change |
-| `quercus-treeview.js`, `quercus-treeview.css` | File-tree widget |
 | `vscode-icons/` | File/folder icons and their license |
 | `setup.sh` | Deploys `CRAFT.css`/`CRAFT.js` to `$HOME` and support assets into `$HOME/.craft-assets/`, with preservation or backup-and-replace modes |
 | `zsh-setup.sh` | Optional user-space zsh and oh-my-zsh installation |
@@ -47,10 +47,8 @@ Use `--dest DIR` to install into a different data root or a disposable test dire
 - Prompt authorship is labeled **You** and **Assistant**. Token counts and timestamps appear on hover/focus, or remain available on touch devices. User prose is slightly brighter.
 - Selection uses a square blue outline. The redundant green editing outline is suppressed.
 - Bare `.` continuation prompts with responses hide their input card unless being edited; their responses remain visible.
-- Input/output action toolbars become compact **…** menus, available on hover/focus and on touch devices. Menus invoke Solveit's existing actions and support keyboard navigation. On hover-capable devices, code input headers float beside the copy button without shifting the layout. Long lines in expanded code cells can wrap.
-- The bottom Monaco composer stays mounted but hides when empty and idle. **Shift+I** reveals it; nonempty drafts remain visible.
-
-The idle-composer feature can be disabled for the current page with `window.craftIdleComposer.disable()`. Set `window.CRAFT_IDLE_COMPOSER = false` before its initialization to prevent it from enabling.
+- Input/output action toolbars become compact **…** menus, available on hover/focus and on touch devices. Menus invoke Solveit's existing actions and support keyboard navigation. On hover-capable devices, code, note, and raw headers float as compact hover chips without shifting the layout, and code copy buttons stay hidden at rest. Long lines in expanded code cells can wrap.
+- `window.craftNoMonaco` removes the bottom Monaco composer (`#full_editor`), disposes Monaco editors and models, and replaces `window.monaco` and `window.editor` with no-op stubs.
 
 ## Omit: whole-cell presentation toggle
 
@@ -81,14 +79,14 @@ Normal collapse uses Solveit's existing server-backed behavior. The fully hidden
 
 | Cell | Editor | Features |
 |---|---|---|
-| Code | `craftC2` in `CRAFT.js` | Syntax highlighting for the kernel and supported `%%magic` languages, folding, line numbers, completions, signature help, ghost text, and inline AI edits |
+| Code | `craftC2` in `CRAFT.js` | Syntax highlighting for the kernel and supported `%%magic` languages, gutterless view-parity editing, keyboard folding, completions, signature help, ghost text, and inline AI edits |
 | Note, prompt, and prompt response | `craftMd` in `craft_md.js` | Markdown Live Preview, formatting shortcuts, and click-to-caret placement |
 | Raw | `craftMd` in `craft_md.js` | Monospace plain-text editing without Markdown Live Preview |
 
-- Click a cell's contents or press `Enter` on a selected cell to edit. `Escape` returns to selection mode once editor popups are closed. Use **Edit in Monaco** in the action menu for the native editor.
-- The right-edge picker sets which type `a` and `b` insert. With **Code** selected, either key creates and focuses a C2 cell. **Alt+Shift+N** creates one at the bottom. **Alt+Enter** in C2 runs the cell and opens a new one; in a note or raw editor it saves and inserts below using the picker type without running code.
-- C2 is enabled for all code cells by default. Toggle it with **Alt+Shift+C** or the action menu. **Alt+Shift+L** toggles line numbers; tracebacks also show line numbers automatically. Empty code and raw cells hide their placeholder while focused, keeping the caret visible.
-- Paste an image directly into an inline note or prompt. Dropping an image onto a code, note, or prompt input instead uses Solveit's native Monaco attachment flow.
+- Click a cell's contents or press `Enter` on a selected cell to edit. `Escape` returns to selection mode once editor popups are closed.
+- The top-right cell-type picker (stacked below the mobile/desktop toggle) sets which type `a` and `b` insert. With **Code** selected, either key creates and focuses a C2 cell. **Alt+Shift+N** creates one at the bottom. **Alt+Enter** in C2 runs the cell and opens a new one; in a note or raw editor it saves and inserts below using the picker type without running code.
+- C2 handles all code cells by default. Line-number and fold gutters are omitted so edit mode matches view mode without horizontal shift. Empty code and raw cells hide their placeholder while focused, keeping the caret visible.
+- Paste an image directly into an inline note or prompt, or drop an image onto a code, note, or prompt cell to upload it via `/upload_attachment_` and insert a Markdown image reference.
 
 - Both editors share CodeMirror 6. The installer does not ship the optional local bundle in `~/.craft-assets/cm6/`; without it the editors load modules from `esm.sh`, which requires browser network access.
 
@@ -102,7 +100,7 @@ Normal collapse uses Solveit's existing server-backed behavior. The fully hidden
 
 ## Mobile layout and bottom toolbar
 
-Mobile mode (`html.craft-mobile`) activates automatically on touch devices (`(hover: none) and (pointer: coarse)`). Switch explicitly at any time with the navbar view-toggle button, the **Toggle mobile / desktop view** launcher action, or `window.craftMobile.setMode('auto' | 'mobile' | 'desktop')`.
+Mobile mode (`html.craft-mobile`) activates automatically on touch devices (`(hover: none) and (pointer: coarse)`). Switch explicitly at any time with the top-right view-toggle button (which shows only the opposite mode's icon—phone in desktop mode, desktop in mobile mode—above the cell-type picker), the **Toggle mobile / desktop view** launcher action, or `window.craftMobile.setMode('auto' | 'mobile' | 'desktop')`.
 
 - **Idle dock & jump button:** When not editing, a floating pill dock (**Menu · Files**) hides on scroll-down and reappears on scroll-up; a floating jump-to-bottom button appears when scrolled well above the end of a dialog.
 - **Editing toolbar:** While an inline editor has focus, a full-width bar sits above the soft keyboard with **Tab**, **Run / Send**, and **Done** controls.
@@ -119,8 +117,8 @@ Mobile mode (`html.craft-mobile`) activates automatically on touch devices (`(ho
 - Rows offer Copy and Delete; paste into a destination folder or the root bar. Drag and drop moves items. Folder copy, move, and delete include descendants; moves copy first, then remove the source. Delete asks for confirmation.
 - Upload files or folders from the explorer toolbar or a destination folder. The upload panel supports file and folder pickers as well as drag and drop. Use the toolbar collapse button to close all expanded folders.
 - Plain files open in a temporary editor overlay. Dialogs open through Solveit's normal dialog route.
-- Maintainers: `CRAFT.js` owns the panel, draft, and gestures; Quercus renders the rows. `renderTree()` remounts the draft after row replacement. `CRAFT.css` styles the inline field. Reload after changing the live assets in `~`; the repository copies in `~/.craft` are separate.
-- **Mod+Shift+P** opens the searchable command/file launcher by default. Arrow keys select, Enter runs/opens, and Escape closes. File results cover the root and folders already loaded by the tree, not a recursive disk-wide search.
+- Maintainers: `CRAFT.js` owns the panel, native `<details>`/`<summary>` rows, inline drafts, and gestures. `renderTree()` restores focus and remounts any active draft after row replacement. `CRAFT.css` styles the inline field. Reload after changing the live assets in `~`; the repository copies in `~/.craft` are separate.
+- **Mod+Shift+P** opens the searchable command, file, and feature-toggle launcher by default. Arrow keys select, Enter runs/opens or toggles a feature flag in `localStorage`, and Escape closes. File results cover the root and folders already loaded by the tree, not a recursive disk-wide search.
 
 `Mod` means Command on macOS and Control elsewhere. Your browser-local rebindings may differ from these defaults; browser-reserved combinations can take precedence. These are enhancements around Solveit's existing dashboard, not a replacement dashboard application.
 
@@ -132,25 +130,26 @@ Built-in actions normally redispatch their original keys so Solveit handles them
 
 ## Theme and fonts
 
-Tokyo Night Pure colors include `#1f2030` for the reading canvas, `#16161e` for recessed/code surfaces, `#cfc9c2` text, `#7aa2f7` selection, and `#7dcfff` links. Prose is 11px with an 11px line height (`--craft-prose`, `--craft-prose-lh`) and code is 10px with a 10px line height (`--craft-code`); Monaco uses the code-size setting and compact line height.
+Tokyo Night Pure colors include `#1f2030` for the reading canvas, `#16161e` for recessed/code surfaces, `#cfc9c2` text, `#7aa2f7` selection, and `#7dcfff` links. Prose defaults to `11px` with a `13px` line height (`--craft-prose`, `--craft-prose-lh`), and code defaults to `10px` with a `1.2` (`12px`) line height (`--craft-code`, `--craft-code-lh`).
 
-All non-code UI and prose use Encode Sans variable webfonts from jsDelivr (`google/fonts`, `75%` width, weight `360`/`650`, `"c2sc" 1, "onum" 1`), with a system sans-serif fallback (`--craft-prose-family`). Code blocks, inline code, and Monaco use Iosevka webfonts from `iosevka-webfonts.github.io`, with a system monospace fallback (`--craft-code-family`), keeping `font-stretch: normal` and `font-feature-settings: normal`. Browser network access to those hosts is required for the webfonts; no OS font installation is needed.
+Non-code UI and prose use Encode Sans variable webfonts from jsDelivr (`google/fonts`, with a system sans-serif fallback in `--craft-prose-family`). Rendered prose (`.msg-content .prose`) applies `font-stretch: 75%` and `font-feature-settings: "onum" 1`. Code blocks and inline code prefer local OS `Iosevka` fonts and fall back to WOFF2 webfonts from `iosevka-webfonts.github.io`, then a system monospace fallback (`--craft-code-family`), with `font-stretch: normal` and `font-feature-settings: normal`. Browser network access to those hosts is needed when the fonts are not installed locally.
 
 ## Working on it
 
-Source notebooks live in `nbs/craft/` and compile into `dist/` via `craft_dev` (`uv run craft-cdp build`). The top-level shipped files (`CRAFT.css`, `CRAFT.js`, `craft_md.js`, `hotkey_manager.js`, `hotkey_builtins.js`) are kept in sync with `dist/` so `setup.sh` works on any Solveit instance without requiring Python, `uv`, or Node.
+Source notebooks live in `nbs/craft/` and compile into `dist/` via `craft_dev` (`uv run craft-cdp build`). The top-level shipped files (`CRAFT.css`, `CRAFT.js`, `craft_md.js`, `craft_fonts.js`, `craft_history.js`, `craft_tts.js`, `craft_bug_capture.js`, `hotkey_manager.js`, `hotkey_builtins.js`) are kept in sync with `dist/` via `uv run craft-cdp build --sync` so `setup.sh` works on any Solveit instance without requiring Python, `uv`, or Node.
 
 ```bash
-uv run craft-cdp build                                              # compile nbs/craft/*.ipynb -> dist/ + node --check
+uv run craft-cdp build --sync                                       # compile nbs/craft/*.ipynb -> dist/, check JS (+ tsc if installed), sync root, rebuild chrome-ext/
+uv run craft-cdp build-ext                                          # generate unpacked MV3 Chrome/Vivaldi extension in chrome-ext/
 uv run nbdev-test nbs/craft                                         # offline notebook tests
 uv run craft-cdp smoke                                              # live CDP UI smoke checks against local assets
-uv run craft-cdp deploy                                             # build dist/ and deploy to your live Solveit instance
+uv run craft-cdp deploy                                             # build dist/ and deploy over Tailscale + rustygate (requires craft-cdp tunnel)
 ```
 
-Before committing shipped UI changes, copy the rebuilt runtime files from `dist/` to the repo root (and never commit `.auth/`, `.craft-debug/`, or personal dialog notebooks):
+Before committing shipped UI changes, sync the rebuilt runtime files from `dist/` to the repo root (and never commit `.auth/`, `.craft-debug/`, or personal dialog notebooks):
 
 ```bash
-cp dist/CRAFT.css dist/CRAFT.js dist/craft_md.js dist/hotkey_manager.js dist/hotkey_builtins.js .
+uv run craft-cdp build --sync
 bash -n setup.sh && bash -n zsh-setup.sh
 git diff --check
 ```
@@ -158,6 +157,17 @@ git diff --check
 For full `craft_dev` CLI and authentication setup, see [`dev/README.md`](dev/README.md) and [`nbs/index.ipynb`](nbs/index.ipynb). Test the installer with `--dest` pointing at a temporary directory: fresh install, repeat install, a locally modified file preserved under default mode, then `--replace` with the original file retained in backups. Never test replacement against an unbacked-up personal installation.
 
 For editor changes, test `a` and `b` with each picker type and `Alt+Enter` from a disposable code cell. Verify that typing works without a click after the WebSocket card refresh, and that focused empty code and raw cells show the caret but not the placeholder. Also check click, `Enter`, save, and `Escape`. For presentation changes, check both input/output cycles, Omit and restore, cell chains, and action menus.
+
+## Optional Chrome/Vivaldi extension (block Monaco)
+
+Because Solveit loads Monaco before `CRAFT.js` executes, `CRAFT.js` alone disposes Monaco after load. To prevent Chrome or Vivaldi from downloading Monaco and its web workers at all (saving ~61 MB per Solveit tab with zero background process):
+
+1. Open `chrome://extensions` (or `vivaldi://extensions`) and enable **Developer mode**.
+2. Click **Load unpacked** and select the `chrome-ext/` directory at the root of this repository.
+3. Hard-refresh your Solveit tabs.
+
+The extension uses Manifest V3 `declarativeNetRequest` rules scoped strictly to `solve.it.com` (`initiatorDomains: ["solve.it.com"]`) and is generated from [`nbs/05_chrome_ext.ipynb`](nbs/05_chrome_ext.ipynb) via `uv run craft-cdp build-ext`.
+
 
 ## Optional terminal setup
 
