@@ -10,9 +10,9 @@
 
 :root {
   /* Type scale; CRAFT.js reads --craft-code for Monaco editors too. */
-  --craft-prose: 11px;
-  --craft-prose-lh: 13px;
-  --craft-code: 10px;
+  --craft-prose: 13px;
+  --craft-prose-lh: 16px;
+  --craft-code: 12px;
   --craft-code-lh: 1.2;
   --craft-prose-family: 'Craft Encode Sans', -apple-system, sans-serif;
   --craft-code-family: 'Craft Iosevka', monospace;
@@ -947,11 +947,11 @@ html:not(.craft-mobile) #dialog-container > .editable:is([data-c2-editing="true"
   --uk-table-width: auto;
   --uk-table-collapse: separate;
   --uk-table-cell-padding: 4px 10px;
-  --uk-table-header-font-size: 11px;
+  --uk-table-header-font-size: var(--craft-prose);
   --uk-table-divider-border: 1px solid var(--craft-border-soft);
   --uk-table-hover-bg: var(--craft-row-hover);
   margin: 0 !important; border: 0 !important; background: transparent !important;
-  font-family: var(--craft-prose-family) !important; font-size: 11px !important; line-height: 1.4 !important;
+  font-family: var(--craft-prose-family) !important; font-size: var(--craft-prose) !important; line-height: 1.4 !important;
   font-stretch: normal !important; font-feature-settings: "tnum" 1, "lnum" 1, "onum" 0 !important;
   font-variant-numeric: tabular-nums lining-nums !important; color: var(--craft-fg) !important;
 }

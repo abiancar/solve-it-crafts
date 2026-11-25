@@ -1097,10 +1097,10 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"mobile_phone_icon":
     if (!mon) { if (++tries < 40) retryTimer = setTimeout(go, 250); return; }
     // Recompute character widths after the webfonts replace the fallback.
     if (document.fonts) Promise.all([
-      document.fonts.load('10px "Craft Iosevka"'),
-      document.fonts.load('italic 10px "Craft Iosevka"'),
-      document.fonts.load('bold 10px "Craft Iosevka"'),
-      document.fonts.load('italic bold 10px "Craft Iosevka"')
+      document.fonts.load('12px "Craft Iosevka"'),
+      document.fonts.load('italic 12px "Craft Iosevka"'),
+      document.fonts.load('bold 12px "Craft Iosevka"'),
+      document.fonts.load('italic bold 12px "Craft Iosevka"')
     ]).then(() => { mon.remeasureFonts(); mon.getEditors().forEach(ed => ed.layout()); })
       .catch(err => console.warn('Iosevka could not load; using monospace fallback.', err));
     const optsFor = fallbackFs => {
@@ -1112,7 +1112,7 @@ window.__craftTpl = Object.assign(window.__craftTpl || {}, {"mobile_phone_icon":
     const compact = ed => { try { ed.updateOptions(optsFor(ed.getOption(mon.EditorOption.fontSize))); } catch (e) {} };
     createDisp = mon.onDidCreateEditor?.(compact) || null;
     mon.getEditors().forEach(compact);
-    try { mon.getDiffEditors().forEach(d => d.updateOptions(optsFor(10))); } catch (e) {}
+    try { mon.getDiffEditors().forEach(d => d.updateOptions(optsFor(12))); } catch (e) {}
   };
   window.craftCompactMonaco = {
     disable() {
@@ -6568,11 +6568,11 @@ const ac = new AbortController(), sig = {signal: ac.signal};
 const STORE_KEY = 'craft-font-settings-v1';
 
 const TYPES = [
-  {key: 'prompt',   label: 'Prompt',             defFamily: "'Craft Encode Sans', -apple-system, sans-serif", defSize: 11, defLh: 1.2, defWeight: 360, sample: 'You: Summarize the trade-offs of this indexing strategy in 3 bullet points.'},
-  {key: 'response', label: 'Assistant response',  defFamily: "'Craft Encode Sans', -apple-system, sans-serif", defSize: 11, defLh: 1.25, defWeight: 360, sample: 'Assistant: Covering indexes avoid heap lookups, at the cost of extra write amplification and storage.'},
-  {key: 'note',     label: 'Note',               defFamily: "'Craft Encode Sans', -apple-system, sans-serif", defSize: 11, defLh: 1.25, defWeight: 360, sample: 'Design note — keep per-cell typography variables falling back to --craft-prose and --craft-code.'},
-  {key: 'code',     label: 'Code',               defFamily: "'Craft Iosevka', monospace",                     defSize: 10, defLh: 1.2,  defWeight: 400, sample: 'def fib(n: int) -> int:\n    return n if n < 2 else fib(n - 1) + fib(n - 2)'},
-  {key: 'raw',      label: 'Raw',                defFamily: "'Craft Iosevka', monospace",                     defSize: 10, defLh: 1.25, defWeight: 400, sample: '{"status": "ok", "tokens": 1257, "mode": "raw"}'},
+  {key: 'prompt',   label: 'Prompt',             defFamily: "'Craft Encode Sans', -apple-system, sans-serif", defSize: 13, defLh: 1.2, defWeight: 360, sample: 'You: Summarize the trade-offs of this indexing strategy in 3 bullet points.'},
+  {key: 'response', label: 'Assistant response',  defFamily: "'Craft Encode Sans', -apple-system, sans-serif", defSize: 13, defLh: 1.25, defWeight: 360, sample: 'Assistant: Covering indexes avoid heap lookups, at the cost of extra write amplification and storage.'},
+  {key: 'note',     label: 'Note',               defFamily: "'Craft Encode Sans', -apple-system, sans-serif", defSize: 13, defLh: 1.25, defWeight: 360, sample: 'Design note — keep per-cell typography variables falling back to --craft-prose and --craft-code.'},
+  {key: 'code',     label: 'Code',               defFamily: "'Craft Iosevka', monospace",                     defSize: 12, defLh: 1.2,  defWeight: 400, sample: 'def fib(n: int) -> int:\n    return n if n < 2 else fib(n - 1) + fib(n - 2)'},
+  {key: 'raw',      label: 'Raw',                defFamily: "'Craft Iosevka', monospace",                     defSize: 12, defLh: 1.25, defWeight: 400, sample: '{"status": "ok", "tokens": 1257, "mode": "raw"}'},
 ];
 
 const FAMILY_PRESETS = [
@@ -6603,7 +6603,7 @@ let modal = null, activeTab = 'prompt';
 function syncMonaco(codeCfg) {
   const mon = window.monaco?.editor;
   if (!mon || !codeCfg) return;
-  const fs = parseFloat(codeCfg.size) || 10;
+  const fs = parseFloat(codeCfg.size) || 12;
   const lh = Math.round(fs * (parseFloat(codeCfg.lh) || 1.2));
   const fam = codeCfg.family || 'monospace';
   try {
