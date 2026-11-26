@@ -31,7 +31,7 @@ Use `--dest DIR` to install into a different data root or a disposable test dire
 | File | Purpose |
 |---|---|
 | `CRAFT.css` | Theme, dialog layout, desktop/mobile responsive styles, tables, and styles for both inline editors |
-| `CRAFT.js` | Shared `__craftCMCore` helpers, C2 code editor, Monaco removal (`craftNoMonaco`), insertion picker, desktop/mobile controls, progressive tables, file tree, launcher, navigation controls, cell presentation, and image drop |
+| `CRAFT.js` | Shared `__craftCMCore` helpers, C2 code editor, Monaco removal (`craftNoMonaco`), insertion picker, desktop/mobile controls, file tree, launcher, navigation controls, cell presentation, and image drop |
 | `craft_md.js` | Inline note, prompt, prompt-response, and raw editors |
 | `craft_fonts.js`, `craft_history.js`, `craft_tts.js`, `craft_bug_capture.js` | Lazy-loaded sub-assets for Font Settings, Cell History, TTS Reader, and Bug Capture (loaded on first trigger) |
 | `hotkey_manager.js` | Rebindable action registry, shortcut dispatcher, and settings menu; overrides stored per browser |
@@ -96,7 +96,7 @@ Normal collapse uses Solveit's existing server-backed behavior. The fully hidden
 - **Seam quick-picker (`Shift+A` / `Shift+B`):** In cell-selection mode, press `Shift+A` or `Shift+B` to open the inline seam picker above or below the selected cell, then press `C`, `N`, `P`, or `R` to insert.
 - **Slash-morph on empty cells:** Typing `/c` (`/code`), `/n` (`/note`), `/p` (`/prompt`), or `/r` (`/raw`) followed by Space or Enter in an empty inline cell switches its type in place.
 - **Click-margin escape:** Clicking blank dialog margin or non-control card header space commits and exits active inline editors.
-- **Progressive tables:** Markdown, pandas, polars, and DuckDB tables receive a horizontal scroll wrapper, automatic right-aligned numeric columns, click-to-sort flat headers, and a **Copy TSV** button.
+- **Tables:** Markdown and prose tables (notes, prompts, and prompt replies) use `typrose`-style horizontal-border CSS; code-cell HTML tables use `answerstyle`-style framed scroll CSS, and plain-text `<pre>` code outputs scroll horizontally.
 
 ## Mobile layout and bottom toolbar
 

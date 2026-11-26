@@ -307,7 +307,7 @@ div.editable[data-diff="added"] { background: transparent !important; }
 .msg-content .prose ul, .msg-content .prose ol { margin: 0.125em 0 !important; padding-left: 1.35em !important; }
 .msg-content .prose li, .msg-content .prose li > p { margin: 0.05em 0 !important; }
 .msg-content .prose hr { margin: 0.5em 0 !important; }
-.msg-content .prose :is(blockquote, pre, table, figure) { margin: 0.3em 0 !important; }
+.msg-content .prose :is(blockquote, pre, figure) { margin: 0.3em 0 !important; }
 
 /* Encode Sans: all non-code UI and prose; condensed + oldstyle numerals scoped to .prose only. */
 @font-face { font-family: 'Craft Encode Sans'; font-style: normal; font-weight: 100 900; font-stretch: 75% 125%; font-display: swap; src: url('https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/encodesans/EncodeSans%5Bwdth%2Cwght%5D.ttf') format('truetype'); }
@@ -998,12 +998,17 @@ html.craft-mobile #dialog-container > .editable[data-sm]:not([data-sm="unselecte
   max-height: none !important;
   overflow: visible !important;
 }
-#dialog-container .editable > .msg-card:not(.collapsed) .msg-content :is(pre, table) {
+#dialog-container .editable > .msg-card:not(.collapsed) .msg-content pre {
   max-height: none !important;
   overflow: visible !important;
   overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
-#dialog-container .editable > .msg-card:not(.collapsed) .msg-content pre { white-space: pre-wrap; }
+#dialog-container .editable > .card-out[data-mtype="code"]:not(.collapsed) .msg-content pre {
+  overflow-x: auto !important;
+  overflow-wrap: normal;
+  white-space: pre;
+}
 .editable > .card-in[data-mtype="code"]:not(.collapsed) .copy-wrap > button { top: 0; max-height: 100%; }
 @media (hover: hover) {
   .editable > .card-in[data-mtype="code"] .copy-wrap > button { opacity: 0; transition: opacity .12s ease; }
@@ -1115,74 +1120,92 @@ html.craft-mobile .msg-card[data-mtype="prompt"] > .uk-card-header nav > div.gro
 html.craft-mobile .craft-omit-marker, html.craft-mobile .craft-part-restore { padding: 6px 10px; font-size: 13px; }
 
 /* %% nbs/craft/08_tables.ipynb #e0f93c6f */
-/* ── 16. Cohesive Tabular Output (FrankenUI .uk-table* + CRAFT sticky/sort/TSV) ── */
+/* ── 16. Tables (typrose prose layer + answerstyle code-output layer) ── */
 .editable > .msg-card,
 .editable > .msg-card > .msg-body,
 .editable > .msg-card .msg-content,
 .editable > .msg-card .msg-content .prose { min-width: 0; max-width: 100%; }
-.craft-table-wrap {
-  position: relative; width: fit-content; max-width: 100%; max-height: 480px;
-  overflow: auto; -webkit-overflow-scrolling: touch; margin: 0.4em 0 !important;
-  border: 1px solid var(--craft-border); border-radius: 5px; background: var(--craft-surface);
-}
-.craft-table-wrap:focus-visible { outline: 1.5px solid var(--craft-accent); outline-offset: 1px; }
-.msg-content table {
-  --uk-table-width: auto;
-  --uk-table-collapse: separate;
-  --uk-table-cell-padding: 4px 10px;
-  --uk-table-header-font-size: 11px;
-  --uk-table-divider-border: 1px solid var(--craft-border-soft);
-  --uk-table-hover-bg: var(--craft-row-hover);
-  margin: 0 !important; border: 0 !important; background: transparent !important;
-  font-family: var(--craft-prose-family) !important; font-size: 11px !important; line-height: 1.4 !important;
-  font-stretch: normal !important; font-feature-settings: "tnum" 1, "lnum" 1, "onum" 0 !important;
-  font-variant-numeric: tabular-nums lining-nums !important; color: var(--craft-fg) !important;
-}
-.msg-content table thead { position: sticky; top: 0; z-index: 2; }
-.msg-content table thead th {
-  background: var(--craft-recessed) !important; color: var(--craft-fg-strong) !important;
-  font-weight: 600 !important; padding: 5px 10px !important;
-  border-bottom: 1px solid var(--craft-border) !important; vertical-align: bottom !important; white-space: nowrap;
-}
-.msg-content table tbody th {
-  background: var(--craft-surface-alt) !important; color: var(--craft-fg) !important;
-  font-weight: 500 !important; border-right: 1px solid var(--craft-border) !important; white-space: nowrap;
-}
-.msg-content table :is(th, td).craft-num { text-align: right !important; white-space: nowrap; }
-.msg-content table thead th.craft-sort { cursor: pointer; user-select: none; padding-right: 18px !important; position: relative; }
-.msg-content table thead th.craft-sort:hover { background: var(--craft-hover) !important; }
-.msg-content table thead th.craft-sort:focus-visible { outline: 1.5px solid var(--craft-accent); outline-offset: -1.5px; }
-.msg-content table thead th.craft-sort::after { content: ""; position: absolute; right: 5px; top: 50%; transform: translateY(-50%); font-size: 8px; color: var(--craft-accent); opacity: 0; }
-.msg-content table thead th.craft-sort[aria-sort="ascending"]::after { content: "\25B2"; opacity: 1; }
-.msg-content table thead th.craft-sort[aria-sort="descending"]::after { content: "\25BC"; opacity: 1; }
-.craft-table-copy {
-  position: sticky; float: right; top: 3px; right: 4px; z-index: 4; margin-left: -60px;
-  padding: 1px 6px; border: 1px solid var(--craft-border); border-radius: 3px;
-  background: var(--craft-copy-bg); color: var(--craft-fg);
-  font-family: var(--craft-prose-family); font-size: 9.5px; line-height: 16px;
-  cursor: pointer; opacity: 0; transition: opacity 0.12s ease, color 0.12s ease, border-color 0.12s ease;
-}
-.craft-table-wrap:is(:hover, :focus-within) .craft-table-copy, .craft-table-copy.is-copied { opacity: 1; }
-.craft-table-copy:is(:hover, :focus-visible) { opacity: 1; color: var(--craft-fg-strong); border-color: var(--craft-accent); outline: 2px solid var(--craft-accent); outline-offset: 1px; }
-.craft-table-copy.is-copied { color: var(--craft-green); border-color: var(--craft-green); }
 
-/* Mobile table scrolling & copy button */
-html.craft-mobile #dialog-container .editable > .msg-card:not(.collapsed) .msg-content table { display: block; max-width: 100%; overflow-x: auto !important; }
-html.craft-mobile #dialog-container .editable > .msg-card:not(.collapsed) .msg-content .craft-table-wrap > table { display: table !important; max-width: none !important; overflow: visible !important; }
-html.craft-mobile .msg-content table { font-size: 12.5px !important; }
-html.craft-mobile .craft-table-wrap {
-  width: fit-content; max-width: 100%; max-height: 60dvh;
-  background-image:
-    linear-gradient(to right, var(--craft-bg) 30%, #1f203000),
-    linear-gradient(to left, var(--craft-bg) 30%, #1f203000),
-    radial-gradient(farthest-side at 0 50%, #0008, #0000),
-    radial-gradient(farthest-side at 100% 50%, #0008, #0000);
-  background-position: left center, right center, left center, right center;
-  background-repeat: no-repeat;
-  background-size: 20px 100%, 20px 100%, 12px 100%, 12px 100%;
-  background-attachment: local, local, scroll, scroll;
+/* Prose & markdown tables (notes, prompts, prompt replies) — typrose / answerstyle [prose] */
+.msg-card:not([data-mtype="code"]) .msg-content table {
+  display: block; width: fit-content; max-width: 100%; overflow-x: auto;
+  -webkit-overflow-scrolling: touch; border-collapse: collapse;
+  margin: 0.75em 0; background: transparent; border: 0;
+  font-size: 1em; line-height: 1.5;
+  font-stretch: normal !important;
+  font-feature-settings: "tnum" 1, "lnum" 1, "onum" 0 !important;
+  font-variant-numeric: tabular-nums lining-nums !important;
+  color: var(--craft-fg);
 }
-html.craft-mobile .craft-table-copy { padding: 2px 7px; font-size: 10.5px; }
+.msg-card:not([data-mtype="code"]) .msg-content table caption {
+  width: max-content; max-width: 100%; padding: 0 0.5em 0.375em;
+  color: var(--craft-muted); text-align: start;
+}
+.msg-card:not([data-mtype="code"]) .msg-content table :is(th, td) {
+  overflow-wrap: break-word; border: 0;
+}
+.msg-card:not([data-mtype="code"]) .msg-content table :is(th, td):not([align]) { text-align: start; }
+.msg-card:not([data-mtype="code"]) .msg-content table thead {
+  border-bottom: 1px solid var(--craft-border);
+}
+.msg-card:not([data-mtype="code"]) .msg-content table thead th {
+  color: var(--craft-fg-strong); font-weight: 600; vertical-align: bottom;
+  padding: 0 0.5em 0.375em; background: transparent;
+}
+.msg-card:not([data-mtype="code"]) .msg-content table thead th :is(strong, code) { color: inherit; }
+.msg-card:not([data-mtype="code"]) .msg-content table tbody tr {
+  border-bottom: 1px solid var(--craft-border-soft);
+}
+.msg-card:not([data-mtype="code"]) .msg-content table tbody tr:last-child { border-bottom: 0; }
+.msg-card:not([data-mtype="code"]) .msg-content table tbody td {
+  vertical-align: baseline; padding: 0.375em 0.5em;
+}
+.msg-card:not([data-mtype="code"]) .msg-content table tfoot {
+  border-top: 1px solid var(--craft-border);
+}
+.msg-card:not([data-mtype="code"]) .msg-content table tfoot td {
+  vertical-align: top; padding: 0.375em 0.5em;
+}
+
+/* Code-cell tabular outputs — answerstyle [table-frame] + table[table] */
+.card-out[data-mtype="code"] .msg-content table {
+  display: block; width: fit-content; max-width: 100%; max-height: 480px;
+  overflow: auto; -webkit-overflow-scrolling: touch;
+  border-collapse: separate; border-spacing: 0;
+  margin: 0.4em 0; background: var(--craft-surface);
+  border: 1px solid var(--craft-border); border-radius: 5px;
+  font-family: var(--craft-prose-family); font-size: max(1em, var(--craft-prose)); line-height: 1.45;
+  font-stretch: normal; font-feature-settings: "tnum" 1, "lnum" 1, "onum" 0;
+  font-variant-numeric: tabular-nums lining-nums; color: var(--craft-fg);
+}
+.card-out[data-mtype="code"] .msg-content table :is(th, td) {
+  padding: 0.35em 0.75em; white-space: nowrap; border: 0;
+}
+.card-out[data-mtype="code"] .msg-content table :is(th, td):not([align]) { text-align: start; }
+.card-out[data-mtype="code"] .msg-content table :is(th, td)[num] {
+  text-align: end; font-variant-numeric: tabular-nums;
+}
+.card-out[data-mtype="code"] .msg-content table thead { position: sticky; top: 0; z-index: 2; }
+.card-out[data-mtype="code"] .msg-content table thead th {
+  background: var(--craft-recessed); color: var(--craft-fg-strong);
+  font-weight: 600; vertical-align: bottom;
+  border-bottom: 1px solid var(--craft-border);
+}
+.card-out[data-mtype="code"] .msg-content table :is(tbody tr + tr > *, tfoot tr > *) {
+  border-top: 1px solid var(--craft-border-soft);
+}
+.card-out[data-mtype="code"] .msg-content table:has(> thead) > tbody th {
+  background: var(--craft-surface-alt); color: var(--craft-fg);
+  font-weight: 500; border-right: 1px solid var(--craft-border);
+}
+.card-out[data-mtype="code"] .msg-content table tfoot th { font-weight: 600; }
+.card-out[data-mtype="code"] .msg-content table caption {
+  caption-side: bottom; padding: 0.35em 0.75em;
+  color: var(--craft-muted); font-size: 0.875em; text-align: start;
+}
+
+/* Mobile height cap for code-output tables */
+html.craft-mobile .card-out[data-mtype="code"] .msg-content table { max-height: 60dvh; }
 
 /* %% nbs/craft/09_cell_insertion.ipynb #fc377b4a */
 html:not(.craft-mobile) #dialog-container > .editable.craft-desk-host {

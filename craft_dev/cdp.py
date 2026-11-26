@@ -56,7 +56,7 @@ class InspectReport:
 HEALTH_PROBE_JS = r"""(() => {
   const globals = [
     'craftC2', 'craftMd', 'craftOmit', 'craftParts', 'craftActionMenus', 'craftCellChains',
-    'craftTables', 'craftNoMonaco', 'craftInsertPreview', 'craftDesktopUX', 'craftImageDrop',
+    'craftNoMonaco', 'craftInsertPreview', 'craftDesktopUX', 'craftImageDrop',
     'craftMobile', 'craftMobileBar', 'craftContext', 'craftFonts', 'craftStruct', 'craftNavRef',
     'craftHistory', 'craftTTS', 'craftBugCapture', 'solveitHotkeys', 'solveitFileTree', '__hotkeyRegister',
   ];
